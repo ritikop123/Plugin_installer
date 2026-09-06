@@ -14,6 +14,7 @@ import {
   faTimes,
   faLayerGroup,
   faFolderOpen,
+  faInfoCircle,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface ModpackHit {
@@ -942,7 +943,18 @@ export default function ModpackInstallerContainer() {
 
                 {/* PROGRESS BAR VIEW */}
                 {(installPhase === 'preparing' || installPhase === 'downloading' || installPhase === 'finalizing') && (
-                  <div className={'py-4 space-y-3'}>
+                  <div className={'py-3 space-y-3'}>
+                    {/* Notice about processing time */}
+                    <div className={'px-3 py-2 bg-cyan-500/10 border border-cyan-500/25 rounded-lg flex items-start gap-2.5 text-[11px] text-cyan-200/90'}>
+                      <FontAwesomeIcon icon={faInfoCircle} className={'text-cyan-400 text-xs mt-0.5 shrink-0'} />
+                      <div className={'min-w-0'}>
+                        <span className={'font-semibold text-cyan-300'}>Processing may take longer</span>
+                        <p className={'text-[10.5px] text-neutral-300 mt-0.5 leading-relaxed'}>
+                          Modpack processing can take longer depending on the modpack size. Please keep this window open while files are being downloaded and extracted.
+                        </p>
+                      </div>
+                    </div>
+
                     <div className={'flex items-center justify-between text-xs font-medium text-neutral-300'}>
                       <span className={'flex items-center gap-2 truncate'}>
                         <FontAwesomeIcon icon={faSpinner} spin className={'text-cyan-400 shrink-0'} />
