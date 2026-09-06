@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ServerContext } from '@/state/server';
-import http from '@/api/http';
+import http, { httpErrorToHuman } from '@/api/http';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 
 interface ModrinthSearchHit {
@@ -16,6 +16,7 @@ interface ModrinthSearchHit {
   downloads: number;
   follows: number;
   icon_url: string | null;
+  date_modified?: string;
 }
 
 interface ModrinthVersionFile {
@@ -41,9 +42,20 @@ interface GameVersionTag {
   version_type: string;
 }
 
+interface PteroFileItem {
+  name: string;
+  size: number;
+  isFile: boolean;
+  modifiedAt: string;
+}
+
 export default function PluginInstallerContainer() {
   const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
 
+  // Tabs: 'browse' | 'installed'
+  const [activeTab, setActiveTab] = useState<'browse' | 'installed'>('browse');
+
+  // Search & Filter State
   const [query, setQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState<string>('');
   const [loader, setLoader] = useState<string>('all');
@@ -53,12 +65,18 @@ export default function PluginInstallerContainer() {
   const [page, setPage] = useState<number>(1);
   const pageSize = 21;
 
+  // Browse Data State
   const [plugins, setPlugins] = useState<ModrinthSearchHit[]>([]);
   const [totalHits, setTotalHits] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal State
+  // Installed Data State
+  const [installedFiles, setInstalledFiles] = useState<PteroFileItem[]>([]);
+  const [loadingInstalled, setLoadingInstalled] = useState<boolean>(false);
+  const [uninstallingFile, setUninstallingFile] = useState<string | null>(null);
+
+  // Modal State (Compact)
   const [selectedPlugin, setSelectedPlugin] = useState<ModrinthSearchHit | null>(null);
   const [versions, setVersions] = useState<ModrinthVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState<boolean>(false);
@@ -74,6 +92,37 @@ export default function PluginInstallerContainer() {
   const [installedVersions, setInstalledVersions] = useState<Record<string, boolean>>({});
   const [installNotice, setInstallNotice] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Helper formatting functions
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
+    return num.toString();
+  };
+
+  const formatSize = (bytes?: number): string => {
+    if (!bytes) return 'Unknown';
+    if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  };
+
+  const formatTimeAgo = (dateString?: string): string => {
+    if (!dateString) return 'recently';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diff < 60) return 'just now';
+    const min = Math.floor(diff / 60);
+    if (min < 60) return `${min}m ago`;
+    const hours = Math.floor(min / 60);
+    if (hours < 24) return `${hours}d ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} days ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `about ${months} ${months === 1 ? 'month' : 'months'} ago`;
+    const years = Math.floor(days / 365);
+    return `about ${years} ${years === 1 ? 'year' : 'years'} ago`;
+  };
+
   // Load dynamic game versions from backend
   useEffect(() => {
     let isMounted = true;
@@ -84,9 +133,7 @@ export default function PluginInstallerContainer() {
           setAvailableGameVersions(versionsList);
         }
       })
-      .catch(() => {
-        // Fallback: populate when search results arrive
-      });
+      .catch(() => {});
 
     return () => {
       isMounted = false;
@@ -98,7 +145,7 @@ export default function PluginInstallerContainer() {
     const handler = setTimeout(() => {
       setDebouncedQuery(query);
       setPage(1);
-    }, 400);
+    }, 350);
     return () => clearTimeout(handler);
   }, [query]);
 
@@ -125,7 +172,6 @@ export default function PluginInstallerContainer() {
       setPlugins(hits);
       setTotalHits(response.data.total_hits || 0);
 
-      // Extract dynamic game versions if not loaded yet
       if (availableGameVersions.length === 0 && hits.length > 0) {
         const extracted = Array.from(new Set(hits.flatMap((p) => p.versions || [])))
           .filter((v) => /^\d+\.\d+(\.\d+)?$/.test(v))
@@ -136,22 +182,75 @@ export default function PluginInstallerContainer() {
         }
       }
     } catch (err: unknown) {
-      const errorMsg =
-        (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.message ||
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        (err as Error)?.message ||
-        'Unable to load plugins from the server backend.';
-      setError(errorMsg);
+      setError(httpErrorToHuman(err) || 'Unable to load plugins from the server backend.');
     } finally {
       setLoading(false);
     }
   }, [uuid, debouncedQuery, loader, gameVersion, sortBy, page, availableGameVersions.length]);
 
   useEffect(() => {
-    fetchPlugins();
-  }, [fetchPlugins]);
+    if (activeTab === 'browse') {
+      fetchPlugins();
+    }
+  }, [fetchPlugins, activeTab]);
 
-  // Fetch versions when a plugin is selected
+  // Fetch installed plugins from container /plugins directory
+  const fetchInstalledPlugins = useCallback(() => {
+    setLoadingInstalled(true);
+    http.get<Array<{ name: string; size: number; is_file: boolean; modified_at: string }>>(
+      `/api/client/servers/${uuid}/files/list`,
+      { params: { directory: '/plugins' } }
+    )
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          const files: PteroFileItem[] = res.data
+            .filter((f) => f.is_file && /\.(jar|zip)$/i.test(f.name))
+            .map((f) => ({
+              name: f.name,
+              size: f.size,
+              isFile: f.is_file,
+              modifiedAt: f.modified_at,
+            }));
+          setInstalledFiles(files);
+        } else {
+          setInstalledFiles([]);
+        }
+      })
+      .catch(() => {
+        setInstalledFiles([]);
+      })
+      .finally(() => {
+        setLoadingInstalled(false);
+      });
+  }, [uuid]);
+
+  useEffect(() => {
+    if (activeTab === 'installed') {
+      fetchInstalledPlugins();
+    }
+  }, [activeTab, fetchInstalledPlugins]);
+
+  // Uninstall / Delete plugin file from /plugins
+  const handleUninstall = async (filename: string) => {
+    if (!confirm(`Are you sure you want to uninstall and delete ${filename}?`)) {
+      return;
+    }
+
+    setUninstallingFile(filename);
+    try {
+      await http.post(`/api/client/servers/${uuid}/files/delete`, {
+        root: '/plugins',
+        files: [filename],
+      });
+      fetchInstalledPlugins();
+    } catch (err: unknown) {
+      alert(httpErrorToHuman(err) || `Failed to uninstall ${filename}`);
+    } finally {
+      setUninstallingFile(null);
+    }
+  };
+
+  // Fetch versions when a plugin is selected for compact modal
   useEffect(() => {
     if (!selectedPlugin) return;
 
@@ -174,10 +273,7 @@ export default function PluginInstallerContainer() {
         }
       })
       .catch((err: unknown) => {
-        const msg =
-          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Failed to load versions for this plugin.';
-        setVersionError(msg);
+        setVersionError(httpErrorToHuman(err) || 'Failed to load versions for this plugin.');
       })
       .finally(() => {
         setLoadingVersions(false);
@@ -207,29 +303,13 @@ export default function PluginInstallerContainer() {
         message: response.data.message || `Plugin ${file.filename} was successfully installed into /plugins!`,
       });
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.message ||
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Failed to install plugin to server.';
       setInstallNotice({
         success: false,
-        message: msg,
+        message: httpErrorToHuman(err) || 'Failed to install plugin to server.',
       });
     } finally {
       setInstallingId(null);
     }
-  };
-
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
-    return num.toString();
-  };
-
-  const formatSize = (bytes?: number): string => {
-    if (!bytes) return 'Unknown size';
-    if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
-    return `${(bytes / 1024).toFixed(1)} KB`;
   };
 
   // Filter versions inside modal
@@ -247,249 +327,370 @@ export default function PluginInstallerContainer() {
   const totalPages = Math.ceil(totalHits / pageSize);
 
   return (
-    <ServerContentBlock title={'Plugin Installer'}>
-      <div className="max-w-7xl mx-auto space-y-6">
+    <ServerContentBlock title={'Plugin Manager'}>
+      <div className="max-w-7xl mx-auto space-y-5 my-2">
         {/* Header Bar */}
-        <div className="bg-[#101522] border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-xl shadow-lg">
-              🧩
-            </div>
-            <div>
-              <h1 className="text-xl font-extrabold text-white tracking-tight">Plugin Installer</h1>
-              <p className="text-xs text-slate-400">Search and install plugins directly to your server container</p>
-            </div>
+        <div className="space-y-3">
+          <div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Plugin Manager</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Discover and manage plugins for your server.</p>
           </div>
 
-          {/* Search and Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 pt-1">
-            {/* Search Box */}
-            <div className="lg:col-span-5 relative">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search plugins (e.g. EssentialsX, LuckPerms, ViaVersion)..."
-                className="w-full px-4 py-2.5 bg-[#0a0d14] border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all shadow-inner"
-              />
-              {query && (
-                <button
-                  onClick={() => setQuery('')}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-slate-500 hover:text-white"
-                >
-                  Clear
-                </button>
+          {/* Navigation Tabs */}
+          <div className="flex items-center gap-6 border-b border-white/10 text-xs font-semibold">
+            <button
+              onClick={() => setActiveTab('browse')}
+              className={`flex items-center gap-2 pb-2.5 -mb-px transition-colors ${
+                activeTab === 'browse'
+                  ? 'text-blue-400 border-b-2 border-blue-500'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🔍</span> Browse
+            </button>
+            <button
+              onClick={() => setActiveTab('installed')}
+              className={`flex items-center gap-2 pb-2.5 -mb-px transition-colors ${
+                activeTab === 'installed'
+                  ? 'text-blue-400 border-b-2 border-blue-500'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>📦</span> Installed
+              {installedFiles.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-500/20 text-blue-300 font-mono">
+                  {installedFiles.length}
+                </span>
               )}
-            </div>
-
-            {/* Software Loader Selector */}
-            <div className="lg:col-span-3">
-              <select
-                value={loader}
-                onChange={(e) => {
-                  setLoader(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2.5 bg-[#0a0d14] border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl text-xs text-white focus:outline-none transition-all"
-              >
-                <option value="all">Software: All Platforms</option>
-                <option value="paper">Software: Paper</option>
-                <option value="purpur">Software: Purpur</option>
-                <option value="spigot">Software: Spigot</option>
-                <option value="velocity">Software: Velocity</option>
-                <option value="bungeecord">Software: BungeeCord</option>
-                <option value="folia">Software: Folia</option>
-                <option value="fabric">Software: Fabric</option>
-              </select>
-            </div>
-
-            {/* Dynamic Minecraft Version Selector */}
-            <div className="lg:col-span-2">
-              <select
-                value={gameVersion}
-                onChange={(e) => {
-                  setGameVersion(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2.5 bg-[#0a0d14] border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl text-xs text-white focus:outline-none transition-all"
-              >
-                <option value="all">Version: All</option>
-                {availableGameVersions.map((v) => (
-                  <option key={v} value={v}>
-                    Version: {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Sort Selector */}
-            <div className="lg:col-span-2">
-              <select
-                value={sortBy}
-                onChange={(e) => {
-                  setSortBy(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2.5 bg-[#0a0d14] border border-slate-800 hover:border-slate-700 focus:border-cyan-500 rounded-xl text-xs text-white focus:outline-none transition-all"
-              >
-                <option value="downloads">Sort: Downloads</option>
-                <option value="relevance">Sort: Relevance</option>
-                <option value="updated">Sort: Updated</option>
-                <option value="newest">Sort: Newest</option>
-              </select>
-            </div>
+            </button>
           </div>
         </div>
 
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="py-24 text-center text-slate-400 space-y-2">
-            <div className="text-2xl animate-spin inline-block">⏳</div>
-            <p className="text-xs font-medium">Searching verified plugins...</p>
-          </div>
-        )}
+        {/* Tab 1: Browse View */}
+        {activeTab === 'browse' && (
+          <div className="space-y-4">
+            {/* Filter Bar */}
+            <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl p-4 shadow-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Platform */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Platform
+                  </label>
+                  <select
+                    disabled
+                    className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none cursor-default"
+                  >
+                    <option value="modrinth">Modrinth</option>
+                  </select>
+                </div>
 
-        {/* Error State */}
-        {error && !loading && (
-          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
-            <span>{error}</span>
-            <button
-              onClick={() => fetchPlugins()}
-              className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 font-semibold"
-            >
-              Retry
-            </button>
-          </div>
-        )}
+                {/* Version */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Version
+                  </label>
+                  <select
+                    value={gameVersion}
+                    onChange={(e) => {
+                      setGameVersion(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white focus:outline-none transition-colors"
+                  >
+                    <option value="all">All Versions</option>
+                    {availableGameVersions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-        {/* Empty State */}
-        {!loading && !error && plugins.length === 0 && (
-          <div className="py-24 text-center text-slate-400 space-y-3">
-            <div className="text-4xl">🔍</div>
-            <h3 className="text-sm font-bold text-white">No plugins found</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              We couldn't find any plugins matching your active filters. Try searching for something else.
-            </p>
-          </div>
-        )}
+                {/* Loader */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Loader
+                  </label>
+                  <select
+                    value={loader}
+                    onChange={(e) => {
+                      setLoader(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white focus:outline-none transition-colors"
+                  >
+                    <option value="all">All Loaders</option>
+                    <option value="paper">Paper</option>
+                    <option value="purpur">Purpur</option>
+                    <option value="spigot">Spigot</option>
+                    <option value="velocity">Velocity</option>
+                    <option value="bungeecord">BungeeCord</option>
+                    <option value="folia">Folia</option>
+                    <option value="fabric">Fabric</option>
+                  </select>
+                </div>
 
-        {/* 3-Column Desktop Cards Grid */}
-        {!loading && !error && plugins.length > 0 && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {plugins.map((plugin) => (
-                <div
-                  key={plugin.project_id}
-                  onClick={() => setSelectedPlugin(plugin)}
-                  className="group relative flex flex-col justify-between p-5 bg-[#101522] hover:bg-[#151b2d] border border-slate-800 hover:border-cyan-500/50 rounded-2xl cursor-pointer transition-all duration-200 shadow-lg hover:-translate-y-0.5"
+                {/* Search */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Search
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search..."
+                      className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
+                    />
+                    {query && (
+                      <button
+                        onClick={() => setQuery('')}
+                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-xs text-slate-500 hover:text-white"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Loading Indicator */}
+            {loading && (
+              <div className="py-20 text-center text-slate-400 space-y-2">
+                <div className="text-xl animate-spin inline-block">⏳</div>
+                <p className="text-xs font-medium">Searching verified plugins...</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && !loading && (
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
+                <span>{error}</span>
+                <button
+                  onClick={() => fetchPlugins()}
+                  className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 font-semibold transition-colors"
                 >
-                  <div>
-                    {/* Top: Icon, Title, Author, Stats */}
-                    <div className="flex items-start gap-4">
-                      <div className="w-14 h-14 rounded-2xl bg-[#0a0d14] border border-slate-800 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
-                        {plugin.icon_url ? (
-                          <img src={plugin.icon_url} alt={plugin.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-2xl">📦</span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors truncate">
-                          {plugin.title}
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-0.5 truncate">
-                          by <span className="text-slate-300 font-medium">{plugin.author}</span>
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!loading && !error && plugins.length === 0 && (
+              <div className="py-20 text-center text-slate-400 space-y-3">
+                <div className="text-3xl">🔍</div>
+                <h3 className="text-sm font-bold text-white">No plugins found</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  No plugins match your current filters. Try searching for a different keyword or loader.
+                </p>
+              </div>
+            )}
+
+            {/* 3-Column Translucent Card Grid */}
+            {!loading && !error && plugins.length > 0 && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {plugins.map((plugin) => (
+                    <div
+                      key={plugin.project_id}
+                      className="group relative flex flex-col justify-between p-4 bg-slate-900/40 hover:bg-slate-900/60 backdrop-blur-md border border-slate-800/80 hover:border-blue-500/40 rounded-xl transition-all duration-200 shadow-md"
+                    >
+                      <div>
+                        {/* Top: Icon, Title, Author, External Link */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className="w-11 h-11 rounded-xl bg-slate-950/70 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
+                              {plugin.icon_url ? (
+                                <img src={plugin.icon_url} alt={plugin.title} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xl">📦</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <h3
+                                onClick={() => setSelectedPlugin(plugin)}
+                                className="text-sm font-bold text-white hover:text-blue-400 transition-colors truncate cursor-pointer"
+                              >
+                                {plugin.title}
+                              </h3>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">By {plugin.author}</p>
+                            </div>
+                          </div>
+
+                          {/* External Link Icon */}
+                          <a
+                            href={`https://modrinth.com/plugin/${plugin.slug || plugin.project_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-500 hover:text-slate-300 p-1 transition-colors shrink-0"
+                            title="View on Modrinth"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                              />
+                            </svg>
+                          </a>
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-xs text-slate-300 mt-2.5 line-clamp-2 leading-relaxed">
+                          {plugin.description || 'No description provided.'}
                         </p>
-                        <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400">
+                      </div>
+
+                      {/* Bottom Row: Downloads, Relative Date, + Install */}
+                      <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400">
                           <span className="flex items-center gap-1 font-medium text-slate-300">
                             ⬇ {formatNumber(plugin.downloads)}
                           </span>
                           <span className="flex items-center gap-1 text-slate-400">
-                            ♥ {formatNumber(plugin.follows)}
+                            🕒 {formatTimeAgo(plugin.date_modified)}
                           </span>
                         </div>
+
+                        <button
+                          onClick={() => setSelectedPlugin(plugin)}
+                          className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 transition-all shrink-0"
+                        >
+                          + Install
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-2 py-3 border-t border-white/5 text-xs text-slate-400">
+                    <span>
+                      Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalHits)} of {totalHits} plugins
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => p - 1)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-800 hover:border-slate-700 text-slate-300 disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-900/50 border border-blue-500/30 font-semibold text-blue-300">
+                        Page {page} of {totalPages}
+                      </span>
+                      <button
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => p + 1)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-800 hover:border-slate-700 text-slate-300 disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: Installed Plugins View */}
+        {activeTab === 'installed' && (
+          <div className="space-y-4">
+            <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">Installed Plugins in /plugins</h3>
+                <p className="text-xs text-slate-400">Manage all plugin .jar files currently loaded on this server</p>
+              </div>
+              <button
+                onClick={() => fetchInstalledPlugins()}
+                disabled={loadingInstalled}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+              >
+                {loadingInstalled ? 'Refreshing...' : '🔄 Refresh'}
+              </button>
+            </div>
+
+            {loadingInstalled && (
+              <div className="py-16 text-center text-slate-400 text-xs">
+                Scanning /plugins directory in server container...
+              </div>
+            )}
+
+            {!loadingInstalled && installedFiles.length === 0 && (
+              <div className="py-16 text-center text-slate-400 space-y-2">
+                <div className="text-3xl">📂</div>
+                <h4 className="text-sm font-bold text-white">No plugins installed</h4>
+                <p className="text-xs text-slate-500">
+                  You haven&apos;t installed any plugins yet. Switch to the Browse tab to install plugins.
+                </p>
+              </div>
+            )}
+
+            {!loadingInstalled && installedFiles.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {installedFiles.map((file) => (
+                  <div
+                    key={file.name}
+                    className="p-4 bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl flex flex-col justify-between gap-3 shadow-md"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-base shrink-0">
+                        🧩
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-white truncate" title={file.name}>
+                          {file.name}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {formatSize(file.size)} • {formatTimeAgo(file.modifiedAt)}
+                        </p>
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <p className="text-xs text-slate-300 mt-3 line-clamp-2 leading-relaxed">
-                      {plugin.description || 'No description provided.'}
-                    </p>
-                  </div>
-
-                  {/* Bottom: Loaders and Action */}
-                  <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 overflow-hidden max-h-6">
-                      {(plugin.display_categories || plugin.categories || []).slice(0, 3).map((cat) => (
-                        <span
-                          key={cat}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase bg-slate-800 border border-slate-700/60 text-cyan-300"
-                        >
-                          {cat}
-                        </span>
-                      ))}
+                    <div className="pt-2 border-t border-slate-800/70 flex items-center justify-end">
+                      <button
+                        onClick={() => handleUninstall(file.name)}
+                        disabled={uninstallingFile === file.name}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors"
+                      >
+                        {uninstallingFile === file.name ? 'Uninstalling...' : 'Uninstall'}
+                      </button>
                     </div>
-
-                    <button className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500 text-cyan-300 hover:text-black border border-cyan-500/30 transition-colors shrink-0">
-                      Versions ➔
-                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-2 py-4 border-t border-slate-800 text-xs text-slate-400">
-                <span>
-                  Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalHits)} of {totalHits} plugins
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                    className="px-3 py-1.5 rounded-xl bg-[#101522] border border-slate-800 hover:border-cyan-500/40 text-slate-300 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <span className="px-3 py-1.5 rounded-xl bg-[#101522] border border-cyan-500/20 font-semibold text-cyan-300">
-                    Page {page} of {totalPages}
-                  </span>
-                  <button
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="px-3 py-1.5 rounded-xl bg-[#101522] border border-slate-800 hover:border-cyan-500/40 text-slate-300 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
+                ))}
               </div>
             )}
-          </>
+          </div>
         )}
 
-        {/* Version Selection Pop-up Modal */}
+        {/* Compact Version Selection Modal */}
         {selectedPlugin && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md">
-            <div className="relative flex flex-col w-full max-w-3xl max-h-[85vh] bg-[#101522] border border-cyan-500/40 rounded-3xl shadow-2xl overflow-hidden">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm">
+            <div className="relative flex flex-col w-full max-w-lg max-h-[75vh] bg-[#0d121f]/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden">
               {/* Modal Header */}
-              <div className="px-6 py-4 bg-[#151b2d] border-b border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-14 h-14 rounded-2xl bg-[#0a0d14] border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
+              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
                     {selectedPlugin.icon_url ? (
                       <img src={selectedPlugin.icon_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-2xl">📦</span>
+                      <span className="text-lg">📦</span>
                     )}
                   </div>
-                  <div>
-                    <h2 className="text-base font-bold text-white">{selectedPlugin.title}</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">by {selectedPlugin.author}</p>
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-bold text-white truncate">{selectedPlugin.title}</h2>
+                    <p className="text-[11px] text-slate-400 truncate">By {selectedPlugin.author}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setSelectedPlugin(null)}
-                  className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center font-bold text-sm transition-colors"
+                  className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center font-bold text-xs transition-colors shrink-0"
                 >
                   ✕
                 </button>
@@ -498,94 +699,95 @@ export default function PluginInstallerContainer() {
               {/* Install Notice Banner */}
               {installNotice && (
                 <div
-                  className={`px-6 py-3 border-b text-xs font-semibold flex items-center gap-2 ${
+                  className={`px-4 py-2 border-b text-xs font-medium flex items-center gap-2 ${
                     installNotice.success
                       ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                       : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                   }`}
                 >
                   <span>{installNotice.success ? '✓' : '⚠️'}</span>
-                  <span>{installNotice.message}</span>
+                  <span className="truncate">{installNotice.message}</span>
                 </div>
               )}
 
-              {/* Modal Filters Row */}
-              <div className="px-6 py-3 bg-[#0d111a] border-b border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Software Platform */}
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Software</label>
-                  <select
-                    value={modalSoftware}
-                    onChange={(e) => setModalSoftware(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-[#161c2d] border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="all">All Platforms</option>
-                    {availableModalLoaders.map((l) => (
-                      <option key={l} value={l}>
-                        {l.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Minecraft Version */}
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Minecraft Version</label>
-                  <select
-                    value={modalGameVersion}
-                    onChange={(e) => setModalGameVersion(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-[#161c2d] border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="all">All Versions</option>
-                    {availableModalGameVersions.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Version Release Type Tabs */}
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Release Type</label>
-                  <div className="grid grid-cols-4 gap-1 p-0.5 bg-[#161c2d] rounded-lg border border-slate-700 text-center">
-                    {(['all', 'release', 'beta', 'alpha'] as const).map((type) => (
-                      <button
-                        key={type}
-                        onClick={() => setModalType(type)}
-                        className={`py-1 rounded text-[10px] font-bold uppercase transition-all ${
-                          modalType === type
-                            ? type === 'release'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : type === 'beta'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              : type === 'alpha'
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                              : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {type}
-                      </button>
-                    ))}
+              {/* Compact Filters Row */}
+              <div className="px-4 py-2.5 bg-slate-950/40 border-b border-slate-800/80 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                      Platform
+                    </label>
+                    <select
+                      value={modalSoftware}
+                      onChange={(e) => setModalSoftware(e.target.value)}
+                      className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded-md text-xs text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="all">All Platforms</option>
+                      {availableModalLoaders.map((l) => (
+                        <option key={l} value={l}>
+                          {l.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                      MC Version
+                    </label>
+                    <select
+                      value={modalGameVersion}
+                      onChange={(e) => setModalGameVersion(e.target.value)}
+                      className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded-md text-xs text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="all">All Versions</option>
+                      {availableModalGameVersions.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Release Type Compact Pills */}
+                <div className="flex items-center gap-1 pt-0.5">
+                  {(['all', 'release', 'beta', 'alpha'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setModalType(type)}
+                      className={`flex-1 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${
+                        modalType === type
+                          ? type === 'release'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : type === 'beta'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : type === 'alpha'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                          : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {/* Version Items List */}
-              <div className="flex-1 p-6 overflow-y-auto space-y-3">
+              <div className="flex-1 p-3 overflow-y-auto space-y-2">
                 {loadingVersions && (
-                  <div className="py-16 text-center text-slate-400 text-xs">Loading versions from Modrinth...</div>
+                  <div className="py-12 text-center text-slate-400 text-xs">Loading versions from Modrinth...</div>
                 )}
 
                 {versionError && (
-                  <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                  <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
                     {versionError}
                   </div>
                 )}
 
                 {!loadingVersions && !versionError && filteredVersions.length === 0 && (
-                  <div className="py-16 text-center text-slate-400 text-xs">
+                  <div className="py-12 text-center text-slate-400 text-xs">
                     No matching versions found for your selected filters.
                   </div>
                 )}
@@ -600,16 +802,15 @@ export default function PluginInstallerContainer() {
                     return (
                       <div
                         key={ver.id}
-                        className="p-4 rounded-2xl bg-[#131929] hover:bg-[#161d31] border border-slate-800 hover:border-cyan-500/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm"
+                        className="p-2.5 rounded-xl bg-slate-900/50 hover:bg-slate-900/80 border border-slate-800/80 hover:border-slate-700 transition-colors flex items-center justify-between gap-3 shadow-sm"
                       >
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-white">{ver.name || ver.version_number}</span>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-cyan-300 border border-slate-700/60">
-                              {ver.version_number}
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-white truncate">
+                              {ver.name || ver.version_number}
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase border ${
                                 ver.version_type === 'release'
                                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                                   : ver.version_type === 'beta'
@@ -621,23 +822,23 @@ export default function PluginInstallerContainer() {
                             </span>
                           </div>
 
-                          <div className="text-[11px] text-slate-400 flex items-center gap-2 flex-wrap">
+                          <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
                             <span>{formatSize(primaryFile?.size)}</span>
                             <span>•</span>
-                            <span>Loaders: {ver.loaders?.join(', ')}</span>
+                            <span>{ver.loaders?.slice(0, 2).join(', ')}</span>
                             <span>•</span>
-                            <span>MC: {ver.game_versions?.slice(0, 3).join(', ')}</span>
+                            <span>MC: {ver.game_versions?.slice(0, 2).join(', ')}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {primaryFile && (
                             <a
                               href={primaryFile.url}
                               download={primaryFile.filename}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition-colors"
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition-colors"
                               title="Direct Download File (.jar)"
                             >
                               💾
@@ -647,13 +848,13 @@ export default function PluginInstallerContainer() {
                           <button
                             onClick={() => handleInstall(ver)}
                             disabled={isInstalling || !primaryFile}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                               isInstalled
                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/20'
+                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
                             }`}
                           >
-                            {isInstalling ? 'Installing to /plugins...' : isInstalled ? '✓ Installed' : 'Install to Server'}
+                            {isInstalling ? 'Installing...' : isInstalled ? '✓ Installed' : 'Install'}
                           </button>
                         </div>
                       </div>
