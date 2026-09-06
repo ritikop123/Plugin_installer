@@ -4,6 +4,7 @@ namespace Pterodactyl\Http\Controllers\Api\Client\Servers;
 
 use Exception;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Pterodactyl\Models\Server;
@@ -14,8 +15,8 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 
 class PluginInstallerController extends ClientApiController
 {
-    private const MODRINTH_API = 'https://api.modrinth.com/v2';
-    private const USER_AGENT = 'Arix-Theme-PluginInstaller/1.0.0 (pterodactyl-addon@arix.gg)';
+    private const MODRINTH_API = 'https://api.modrinth.com/v2/';
+    private const USER_AGENT = 'Arix-Plugin-Installer/1.0.0 (https://github.com/ritikop123/Plugin_installer)';
 
     protected Client $httpClient;
     protected DaemonFileRepository $fileRepository;
@@ -31,11 +32,12 @@ class PluginInstallerController extends ClientApiController
                 'Accept' => 'application/json',
             ],
             'timeout' => 15.0,
+            'http_errors' => false,
         ]);
     }
 
     /**
-     * Search plugins on Modrinth API.
+     * Search plugins from public Modrinth API.
      * GET /api/client/servers/{server}/plugins
      */
     public function index(Request $request, Server $server): JsonResponse
@@ -48,7 +50,7 @@ class PluginInstallerController extends ClientApiController
         $loader = $request->query('loader', 'all');
         $gameVersion = $request->query('game_version', 'all');
         $sortBy = $request->query('sort_by', 'downloads');
-        $page = (int) $request->query('page', 1);
+        $page = max(1, (int) $request->query('page', 1));
         $limit = 21;
         $offset = ($page - 1) * $limit;
 
@@ -77,7 +79,7 @@ class PluginInstallerController extends ClientApiController
             'query' => trim($query),
             'limit' => $limit,
             'offset' => $offset,
-            'index' => $sortBy,
+            'index' => in_array($sortBy, ['downloads', 'relevance', 'updated', 'newest']) ? $sortBy : 'downloads',
         ];
 
         if (!empty($facets)) {
@@ -89,19 +91,27 @@ class PluginInstallerController extends ClientApiController
                 'query' => $params,
             ]);
 
+            $statusCode = $response->getStatusCode();
+            if ($statusCode >= 400) {
+                return response()->json([
+                    'error' => 'Modrinth API error',
+                    'status' => $statusCode,
+                ], 502);
+            }
+
             $data = json_decode($response->getBody()->getContents(), true);
-            return response()->json($data);
-        } catch (Exception $e) {
+            return response()->json($data ?: ['hits' => [], 'total_hits' => 0]);
+        } catch (GuzzleException $e) {
             return response()->json([
-                'error' => 'Failed to fetch plugins from Modrinth',
+                'error' => 'Failed to connect to Modrinth API',
                 'message' => $e->getMessage(),
             ], 502);
         }
     }
 
     /**
-     * Fetch all versions of a plugin from Modrinth.
-     * GET /api/client/servers/{server}/plugins/versions?plugin={id_or_slug}
+     * Get versions for a specific plugin.
+     * GET /api/client/servers/{server}/plugins/versions?plugin=<project_id>
      */
     public function versions(Request $request, Server $server): JsonResponse
     {
@@ -110,26 +120,59 @@ class PluginInstallerController extends ClientApiController
         }
 
         $pluginId = $request->query('plugin', '');
-        if (empty($pluginId)) {
-            return response()->json(['error' => 'Plugin ID is required'], 400);
+        if (empty($pluginId) || !preg_match('/^[a-zA-Z0-9_\-]+$/', $pluginId)) {
+            return response()->json(['error' => 'Valid plugin ID or slug is required.'], 400);
         }
 
         try {
             $response = $this->httpClient->get("project/{$pluginId}/version");
-            $data = json_decode($response->getBody()->getContents(), true);
+            $statusCode = $response->getStatusCode();
 
-            return response()->json($data);
-        } catch (Exception $e) {
+            if ($statusCode >= 400) {
+                return response()->json(['error' => 'Failed to retrieve plugin versions from Modrinth.'], 502);
+            }
+
+            $data = json_decode($response->getBody()->getContents(), true);
+            return response()->json(is_array($data) ? $data : []);
+        } catch (GuzzleException $e) {
             return response()->json([
-                'error' => 'Failed to fetch plugin versions',
+                'error' => 'Failed to connect to Modrinth API',
                 'message' => $e->getMessage(),
             ], 502);
         }
     }
 
     /**
-     * Installs a plugin directly to the server's /plugins directory.
-     * Auto-creates the /plugins directory in the container if missing!
+     * Get dynamic Minecraft game version tags from Modrinth.
+     * GET /api/client/servers/{server}/plugins/tags
+     */
+    public function tags(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_READ, $server)) {
+            throw new AuthorizationException();
+        }
+
+        try {
+            $response = $this->httpClient->get('tag/game_version');
+            if ($response->getStatusCode() === 200) {
+                $data = json_decode($response->getBody()->getContents(), true);
+                if (is_array($data)) {
+                    // Filter to release Minecraft versions
+                    $releases = array_values(array_filter($data, function ($item) {
+                        return isset($item['version_type']) && $item['version_type'] === 'release';
+                    }));
+                    return response()->json($releases);
+                }
+            }
+        } catch (Exception $e) {
+            // Ignore tag fetch failure and return empty list
+        }
+
+        return response()->json([]);
+    }
+
+    /**
+     * Install plugin file into the server container's /plugins directory.
      * POST /api/client/servers/{server}/plugins/install
      */
     public function install(Request $request, Server $server): JsonResponse
@@ -138,24 +181,62 @@ class PluginInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        $fileUrl = $request->input('url');
-        $filename = $request->input('filename');
+        $url = (string) $request->input('url', '');
+        $filename = (string) $request->input('filename', '');
 
-        if (empty($fileUrl) || empty($filename)) {
-            return response()->json(['error' => 'File URL and filename are required'], 400);
+        // 1. Validate URL: strictly require HTTPS and valid Modrinth CDN domain to prevent SSRF
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return response()->json(['error' => 'Invalid file download URL.'], 400);
+        }
+
+        $parsedUrl = parse_url($url);
+        if (($parsedUrl['scheme'] ?? '') !== 'https') {
+            return response()->json(['error' => 'Only secure HTTPS download URLs are permitted.'], 400);
+        }
+
+        $host = strtolower($parsedUrl['host'] ?? '');
+        $allowedHosts = ['cdn.modrinth.com', 'api.modrinth.com'];
+        $isAllowedHost = false;
+        foreach ($allowedHosts as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
+                $isAllowedHost = true;
+                break;
+            }
+        }
+
+        if (!$isAllowedHost) {
+            return response()->json(['error' => 'Untrusted download host. Only Modrinth CDN URLs are allowed.'], 400);
+        }
+
+        // 2. Validate Filename: prevent path traversal (no slashes, no dots traversal, valid characters)
+        if (empty($filename)) {
+            return response()->json(['error' => 'Filename is required.'], 400);
+        }
+
+        // Sanitize: remove any directory paths that may have been supplied
+        $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', $filename));
+
+        if (
+            empty($cleanFilename) ||
+            $cleanFilename === '.' ||
+            $cleanFilename === '..' ||
+            !preg_match('/^[a-zA-Z0-9_\-\.\+]+$/', $cleanFilename) ||
+            !preg_match('/\.(jar|zip)$/i', $cleanFilename)
+        ) {
+            return response()->json(['error' => 'Invalid plugin filename. Filename must end with .jar or .zip and contain no path characters.'], 400);
         }
 
         try {
-            // Step 1: Ensure /plugins directory exists in the container
+            // 3. Ensure the /plugins directory exists in the container
             try {
                 $this->fileRepository->setServer($server)->createDirectory('plugins', '/');
             } catch (Exception $e) {
-                // Folder already exists or wings created it, continue
+                // Folder already exists or was already prepared, continue
             }
 
-            // Step 2: Command Wings daemon to pull the file directly into /plugins
+            // 4. Command Wings to pull the file directly into /plugins
             $this->fileRepository->setServer($server)->pull(
-                $fileUrl,
+                $url,
                 '/plugins',
                 [
                     'use_header' => true,
@@ -165,11 +246,12 @@ class PluginInstallerController extends ClientApiController
 
             return response()->json([
                 'success' => true,
-                'message' => "Plugin {$filename} installed successfully into /plugins folder.",
+                'message' => "Plugin {$cleanFilename} installed successfully into /plugins.",
+                'filename' => $cleanFilename,
             ]);
         } catch (Exception $e) {
             return response()->json([
-                'error' => 'Failed to install plugin to server',
+                'error' => 'Failed to install plugin to server.',
                 'message' => $e->getMessage(),
             ], 500);
         }

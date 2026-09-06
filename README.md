@@ -1,143 +1,92 @@
-# Arix Theme Plugin Installer (Modrinth Integration)
+# Arix Theme Plugin Installer for Pterodactyl Panel
 
-A high-performance Minecraft Plugin Installer designed to match the **Arix Theme** aesthetic for Pterodactyl Panel, powered by the **Modrinth API v2**.
+A native, secure Minecraft Plugin Installer built specifically for Pterodactyl Panel with the **Arix Theme**.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
 
 ---
 
-## ⚡ 1-Click Installation for Arix Theme (No Blueprint Required!)
+## 🏗️ Architecture
 
-Run this single command on your Pterodactyl VPS terminal as root:
+This addon integrates directly into Pterodactyl's native architecture without requiring Blueprint or external daemons:
+
+```text
+Browser (Arix Theme)
+   ↓
+React Component (PluginInstallerContainer.tsx)
+   ↓
+Pterodactyl Authenticated API (/api/client/servers/{server}/plugins)
+   ↓
+Laravel PHP Controller (PluginInstallerController.php)
+   ↓
+Modrinth Public API v2  /  Pterodactyl Wings Daemon
+   ↓
+Minecraft Server Container (/plugins directory)
+```
+
+- **Zero API Tokens**: Uses the public Modrinth API with an identifying `User-Agent`. No secrets in frontend or backend.
+- **SSRF & Path Traversal Protected**: Strict HTTPS validation restricted to `cdn.modrinth.com` and strict filename sanitization preventing directory traversal.
+- **Native Routing**: Registered directly in `resources/scripts/routers/routes.ts` with `name: undefined` so Arix provides the navigation link in Server Tools without duplicate standard navigation items.
+
+---
+
+## ⚡ 1-Click Installation (VPS Terminal as root)
+
+Run this single command on your Pterodactyl VPS:
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/install-arix.sh)
 ```
 
-This script:
-1. Installs the native `PluginInstallerContainer` component into your Pterodactyl panel.
-2. Automatically adds the `/plugins` route into `ServerRouter.tsx`.
-3. Compiles the panel assets (`yarn build:production`).
+### What the installer does:
+1. Verifies your Pterodactyl installation and source tree structure.
+2. Creates an automatic timestamped backup at `/var/backups/arix-plugin-installer/<timestamp>/` with automatic rollback on any failure.
+3. Cleans any previous legacy or conflicting installer files.
+4. Installs the PHP Controller at `app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php`.
+5. Registers the API routes in `routes/api-client.php`.
+6. Installs the React component at `resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx`.
+7. Registers the route in `resources/scripts/routers/routes.ts`.
+8. Compiles production assets with `yarn build:production`.
+9. Clears Laravel route, view, and config caches.
 
 ---
 
-## 🔗 Arix Theme: "Create link in Server Tools" Settings
+## 🔗 Arix Theme Setup ("Create link in Server Tools")
 
-In your panel, open Arix Theme settings ➔ **"Create link in Server Tools"**:
+In your Pterodactyl panel:
+1. Open **Arix Theme settings** (or Admin Theme Editor).
+2. Go to **"Create link in Server Tools"**.
+3. Enter the following values:
 
-| Field | Enter Exactly This |
-| :--- | :--- |
-| **Name** | `Plugin Installer` |
-| **URL** | **`/plugins`** |
-| **Icon** | `HiOutlinePuzzle` |
-| **Enable link** | **Toggle ON** |
+| Field | Value to Enter | Notes |
+| :--- | :--- | :--- |
+| **Name** | `Plugin Installer` | Label displayed in server tools. |
+| **URL** | **`/plugins`** | Relative server route handled by Pterodactyl router. |
+| **Icon** | `HiOutlinePuzzle` | Clean puzzle piece icon. |
+| **Enable link** | **ON** | Toggle active. |
 
-When clicked on any server, it will open natively at `https://gp.sagarmatha.site/server/<server-id>/plugins` right inside your server dashboard!
-
----
-
-From your screenshot on `modrinth.com/settings/pats`:
-
-### Step 1: Handle Any Account Warning Banner
-At the top of your Modrinth screen, notice if there is a warning:
-> ⚠️ **Account action required:** *For security reasons, Modrinth needs you to verify your email...*
-
-If you see this banner:
-1. Click the button on the right: **"Re-send verification email"**.
-2. Open your email inbox and click the verification link from Modrinth.
-3. Refresh the `modrinth.com/settings/pats` page.
+When you navigate to any server (`https://gp.sagarmatha.site/server/<server-id>`) and click **Plugin Installer** in Server Tools, it opens **`/server/<server-id>/plugins`** natively inside your server dashboard!
 
 ---
 
-### Step 2: Fill Out the "Create Personal Access Token" Dialog
+## 🗑️ Uninstallation
 
-In the popup modal shown in your screenshot:
-
-1. **Name**:
-   Enter any name, for example:
-   ```text
-   Arix Plugin Installer
-   ```
-   *(or `Pterodactyl Plugins`)*
-
-2. **Scopes**:
-   Select **ONLY the following read permissions**:
-   - Under **Projects**:
-     - ☑️ **`Read projects`** *(Allows viewing project details and info)*
-   - Under **Versions**:
-     - ☑️ **`Read versions`** *(Allows viewing versions and downloading `.jar` files)*
-   - Under **User account**:
-     - ☑️ **`Read user data`** *(Allows validating the token connection)*
-
-   > 🔒 **Security Tip:** Do **NOT** select any `Write` or `Delete` scopes (`Write projects`, `Delete projects`, `Write user data`, etc.). Only `Read` permissions are needed to search, view, and install plugins.
-
-3. **Generate and Copy**:
-   - Click the green **"Create"** button at the bottom of the dialog.
-   - Modrinth will generate a token string starting with `mrp_...`.
-   - Click **Copy** immediately and keep it safe (Modrinth will not show it again).
-
----
-
-## 🚀 2. How to Run the Installer Locally
-
-Open a terminal in this folder (`c:\Users\wgues\OneDrive\Documents\Plugin installer`) and run:
+To cleanly remove the addon, restore original routes, and recompile assets:
 
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Start the development server
-npm run dev
+bash <(curl -s https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/uninstall-arix.sh)
 ```
 
-The application will launch in your browser at `http://localhost:3000`.
-
 ---
 
-## 🎨 3. Features Matching the Arix Theme
+## 📂 Repository File Structure
 
-1. **Header Controls**:
-   - **Search Bar**: Real-time debounced query across thousands of plugins on Modrinth.
-   - **Software Selector**: Filter by `Paper`, `Purpur`, `Spigot`, `Folia`, `Velocity`, `BungeeCord`, `Fabric`, or `All`.
-   - **Minecraft Version Selector**: Filter by game versions (`1.21.4`, `1.21`, `1.20.4`, `1.20.1`, `1.19.4`, `1.16.5`, etc.).
-   - **Sort Selector**: Sort by Most Downloads, Relevance, Recently Updated, or Newest.
-   - **Token Indicator**: Shows token connection status and allows instant testing/saving.
-
-2. **Plugin Cards**:
-   - High-res plugin icon, name, author, and description.
-   - Download counter and follower stats.
-   - Glowing software pills matching Arix theme colors (`#00d2ff` cyan, `#7952ff` violet, `#101522` carbon).
-   - "Versions" button opening the version popup modal.
-
-3. **Version Selection Pop-up Modal**:
-   - When a plugin card is clicked, a popup modal opens.
-   - Inside the modal, users can filter versions by:
-     - **Software / Loader** (e.g. Paper, Spigot, Purpur, Velocity)
-     - **Minecraft Game Version** (e.g. 1.20.4, 1.21)
-     - **Version Type**: `All`, `Release` (green), `Beta` (amber), `Alpha` (red)
-   - Lists all matching versions with:
-     - Version number & release type badge.
-     - Compatible game versions and platforms.
-     - Release date and file size.
-     - Direct `.jar` download and "Install Plugin" actions.
-
----
-
-## ⚙️ 4. How to Connect to Pterodactyl Panel (Arix Theme)
-
-If you are embedding this into your Pterodactyl Panel with Arix Theme:
-
-1. Copy the `src/components/` and `src/services/modrinthApi.ts` files into your Pterodactyl panel's React source:
-   ```text
-   resources/scripts/components/server/plugin-installer/
-   ```
-2. Replace the simulated `handleInstall` trigger in `src/components/PluginModal.tsx` with your server's download endpoint:
-   ```typescript
-   // Example Pterodactyl API download to /plugins folder:
-   await http.post(`/api/client/servers/${serverId}/files/pull`, {
-     url: primaryFile.url,
-     directory: '/plugins',
-     filename: primaryFile.filename,
-   });
-   ```
-3. Rebuild your panel assets using `yarn build:production`.
+```text
+Plugin_installer/
+├── install-arix.sh
+├── uninstall-arix.sh
+├── README.md
+└── pterodactyl-addon/
+    ├── PluginInstallerContainer.tsx
+    └── PluginInstallerController.php
+```
