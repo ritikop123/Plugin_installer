@@ -1,10 +1,11 @@
 # Arix Theme Addon Suite for Pterodactyl Panel
 
 A native, secure suite of Minecraft server management addons built specifically for Pterodactyl Panel with the **Arix Theme**:
-- 🔌 **Plugin Installer**: Discover and install server plugins for Paper, Purpur, Spigot, Folia, Velocity, BungeeCord directly to `/plugins`.
+- 🔌 **Plugin Installer**: Discover and install server plugins for Paper, Purpur, Spigot, Folia, Velocity, BungeeCord, Waterfall, and Bukkit directly to `/plugins`.
 - 📦 **Mods Installer**: Browse and install Forge, Fabric, NeoForge, and Quilt mods directly to `/mods`.
 - 🗃️ **Modpacks Installer**: One-click install complete Modrinth modpacks with configs, overrides, and live batch progress tracking.
 - ⚙️ **Software Installer**: Switch Minecraft server software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Folia, etc.) with build selection and optional server file wipe.
+- 🎛️ **Server Options & Properties**: Visual `server.properties` manager with authentic Minecraft multiplayer server banner, read-only allocation IP/port badge with copy button, live MOTD color code editor & in-game preview, and 64x64 server icon uploader.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
 
@@ -22,15 +23,16 @@ bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/rit
 When executed, you will be prompted:
 ```text
 Select an installation option:
-  1) All: Plugins + Mods + Modpacks + Software (Recommended)
+  1) All: Plugins + Mods + Modpacks + Software + Options (Recommended)
   2) Plugin Installer only (/plugins)
   3) Mods Installer only (/mods)
   4) Modpacks Installer only (/modpacks)
   5) Software Installer only (/software)
-  6) Uninstall All
-Enter choice [1-6] (Default: 1): 
+  6) Server Options & Properties only (/options)
+  7) Uninstall All
+Enter choice [1-7] (Default: 1): 
 ```
-*(Press Enter or `1` to install all four addons together in a single build pass!)*
+*(Press Enter or `1` to install all five addons together in a single build pass!)*
 
 ---
 
@@ -47,6 +49,7 @@ In your Pterodactyl panel:
 | **Mods Installer** | **`/mods`** | `HiOutlineCubeTransparent` | Manages `/mods` directory. |
 | **Modpacks Installer** | **`/modpacks`** | `HiOutlineCollection` | Installs full modpacks with configs & overrides. |
 | **Software Installer** | **`/software`** | `HiOutlineServer` | Version Changer for server software. |
+| **Server Options** | **`/options`** | `HiOutlineAdjustments` | Visual server.properties, MOTD editor & icon uploader. |
 
 *Be sure to set **Enable link: ON (Checked)*** for each link.*
 
@@ -54,27 +57,45 @@ In your Pterodactyl panel:
 
 ## ⚙️ Features Overview
 
-### 1. Plugin Installer (`/server/<id>/plugins`)
+### 1. Server Options & Properties (`/server/<id>/options`)
+- **Multiplayer Server Banner**: Authentic Minecraft multiplayer server list card styling.
+- **Unchangeable Allocation Address**: Displays primary server IP / domain and port with 1-click copy feedback and read-only lock badge.
+- **Server Icon Manager**: Tap/click to select any image; client-side HTML5 canvas automatically scales/crops it to a 64×64 PNG and uploads it to `/server-icon.png`. Also includes 1-click remove to revert to default.
+- **MOTD Editor & Palette**:
+  - Full 16-color palette (`§0` - `§f`) and formatting styles (Bold `§l`, Italic `§o`, Underline `§n`, Strikethrough `§m`, Magic `§k`, Reset `§r`).
+  - Supports both `§` and `&` formatting prefixes.
+  - Live in-game MOTD preview rendered with Minecraft font, shadows, and exact colors.
+- **Visual `server.properties` GUI Grid**:
+  - **General Settings**: Max Players / Slots stepper, Gamemode dropdown, Difficulty dropdown, Hardcore toggle, Force Gamemode toggle.
+  - **Access & Security**: Cracked / Offline mode toggle, Whitelist toggle, Enforce Whitelist toggle, Block VPN/Proxy toggle.
+  - **Gameplay & Combat**: PvP toggle, Allow Flight toggle, Command Blocks toggle, Nether toggle, Spawn Protection radius stepper.
+  - **World & Spawning**: Spawn Monsters toggle, Spawn Animals toggle, Spawn NPCs/Villagers toggle, View Distance stepper, Simulation Distance stepper.
+  - **Resource Pack**: URL, Prompt message, and Require Resource Pack toggle.
+- **Sticky Save Bar**: Unsaved changes indicator, revert to saved state button, and 1-click save.
+
+### 2. Plugin Installer (`/server/<id>/plugins`)
 - Modrinth API integration with search, filters, and dynamic version detection.
+- Filter strictly by plugins and plugin loaders: Paper, Purpur, Folia, Spigot, Velocity, Waterfall, BungeeCord, Bukkit.
 - **Installed Detection**: Cards dynamically detect whether a plugin is already in `/plugins` and display `✓ Installed` with a 1-click red trash button.
 - **Installed Tab**: 3-column card grid showing puzzle icon, filename, size, and delete button.
 
-### 2. Mods Installer (`/server/<id>/mods`)
+### 3. Mods Installer (`/server/<id>/mods`)
 - Modrinth Mods catalog targeting `/mods`.
 - Filter by mod loaders: **All Loaders**, **Fabric**, **Forge**, **NeoForge**, **Quilt**.
 - Minecraft version filter.
 - Dynamic installed detection and 3-column card grid in Installed tab.
 
-### 3. Modpacks Installer (`/server/<id>/modpacks`)
+### 4. Modpacks Installer (`/server/<id>/modpacks`)
 - Modrinth Modpacks catalog with categories: **Adventure**, **Technology**, **Magic**, **Quests**, **Optimization**, etc.
-- **Chunked Batch Installation**: Prevents PHP gateway timeouts by extracting configs/overrides and streaming mod downloads in batches with an interactive progress bar.
+- **Native Wings Decompression**: Delegates heavy extraction to Wings daemon native commands, eliminating PHP timeouts.
+- **Chunked Batch Installation**: Streams mod downloads in batches with an interactive progress bar and estimated time notice.
 - **Wipe Modes**:
   - *Wipe Mods & Configs (Recommended)*: Cleans existing `/mods` and `/config` folders for a conflict-free install without deleting worlds.
   - *Wipe Entire Server*: Completely resets the server.
   - *Keep Existing Files*: Merges with existing files.
 - **Installed Tab & Manifest**: Automatically records `.pterodactyl-modpack.json` on the server and provides a 1-click **Uninstall Modpack** button.
 
-### 4. Software Installer (`/server/<id>/software`)
+### 5. Software Installer (`/server/<id>/software`)
 - Powered by official **MCJars v2 API** (`mcjars.app/api/v2`).
 - **Screen 1**: Software catalog grid (Vanilla, Paper, Pufferfish, Spigot, Folia, Purpur, Waterfall, Velocity, Fabric, BungeeCord, Quilt, Forge, NeoForge, Mohist, Arclight, Sponge, Leaves, Canvas).
 - **Screen 2**: Version selector with `Go Back` button and `Show Snapshot Versions` filter toggle.
@@ -96,7 +117,7 @@ bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/rit
 
 ```text
 Plugin_installer/
-├── install-arix.sh                     # Master 1-click installer (Plugins + Mods + Modpacks + Software)
+├── install-arix.sh                     # Master 1-click installer (Plugins + Mods + Modpacks + Software + Options)
 ├── uninstall-arix.sh                   # Clean uninstaller for all addons
 ├── README.md
 └── pterodactyl-addon/
@@ -107,5 +128,7 @@ Plugin_installer/
     ├── ModpackInstallerContainer.tsx   # React component for Modpacks
     ├── ModpackInstallerController.php  # Laravel controller for Modpacks
     ├── SoftwareInstallerContainer.tsx  # React component for Software
-    └── SoftwareInstallerController.php # Laravel controller for Software
+    ├── SoftwareInstallerController.php # Laravel controller for Software
+    ├── OptionsContainer.tsx            # React component for Options & MOTD
+    └── OptionsController.php           # Laravel controller for Options & server.properties
 ```

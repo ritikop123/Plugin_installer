@@ -3,7 +3,7 @@ set -eo pipefail
 
 # ================================================================
 #    Arix Theme Unified Addon Suite (Clean Native Build)
-#    Plugins, Mods, Modpacks, & Software for Pterodactyl Panel
+#    Plugins, Mods, Modpacks, Software, & Options for Pterodactyl Panel
 #    Repository: https://github.com/ritikop123/Plugin_installer
 # ================================================================
 
@@ -15,7 +15,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo -e "${CYAN}================================================================${NC}"
-echo -e "${CYAN}    Arix Theme Unified Addon Suite (Plugins, Mods, Modpacks, Software) ${NC}"
+echo -e "${CYAN}    Arix Theme Unified Addon Suite (Plugins, Mods, Modpacks, Software, Options) ${NC}"
 echo -e "${CYAN}           https://github.com/ritikop123/Plugin_installer       ${NC}"
 echo -e "${CYAN}================================================================${NC}"
 
@@ -63,19 +63,23 @@ HAS_EXISTING_MODPACKS=false
 HAS_EXISTING_SOFTWARE=false
 [ -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" ] && HAS_EXISTING_SOFTWARE=true
 
+HAS_EXISTING_OPTIONS=false
+[ -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" ] && HAS_EXISTING_OPTIONS=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
   if [ -t 0 ]; then
     echo -e "\n${BOLD}Select an installation option:${NC}"
-    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software${NC} ${GREEN}(Recommended)${NC}"
+    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options${NC} ${GREEN}(Recommended)${NC}"
     echo -e "  ${CYAN}2)${NC} Plugin Installer only (/plugins)"
     echo -e "  ${CYAN}3)${NC} Mods Installer only (/mods)"
     echo -e "  ${CYAN}4)${NC} Modpacks Installer only (/modpacks)"
     echo -e "  ${CYAN}5)${NC} Software Installer only (/software)"
-    echo -e "  ${CYAN}6)${NC} Uninstall All"
-    read -r -p "Enter choice [1-6] (Default: 1): " USER_INPUT
+    echo -e "  ${CYAN}6)${NC} Server Options & Properties only (/options)"
+    echo -e "  ${CYAN}7)${NC} Uninstall All"
+    read -r -p "Enter choice [1-7] (Default: 1): " USER_INPUT
     USER_INPUT="${USER_INPUT:-1}"
     case "$USER_INPUT" in
       1) CHOICE="all" ;;
@@ -83,7 +87,8 @@ if [ -z "$CHOICE" ]; then
       3) CHOICE="mods" ;;
       4) CHOICE="modpacks" ;;
       5) CHOICE="software" ;;
-      6) CHOICE="uninstall" ;;
+      6) CHOICE="options" ;;
+      7) CHOICE="uninstall" ;;
       *) CHOICE="all" ;;
     esac
   else
@@ -98,13 +103,15 @@ case "$CHOICE" in
     INSTALL_MODS=true
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=true
-    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software)...${NC}"
+    INSTALL_OPTIONS=true
+    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options)...${NC}"
     ;;
   plugins|plugin)
     INSTALL_PLUGINS=true
     INSTALL_MODS=false
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
     echo -e "${GREEN}[*] Selected mode: Installing Plugin Installer only...${NC}"
     ;;
   mods|mod)
@@ -112,6 +119,7 @@ case "$CHOICE" in
     INSTALL_MODS=true
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
     echo -e "${GREEN}[*] Selected mode: Installing Mods Installer only...${NC}"
     ;;
   modpacks|modpack)
@@ -119,6 +127,7 @@ case "$CHOICE" in
     INSTALL_MODS=false
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
     echo -e "${GREEN}[*] Selected mode: Installing Modpacks Installer only...${NC}"
     ;;
   software)
@@ -126,7 +135,16 @@ case "$CHOICE" in
     INSTALL_MODS=false
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=true
+    INSTALL_OPTIONS=false
     echo -e "${GREEN}[*] Selected mode: Installing Software Installer only...${NC}"
+    ;;
+  options|option|properties)
+    INSTALL_PLUGINS=false
+    INSTALL_MODS=false
+    INSTALL_MODPACKS=false
+    INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=true
+    echo -e "${GREEN}[*] Selected mode: Installing Server Options & Properties only...${NC}"
     ;;
   uninstall)
     echo -e "${YELLOW}[*] Selected mode: Uninstalling addons...${NC}"
@@ -138,6 +156,7 @@ case "$CHOICE" in
     INSTALL_MODS=true
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=true
+    INSTALL_OPTIONS=true
     echo -e "${GREEN}[*] Defaulting to: Installing ALL addons...${NC}"
     ;;
 esac
@@ -161,6 +180,11 @@ fi
 ENABLE_SOFTWARE=false
 if [ "$INSTALL_SOFTWARE" = true ] || [ "$HAS_EXISTING_SOFTWARE" = true ]; then
   ENABLE_SOFTWARE=true
+fi
+
+ENABLE_OPTIONS=false
+if [ "$INSTALL_OPTIONS" = true ] || [ "$HAS_EXISTING_OPTIONS" = true ]; then
+  ENABLE_OPTIONS=true
 fi
 
 # 5. Create Safe Backup
@@ -212,14 +236,21 @@ if [ "$INSTALL_SOFTWARE" = true ]; then
   rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 2>/dev/null || true
 fi
 
+if [ "$INSTALL_OPTIONS" = true ]; then
+  rm -rf "resources/scripts/components/server/options" 2>/dev/null || true
+  rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/null || true
+fi
+
 sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModpackInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/OptionsContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/plugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mods#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/options#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 
 rm -f "resources/scripts/routers/ServerRouter.tsx.bak" 2>/dev/null || true
@@ -276,6 +307,18 @@ if [ "$INSTALL_SOFTWARE" = true ]; then
     -o "resources/scripts/components/server/software-installer/SoftwareInstallerContainer.tsx"
 fi
 
+# 11. Download Server Options & Properties (if installing options)
+if [ "$INSTALL_OPTIONS" = true ]; then
+  echo -e "${CYAN}[*] Downloading Server Options & Properties files...${NC}"
+  mkdir -p "app/Http/Controllers/Api/Client/Servers"
+  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsController.php?t=${CACHE_BUST}" \
+    -o "app/Http/Controllers/Api/Client/Servers/OptionsController.php"
+
+  mkdir -p "resources/scripts/components/server/options"
+  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsContainer.tsx?t=${CACHE_BUST}" \
+    -o "resources/scripts/components/server/options/OptionsContainer.tsx"
+fi
+
 # 11. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
 
@@ -286,6 +329,7 @@ $enablePlugins = ($argv[2] === 'true');
 $enableMods = ($argv[3] === 'true');
 $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
+$enableOptions = (isset($argv[6]) && $argv[6] === 'true');
 
 if (!file_exists($file)) {
     exit(0);
@@ -298,10 +342,12 @@ $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*
 $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
 // Ensure Pterodactyl\Http\Controllers\Api\Client namespace is imported
 if (strpos($c, 'use Pterodactyl\Http\Controllers\Api\Client;') === false) {
@@ -358,11 +404,21 @@ if ($enableSoftware) {
     $append .= "});\n/* <<< ARIX SOFTWARE INSTALLER END <<< */\n";
 }
 
+if ($enableOptions) {
+    $append .= "\n/* >>> ARIX OPTIONS MANAGER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/options'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\OptionsController::class, 'index']);\n";
+    $append .= "    Route::post('/', [Client\\Servers\\OptionsController::class, 'update']);\n";
+    $append .= "    Route::post('/icon', [Client\\Servers\\OptionsController::class, 'uploadIcon']);\n";
+    $append .= "    Route::delete('/icon', [Client\\Servers\\OptionsController::class, 'deleteIcon']);\n";
+    $append .= "});\n/* <<< ARIX OPTIONS MANAGER END <<< */\n";
+}
+
 $c = rtrim($c) . "\n" . $append;
 file_put_contents($file, $c);
 PHP_REG_API_EOF
 
-php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE"
+php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS"
 rm -f /tmp/ptero_reg_api.php
 
 # Verify PHP syntax of routes/api-client.php
@@ -381,6 +437,7 @@ $enablePlugins = ($argv[2] === 'true');
 $enableMods = ($argv[3] === 'true');
 $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
+$enableOptions = (isset($argv[6]) && $argv[6] === 'true');
 
 $c = file_get_contents($routesTs);
 
@@ -389,14 +446,17 @@ $c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
 
 $imports = '';
 $routes = '';
@@ -421,6 +481,11 @@ if ($enableSoftware) {
     $routes .= "\n        { path: '/software', permission: 'file.*', name: undefined, component: SoftwareInstallerContainer, exact: true },";
 }
 
+if ($enableOptions) {
+    $imports .= "import OptionsContainer from '@/components/server/options/OptionsContainer';\n";
+    $routes .= "\n        { path: '/options', permission: 'file.*', name: undefined, component: OptionsContainer, exact: true },";
+}
+
 $c = $imports . $c;
 $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
 
@@ -428,7 +493,7 @@ file_put_contents($routesTs, $c);
 echo "Registered routes successfully in routes.ts\n";
 PHP_REG_EOF
 
-php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE"
+php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS"
 rm -f /tmp/ptero_reg_routes.php
 
 # Verify registrations
@@ -456,6 +521,13 @@ fi
 if [ "$ENABLE_SOFTWARE" = true ]; then
   if ! grep -q "/software" "$ROUTES_TS" || ! grep -q "SoftwareInstallerContainer" "$ROUTES_TS"; then
     echo -e "${RED}[✗] Failed to verify /software in routes.ts.${NC}"
+    false
+  fi
+fi
+
+if [ "$ENABLE_OPTIONS" = true ]; then
+  if ! grep -q "/options" "$ROUTES_TS" || ! grep -q "OptionsContainer" "$ROUTES_TS"; then
+    echo -e "${RED}[✗] Failed to verify /options in routes.ts.${NC}"
     false
   fi
 fi
@@ -508,6 +580,11 @@ fi
 if [ "$ENABLE_SOFTWARE" = true ]; then
   echo -e "• ${CYAN}Software Installer${NC}: Accessible at ${BOLD}/server/<server-id>/software${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/software${NC}, Name=${CYAN}Software Installer${NC}, Icon=${CYAN}HiOutlineServer${NC}"
+fi
+
+if [ "$ENABLE_OPTIONS" = true ]; then
+  echo -e "• ${CYAN}Server Options${NC}: Accessible at ${BOLD}/server/<server-id>/options${NC}"
+  echo -e "  Arix Server Tools Link: URL=${CYAN}/options${NC}, Name=${CYAN}Server Options${NC}, Icon=${CYAN}HiOutlineAdjustments${NC}"
 fi
 
 echo ""
