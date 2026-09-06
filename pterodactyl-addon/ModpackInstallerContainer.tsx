@@ -813,28 +813,28 @@ export default function ModpackInstallerContainer() {
 
         {/* INSTALLATION MODAL DIALOG */}
         {installModalOpen && activeModpack && (
-          <div className={'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm'}>
-            <div className={'bg-neutral-900 border border-neutral-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl'}>
+          <div className={'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm'}>
+            <div className={'bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl overflow-hidden'}>
               {/* Modal Header */}
-              <div className={'flex items-center justify-between p-5 border-b border-neutral-800'}>
-                <div className={'flex items-center gap-3'}>
+              <div className={'flex items-center justify-between px-4 py-3 border-b border-neutral-800 shrink-0'}>
+                <div className={'flex items-center gap-2.5 min-w-0'}>
                   {activeModpack.icon_url ? (
-                    <img src={activeModpack.icon_url} alt={activeModpack.title} className={'w-10 h-10 rounded-lg object-cover'} />
+                    <img src={activeModpack.icon_url} alt={activeModpack.title} className={'w-8 h-8 rounded-lg object-cover shrink-0'} />
                   ) : (
-                    <div className={'w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center text-cyan-400'}>
-                      <FontAwesomeIcon icon={faBoxes} />
+                    <div className={'w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center text-cyan-400 shrink-0'}>
+                      <FontAwesomeIcon icon={faBoxes} className={'text-sm'} />
                     </div>
                   )}
-                  <div>
-                    <h3 className={'text-base font-bold text-neutral-100 leading-tight'}>{activeModpack.title}</h3>
-                    <p className={'text-xs text-neutral-400 mt-0.5'}>Install Modpack</p>
+                  <div className={'min-w-0'}>
+                    <h3 className={'text-sm font-bold text-neutral-100 truncate'}>{activeModpack.title}</h3>
+                    <p className={'text-[11px] text-neutral-400'}>Install Modpack</p>
                   </div>
                 </div>
 
                 {installPhase === 'idle' || installPhase === 'success' || installPhase === 'error' ? (
                   <button
                     onClick={() => setInstallModalOpen(false)}
-                    className={'p-2 text-neutral-400 hover:text-neutral-200 transition-colors'}
+                    className={'p-1.5 text-neutral-400 hover:text-neutral-200 transition-colors rounded-lg'}
                   >
                     <FontAwesomeIcon icon={faTimes} />
                   </button>
@@ -842,19 +842,19 @@ export default function ModpackInstallerContainer() {
               </div>
 
               {/* Modal Body */}
-              <div className={'p-5 space-y-4'}>
+              <div className={'p-4 space-y-3.5 overflow-y-auto'}>
                 {/* IDLE / SETUP VIEW */}
                 {installPhase === 'idle' && (
                   <>
                     {/* Version Selector */}
                     <div>
-                      <label className={'block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider'}>
+                      <label className={'block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1'}>
                         Select Modpack Version
                       </label>
                       {loadingVersions ? (
-                        <div className={'flex items-center gap-2 text-xs text-neutral-400 py-2'}>
+                        <div className={'flex items-center gap-2 text-xs text-neutral-400 py-2 px-3 bg-neutral-800/60 rounded-lg border border-neutral-700/60'}>
                           <FontAwesomeIcon icon={faSpinner} spin className={'text-cyan-400'} />
-                          Loading available versions...
+                          Loading versions...
                         </div>
                       ) : modpackVersions.length === 0 ? (
                         <p className={'text-xs text-amber-400 py-1'}>No downloadable versions found.</p>
@@ -862,7 +862,7 @@ export default function ModpackInstallerContainer() {
                         <select
                           value={selectedVersionId}
                           onChange={(e) => setSelectedVersionId(e.target.value)}
-                          className={'w-full py-2.5 px-3 bg-neutral-800 border border-neutral-700 rounded-lg text-neutral-200 text-sm focus:outline-none focus:border-cyan-500'}
+                          className={'w-full py-2 px-3 bg-neutral-800 border border-neutral-700/80 rounded-lg text-neutral-200 text-xs focus:outline-none focus:border-cyan-500'}
                         >
                           {modpackVersions.map((v) => (
                             <option key={v.id} value={v.id}>
@@ -873,96 +873,76 @@ export default function ModpackInstallerContainer() {
                       )}
                     </div>
 
-                    {/* Server Compatibility Notice */}
-                    <div className={'p-3 bg-cyan-950/40 border border-cyan-800/50 rounded-xl text-xs text-cyan-200 flex items-start gap-2.5'}>
-                      <FontAwesomeIcon icon={faBoxes} className={'text-cyan-400 mt-0.5'} />
-                      <div>
-                        <span className={'font-semibold'}>Server Software Note:</span>
-                        <p className={'text-neutral-300 mt-0.5'}>
-                          Make sure your server is running the matching Minecraft version and Mod Loader (e.g. Fabric or Forge). You can switch server software at any time using the <strong>Software Installer</strong>.
-                        </p>
+                    {/* Wipe Options - Compact 3-card grid */}
+                    <div>
+                      <label className={'block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1.5'}>
+                        Installation Mode
+                      </label>
+                      <div className={'grid grid-cols-3 gap-2'}>
+                        <button
+                          type={'button'}
+                          onClick={() => setWipeMode('mods_and_configs')}
+                          className={`p-2.5 rounded-xl text-center border transition-all text-xs font-semibold ${
+                            wipeMode === 'mods_and_configs'
+                              ? 'bg-cyan-600/25 border-cyan-500 text-cyan-300 shadow-sm shadow-cyan-500/20 ring-1 ring-cyan-500/50'
+                              : 'bg-neutral-800/60 border-neutral-700/70 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600'
+                          }`}
+                        >
+                          <span className={'block'}>Clean Mods</span>
+                          <span className={'text-[9px] opacity-80 font-normal uppercase tracking-wider'}>Recommended</span>
+                        </button>
+                        <button
+                          type={'button'}
+                          onClick={() => setWipeMode('none')}
+                          className={`p-2.5 rounded-xl text-center border transition-all text-xs font-semibold ${
+                            wipeMode === 'none'
+                              ? 'bg-cyan-600/25 border-cyan-500 text-cyan-300 shadow-sm shadow-cyan-500/20 ring-1 ring-cyan-500/50'
+                              : 'bg-neutral-800/60 border-neutral-700/70 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600'
+                          }`}
+                        >
+                          <span className={'block'}>Keep All</span>
+                          <span className={'text-[9px] opacity-80 font-normal uppercase tracking-wider'}>No wipe</span>
+                        </button>
+                        <button
+                          type={'button'}
+                          onClick={() => setWipeMode('full_server')}
+                          className={`p-2.5 rounded-xl text-center border transition-all text-xs font-semibold ${
+                            wipeMode === 'full_server'
+                              ? 'bg-rose-600/25 border-rose-500 text-rose-300 shadow-sm shadow-rose-500/20 ring-1 ring-rose-500/50'
+                              : 'bg-neutral-800/60 border-neutral-700/70 text-neutral-400 hover:text-neutral-200 hover:border-neutral-600'
+                          }`}
+                        >
+                          <span className={'block'}>Wipe Server</span>
+                          <span className={'text-[9px] opacity-80 font-normal uppercase tracking-wider'}>Full reset</span>
+                        </button>
                       </div>
+                      <p className={'text-[11px] text-neutral-400 mt-1.5 px-0.5'}>
+                        {wipeMode === 'mods_and_configs' && '✓ Clears /mods & /config to prevent conflicts. Worlds & settings are kept.'}
+                        {wipeMode === 'none' && '✓ Merges modpack files with existing files without deleting anything.'}
+                        {wipeMode === 'full_server' && '⚠️ Deletes ALL existing server files and starts completely fresh.'}
+                      </p>
                     </div>
 
-                    {/* Wipe Options */}
-                    <div>
-                      <label className={'block text-xs font-semibold text-neutral-300 mb-2 uppercase tracking-wider'}>
-                        Installation Mode / Wipe Data
-                      </label>
-                      <div className={'space-y-2'}>
-                        <label className={'flex items-start gap-3 p-3 bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-xl cursor-pointer transition-colors'}>
-                          <input
-                            type={'radio'}
-                            name={'wipeMode'}
-                            value={'mods_and_configs'}
-                            checked={wipeMode === 'mods_and_configs'}
-                            onChange={() => setWipeMode('mods_and_configs')}
-                            className={'mt-1 text-cyan-500 focus:ring-0'}
-                          />
-                          <div>
-                            <span className={'text-sm font-semibold text-neutral-200'}>
-                              Wipe Mods & Configs (Recommended)
-                            </span>
-                            <p className={'text-xs text-neutral-400 mt-0.5'}>
-                              Clears previous /mods and /config folders to prevent mod conflicts, while preserving worlds and server settings.
-                            </p>
-                          </div>
-                        </label>
-
-                        <label className={'flex items-start gap-3 p-3 bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-xl cursor-pointer transition-colors'}>
-                          <input
-                            type={'radio'}
-                            name={'wipeMode'}
-                            value={'full_server'}
-                            checked={wipeMode === 'full_server'}
-                            onChange={() => setWipeMode('full_server')}
-                            className={'mt-1 text-cyan-500 focus:ring-0'}
-                          />
-                          <div>
-                            <span className={'text-sm font-semibold text-neutral-200'}>
-                              Wipe Entire Server
-                            </span>
-                            <p className={'text-xs text-neutral-400 mt-0.5'}>
-                              Completely resets all files on the server for a fresh start.
-                            </p>
-                          </div>
-                        </label>
-
-                        <label className={'flex items-start gap-3 p-3 bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-xl cursor-pointer transition-colors'}>
-                          <input
-                            type={'radio'}
-                            name={'wipeMode'}
-                            value={'none'}
-                            checked={wipeMode === 'none'}
-                            onChange={() => setWipeMode('none')}
-                            className={'mt-1 text-cyan-500 focus:ring-0'}
-                          />
-                          <div>
-                            <span className={'text-sm font-semibold text-neutral-200'}>
-                              Keep Existing Files
-                            </span>
-                            <p className={'text-xs text-neutral-400 mt-0.5'}>
-                              Installs the modpack on top of current server files without deleting anything.
-                            </p>
-                          </div>
-                        </label>
-                      </div>
+                    {/* Server Compatibility Notice - Compact hint */}
+                    <div className={'px-3 py-2 bg-neutral-800/50 border border-neutral-700/50 rounded-lg text-[11px] text-neutral-400 flex items-center gap-2'}>
+                      <FontAwesomeIcon icon={faBoxes} className={'text-cyan-400 text-xs shrink-0'} />
+                      <span>Requires matching server software (Fabric/Forge).</span>
                     </div>
                   </>
                 )}
 
                 {/* PROGRESS BAR VIEW */}
                 {(installPhase === 'preparing' || installPhase === 'downloading' || installPhase === 'finalizing') && (
-                  <div className={'py-6 space-y-4'}>
+                  <div className={'py-4 space-y-3'}>
                     <div className={'flex items-center justify-between text-xs font-medium text-neutral-300'}>
-                      <span className={'flex items-center gap-2'}>
-                        <FontAwesomeIcon icon={faSpinner} spin className={'text-cyan-400'} />
-                        {progressMessage}
+                      <span className={'flex items-center gap-2 truncate'}>
+                        <FontAwesomeIcon icon={faSpinner} spin className={'text-cyan-400 shrink-0'} />
+                        <span className={'truncate'}>{progressMessage}</span>
                       </span>
-                      <span className={'font-mono text-cyan-400 font-bold'}>{progressPercent}%</span>
+                      <span className={'font-mono text-cyan-400 font-bold ml-2 shrink-0'}>{progressPercent}%</span>
                     </div>
 
-                    <div className={'w-full bg-neutral-800 rounded-full h-3 overflow-hidden border border-neutral-700/60'}>
+                    <div className={'w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden border border-neutral-700/60'}>
                       <div
                         className={'bg-gradient-to-r from-cyan-500 to-blue-500 h-full transition-all duration-300 ease-out'}
                         style={{ width: `${progressPercent}%` }}
@@ -970,7 +950,7 @@ export default function ModpackInstallerContainer() {
                     </div>
 
                     {totalFilesToProcess > 0 && (
-                      <p className={'text-center text-xs font-mono text-neutral-400'}>
+                      <p className={'text-center text-[11px] font-mono text-neutral-400'}>
                         Processed {processedFiles} of {totalFilesToProcess} files
                       </p>
                     )}
@@ -979,11 +959,11 @@ export default function ModpackInstallerContainer() {
 
                 {/* SUCCESS VIEW */}
                 {installPhase === 'success' && (
-                  <div className={'py-6 text-center space-y-3'}>
-                    <div className={'w-14 h-14 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-2xl mx-auto border border-emerald-500/40'}>
+                  <div className={'py-4 text-center space-y-2.5'}>
+                    <div className={'w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-xl mx-auto border border-emerald-500/40'}>
                       <FontAwesomeIcon icon={faCheck} />
                     </div>
-                    <h4 className={'text-base font-bold text-neutral-100'}>Installation Complete!</h4>
+                    <h4 className={'text-sm font-bold text-neutral-100'}>Installation Complete!</h4>
                     <p className={'text-xs text-neutral-300 max-w-sm mx-auto'}>
                       {progressMessage}
                     </p>
@@ -992,12 +972,12 @@ export default function ModpackInstallerContainer() {
 
                 {/* ERROR VIEW */}
                 {installPhase === 'error' && (
-                  <div className={'py-4 space-y-3'}>
-                    <div className={'p-4 bg-red-900/40 border border-red-500/40 rounded-xl text-red-200 text-xs flex items-start gap-3'}>
-                      <FontAwesomeIcon icon={faExclamationTriangle} className={'text-red-400 text-base mt-0.5'} />
+                  <div className={'py-3 space-y-3'}>
+                    <div className={'p-3 bg-red-900/40 border border-red-500/40 rounded-xl text-red-200 text-xs flex items-start gap-2.5'}>
+                      <FontAwesomeIcon icon={faExclamationTriangle} className={'text-red-400 text-sm mt-0.5 shrink-0'} />
                       <div>
                         <span className={'font-bold'}>Installation Error</span>
-                        <p className={'mt-1'}>{installError || 'An error occurred during installation.'}</p>
+                        <p className={'mt-0.5'}>{installError || 'An error occurred during installation.'}</p>
                       </div>
                     </div>
                   </div>
@@ -1005,19 +985,19 @@ export default function ModpackInstallerContainer() {
               </div>
 
               {/* Modal Footer Actions */}
-              <div className={'p-5 bg-neutral-950/60 border-t border-neutral-800 flex items-center justify-end gap-3'}>
+              <div className={'px-4 py-3 bg-neutral-950/60 border-t border-neutral-800 flex items-center justify-end gap-2.5 shrink-0'}>
                 {installPhase === 'idle' && (
                   <>
                     <button
                       onClick={() => setInstallModalOpen(false)}
-                      className={'px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium rounded-lg transition-colors'}
+                      className={'px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium rounded-lg transition-colors'}
                     >
                       Cancel
                     </button>
                     <button
                       onClick={startInstallation}
                       disabled={!selectedVersionId || loadingVersions}
-                      className={'px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-2'}
+                      className={'px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-md shadow-cyan-500/20 transition-all flex items-center gap-1.5'}
                     >
                       <FontAwesomeIcon icon={faDownload} />
                       Install Now
@@ -1031,7 +1011,7 @@ export default function ModpackInstallerContainer() {
                       setInstallModalOpen(false);
                       setActiveTab('installed');
                     }}
-                    className={'px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors'}
+                    className={'px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors'}
                   >
                     View Installed Modpack
                   </button>
@@ -1041,13 +1021,13 @@ export default function ModpackInstallerContainer() {
                   <>
                     <button
                       onClick={() => setInstallModalOpen(false)}
-                      className={'px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium rounded-lg transition-colors'}
+                      className={'px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium rounded-lg transition-colors'}
                     >
                       Close
                     </button>
                     <button
                       onClick={() => setInstallPhase('idle')}
-                      className={'px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg transition-colors'}
+                      className={'px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg transition-colors'}
                     >
                       Try Again
                     </button>
