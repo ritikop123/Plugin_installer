@@ -233,6 +233,84 @@ class ModpackInstallerController extends ClientApiController
             'has_modpack' => false,
             'manifest' => null,
         ]);
+    }    /**
+     * Helper to move override folder contents to destination safely.
+     */
+    private function moveOverrides(Server $server, string $sourceDir): int
+    {
+        $count = 0;
+        try {
+            $items = $this->fileRepository->setServer($server)->getDirectory('/' . $sourceDir);
+            if (!is_array($items) || empty($items)) {
+                try {
+                    $this->fileRepository->setServer($server)->deleteFiles('/', [$sourceDir]);
+                } catch (Throwable $e) {}
+                return 0;
+            }
+
+            foreach ($items as $item) {
+                $name = $item['name'] ?? '';
+                if (empty($name) || $name === '.' || $name === '..') {
+                    continue;
+                }
+
+                $fromPath = $sourceDir . '/' . $name;
+                $toPath = $name;
+
+                // Try atomic rename directly into root
+                $atomicSuccess = false;
+                try {
+                    $this->fileRepository->setServer($server)->renameFiles('/', [
+                        ['from' => $fromPath, 'to' => $toPath],
+                    ]);
+                    $count++;
+                    $atomicSuccess = true;
+                } catch (Throwable $e) {
+                    $atomicSuccess = false;
+                }
+
+                if ($atomicSuccess) {
+                    continue;
+                }
+
+                // If atomic rename failed (e.g. directory already exists in root like config/ or mods/),
+                // list items in the subfolder and move them individually
+                try {
+                    $subItems = $this->fileRepository->setServer($server)->getDirectory('/' . $fromPath);
+                    if (is_array($subItems)) {
+                        $renames = [];
+                        foreach ($subItems as $sub) {
+                            $subName = $sub['name'] ?? '';
+                            if (!empty($subName) && $subName !== '.' && $subName !== '..') {
+                                $renames[] = [
+                                    'from' => $fromPath . '/' . $subName,
+                                    'to' => $toPath . '/' . $subName,
+                                ];
+                                $count++;
+                            }
+                        }
+                        if (!empty($renames)) {
+                            try {
+                                $this->fileRepository->setServer($server)->renameFiles('/', $renames);
+                            } catch (Throwable $e) {
+                                foreach ($renames as $r) {
+                                    try {
+                                        $this->fileRepository->setServer($server)->renameFiles('/', [$r]);
+                                    } catch (Throwable $ignored) {}
+                                }
+                            }
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+        } catch (Throwable $e) {}
+
+        // Clean up the override folder
+        try {
+            $this->fileRepository->setServer($server)->deleteFiles('/', [$sourceDir]);
+        } catch (Throwable $e) {}
+
+        return $count;
     }
 
     /**
@@ -247,8 +325,11 @@ class ModpackInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        @ini_set('memory_limit', '512M');
         @set_time_limit(300);
         @ini_set('max_execution_time', '300');
+        config(['pterodactyl.guzzle.timeout' => 300]);
+        config(['pterodactyl.guzzle.connect_timeout' => 30]);
 
         $versionId = trim((string) $request->input('version_id', ''));
         $wipeMode = trim((string) $request->input('wipe_mode', 'mods_and_configs'));
@@ -261,7 +342,7 @@ class ModpackInstallerController extends ClientApiController
             // 1. Fetch version metadata from Modrinth
             $verRes = $this->httpClient->get("version/{$versionId}");
             if ($verRes->getStatusCode() !== 200) {
-                return response()->json(['error' => 'Failed to fetch version metadata from Modrinth.'], 502);
+                return response()->json(['error' => 'Failed to fetch version metadata from Modrinth.'], 400);
             }
 
             $verData = json_decode($verRes->getBody()->getContents(), true);
@@ -284,136 +365,110 @@ class ModpackInstallerController extends ClientApiController
                 return response()->json(['error' => 'No valid modpack archive (.mrpack) found for this version.'], 400);
             }
 
-            // 2. Download .mrpack to a temporary file
-            $tempPack = tempnam(sys_get_temp_dir(), 'ptero_mrpack_');
-            $client = new Client(['timeout' => 180.0, 'http_errors' => false]);
-            $packRes = $client->get($mrpackUrl, ['sink' => $tempPack]);
-
-            if ($packRes->getStatusCode() !== 200) {
-                @unlink($tempPack);
-                return response()->json(['error' => 'Failed to download .mrpack file.'], 502);
-            }
-
-            // 3. Open .mrpack with ZipArchive if available
-            $modsToInstall = [];
-            $dependencies = [];
-            $overridesCount = 0;
-
-            if (class_exists('ZipArchive')) {
-                $zip = new ZipArchive();
-                if ($zip->open($tempPack) === true) {
-                    $indexContent = $zip->getFromName('modrinth.index.json');
-                    if ($indexContent !== false) {
-                        $index = json_decode($indexContent, true);
-                        if (is_array($index)) {
-                            $dependencies = $index['dependencies'] ?? [];
-                            $rawFiles = $index['files'] ?? [];
-
-                            foreach ($rawFiles as $item) {
-                                $serverEnv = $item['env']['server'] ?? 'required';
-                                if ($serverEnv === 'unsupported') {
-                                    continue;
-                                }
-
-                                $path = $item['path'] ?? '';
-                                $downloads = $item['downloads'] ?? [];
-                                if (empty($path) || empty($downloads)) {
-                                    continue;
-                                }
-
-                                $cleanPath = ltrim(str_replace('\\', '/', $path), '/');
-                                $fileName = basename($cleanPath);
-                                $dir = dirname($cleanPath);
-                                if ($dir === '.' || empty($dir)) {
-                                    $dir = 'mods';
-                                }
-
-                                $modsToInstall[] = [
-                                    'name' => $fileName,
-                                    'path' => $cleanPath,
-                                    'directory' => '/' . $dir,
-                                    'filename' => $fileName,
-                                    'url' => $downloads[0],
-                                    'size' => (int) ($item['fileSize'] ?? 0),
-                                ];
-                            }
-                        }
-                    }
-
-                    // Handle Wipe
-                    if ($wipeMode === 'full_server') {
-                        if ($request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
-                            try {
-                                $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
-                                if (is_array($rootItems)) {
-                                    $toDelete = [];
-                                    foreach ($rootItems as $it) {
-                                        $name = $it['name'] ?? '';
-                                        if (!empty($name) && $name !== '.' && $name !== '..') {
-                                            $toDelete[] = $name;
-                                        }
-                                    }
-                                    if (!empty($toDelete)) {
-                                        $this->fileRepository->setServer($server)->deleteFiles('/', $toDelete);
-                                    }
-                                }
-                            } catch (Throwable $e) {}
-                        }
-                    } elseif ($wipeMode === 'mods_and_configs') {
-                        if ($request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
-                            try {
-                                $this->fileRepository->setServer($server)->deleteFiles('/', ['mods', 'config', 'defaultconfigs']);
-                            } catch (Throwable $e) {}
-                        }
-                    }
-
-                    // Extract overrides efficiently in a single operation via Wings decompressFile
-                    $overridesZipPath = tempnam(sys_get_temp_dir(), 'ptero_overrides_') . '.zip';
-                    $overridesZip = new ZipArchive();
-                    $hasOverrides = false;
-
-                    if ($overridesZip->open($overridesZipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true) {
-                        for ($i = 0; $i < $zip->numFiles; $i++) {
-                            $stat = $zip->statIndex($i);
-                            $entryName = $stat['name'] ?? '';
-                            if (empty($entryName) || str_ends_with($entryName, '/')) {
-                                continue;
-                            }
-
-                            $relPath = null;
-                            if (str_starts_with($entryName, 'overrides/')) {
-                                $relPath = substr($entryName, strlen('overrides/'));
-                            } elseif (str_starts_with($entryName, 'server-overrides/')) {
-                                $relPath = substr($entryName, strlen('server-overrides/'));
-                            }
-
-                            if ($relPath) {
-                                $fileData = $zip->getFromIndex($i);
-                                if ($fileData !== false) {
-                                    $overridesZip->addFromString($relPath, $fileData);
-                                    $hasOverrides = true;
-                                    $overridesCount++;
+            // 2. Perform Wipe if requested
+            if ($wipeMode === 'full_server') {
+                if ($request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
+                    try {
+                        $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+                        if (is_array($rootItems)) {
+                            $toDelete = [];
+                            foreach ($rootItems as $it) {
+                                $name = $it['name'] ?? '';
+                                if (!empty($name) && $name !== '.' && $name !== '..') {
+                                    $toDelete[] = $name;
                                 }
                             }
+                            if (!empty($toDelete)) {
+                                $this->fileRepository->setServer($server)->deleteFiles('/', $toDelete);
+                            }
                         }
-                        $overridesZip->close();
-
-                        if ($hasOverrides && file_exists($overridesZipPath) && filesize($overridesZipPath) > 0) {
-                            try {
-                                $zipName = '.modpack_overrides_' . time() . '.zip';
-                                $this->fileRepository->setServer($server)->putContent('/' . $zipName, file_get_contents($overridesZipPath));
-                                $this->fileRepository->setServer($server)->decompressFile('/', $zipName);
-                                $this->fileRepository->setServer($server)->deleteFiles('/', [$zipName]);
-                            } catch (Throwable $e) {}
-                        }
-                        @unlink($overridesZipPath);
-                    }
-
-                    $zip->close();
+                    } catch (Throwable $e) {}
+                }
+            } elseif ($wipeMode === 'mods_and_configs') {
+                if ($request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
+                    try {
+                        $this->fileRepository->setServer($server)->deleteFiles('/', ['mods', 'config', 'defaultconfigs', 'kubejs']);
+                    } catch (Throwable $e) {}
                 }
             }
 
-            @unlink($tempPack);
+            // 3. Command Wings to pull the .mrpack archive directly to the server root as .modpack_temp_<timestamp>.zip
+            $zipName = '.modpack_temp_' . time() . '.zip';
+            $this->fileRepository->setServer($server)->pull(
+                $mrpackUrl,
+                '/',
+                [
+                    'filename' => $zipName,
+                    'use_header' => false,
+                    'foreground' => true,
+                ]
+            );
+
+            // 4. Command Wings to decompress the archive natively
+            $this->fileRepository->setServer($server)->decompressFile('/', $zipName);
+
+            // Clean up the downloaded zip archive
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles('/', [$zipName]);
+            } catch (Throwable $e) {}
+
+            // 5. Move contents of overrides/ and server-overrides/ to server root
+            $overridesCount = 0;
+            foreach (['overrides', 'server-overrides'] as $overrideFolder) {
+                $overridesCount += $this->moveOverrides($server, $overrideFolder);
+            }
+
+            // Ensure /mods directory exists
+            try {
+                $this->fileRepository->setServer($server)->createDirectory('mods', '/');
+            } catch (Throwable $e) {}
+
+            // 6. Read and parse modrinth.index.json from server root
+            $modsToInstall = [];
+            $dependencies = [];
+
+            try {
+                $indexContent = $this->fileRepository->setServer($server)->getContent('/modrinth.index.json');
+                $index = json_decode($indexContent, true);
+                if (is_array($index)) {
+                    $dependencies = $index['dependencies'] ?? [];
+                    $rawFiles = $index['files'] ?? [];
+
+                    foreach ($rawFiles as $item) {
+                        $serverEnv = $item['env']['server'] ?? 'required';
+                        if ($serverEnv === 'unsupported') {
+                            continue;
+                        }
+
+                        $path = $item['path'] ?? '';
+                        $downloads = $item['downloads'] ?? [];
+                        if (empty($path) || empty($downloads)) {
+                            continue;
+                        }
+
+                        $cleanPath = ltrim(str_replace('\\', '/', $path), '/');
+                        $fileName = basename($cleanPath);
+                        $dir = dirname($cleanPath);
+                        if ($dir === '.' || empty($dir)) {
+                            $dir = 'mods';
+                        }
+
+                        $modsToInstall[] = [
+                            'name' => $fileName,
+                            'path' => $cleanPath,
+                            'directory' => '/' . $dir,
+                            'filename' => $fileName,
+                            'url' => $downloads[0],
+                            'size' => (int) ($item['fileSize'] ?? 0),
+                        ];
+                    }
+                }
+            } catch (Throwable $e) {}
+
+            // Clean up modrinth.index.json
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles('/', ['modrinth.index.json']);
+            } catch (Throwable $e) {}
 
             $detectedLoader = isset($dependencies['fabric-loader']) ? 'fabric'
                 : (isset($dependencies['forge']) ? 'forge'
@@ -431,9 +486,9 @@ class ModpackInstallerController extends ClientApiController
             ]);
         } catch (Throwable $e) {
             return response()->json([
-                'error' => 'Failed to prepare modpack.',
+                'error' => 'Failed to prepare modpack: ' . $e->getMessage(),
                 'message' => $e->getMessage(),
-            ], 500);
+            ], 400);
         }
     }
 
@@ -449,6 +504,8 @@ class ModpackInstallerController extends ClientApiController
 
         @set_time_limit(180);
         @ini_set('max_execution_time', '180');
+        config(['pterodactyl.guzzle.timeout' => 180]);
+        config(['pterodactyl.guzzle.connect_timeout' => 20]);
 
         $files = $request->input('files', []);
         if (!is_array($files) || empty($files)) {
@@ -473,13 +530,28 @@ class ModpackInstallerController extends ClientApiController
                 $cleanFilename = 'mod.jar';
             }
 
+            // Ensure destination directory exists
+            if ($directory !== '/' && !empty($directory)) {
+                try {
+                    $cleanDir = trim($directory, '/');
+                    if (!empty($cleanDir)) {
+                        $parent = dirname($cleanDir);
+                        $folderName = basename($cleanDir);
+                        $this->fileRepository->setServer($server)->createDirectory(
+                            $folderName,
+                            $parent === '.' || empty($parent) ? '/' : ('/' . $parent)
+                        );
+                    }
+                } catch (Throwable $e) {}
+            }
+
             try {
                 $this->fileRepository->setServer($server)->pull(
                     $url,
                     $directory,
                     [
                         'filename' => $cleanFilename,
-                        'use_header' => true,
+                        'use_header' => false,
                         'foreground' => true,
                     ]
                 );
@@ -507,6 +579,8 @@ class ModpackInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        config(['pterodactyl.guzzle.timeout' => 60]);
+
         $manifest = [
             'project_id' => (string) $request->input('project_id', ''),
             'title' => (string) $request->input('title', 'Minecraft Modpack'),
@@ -533,9 +607,9 @@ class ModpackInstallerController extends ClientApiController
             ]);
         } catch (Throwable $e) {
             return response()->json([
-                'error' => 'Failed to write modpack manifest file.',
+                'error' => 'Failed to write modpack manifest file: ' . $e->getMessage(),
                 'message' => $e->getMessage(),
-            ], 500);
+            ], 400);
         }
     }
 
@@ -548,6 +622,8 @@ class ModpackInstallerController extends ClientApiController
         if (!$request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
             throw new AuthorizationException();
         }
+
+        config(['pterodactyl.guzzle.timeout' => 120]);
 
         $wipeModsDir = (bool) $request->input('wipe_mods', true);
 
@@ -582,9 +658,9 @@ class ModpackInstallerController extends ClientApiController
             ]);
         } catch (Throwable $e) {
             return response()->json([
-                'error' => 'Failed to uninstall modpack.',
+                'error' => 'Failed to uninstall modpack: ' . $e->getMessage(),
                 'message' => $e->getMessage(),
-            ], 500);
+            ], 400);
         }
     }
 }
