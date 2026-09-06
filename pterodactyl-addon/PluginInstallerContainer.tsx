@@ -247,8 +247,8 @@ export default function PluginInstallerContainer() {
   const totalPages = Math.ceil(totalHits / pageSize);
 
   return (
-    <ServerContentBlock title={'Plugin Installer'} css={['max-w-7xl mx-auto']}>
-      <div className="space-y-6">
+    <ServerContentBlock title={'Plugin Installer'}>
+      <div className="max-w-7xl mx-auto space-y-6">
         {/* Header Bar */}
         <div className="bg-[#101522] border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
           <div className="flex items-center gap-3">

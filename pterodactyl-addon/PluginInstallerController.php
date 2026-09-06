@@ -239,6 +239,7 @@ class PluginInstallerController extends ClientApiController
                 $url,
                 '/plugins',
                 [
+                    'filename' => $cleanFilename,
                     'use_header' => true,
                     'foreground' => true,
                 ]
