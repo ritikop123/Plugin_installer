@@ -247,6 +247,9 @@ class ModpackInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $versionId = trim((string) $request->input('version_id', ''));
         $wipeMode = trim((string) $request->input('wipe_mode', 'mods_and_configs'));
 
@@ -283,7 +286,7 @@ class ModpackInstallerController extends ClientApiController
 
             // 2. Download .mrpack to a temporary file
             $tempPack = tempnam(sys_get_temp_dir(), 'ptero_mrpack_');
-            $client = new Client(['timeout' => 60.0, 'http_errors' => false]);
+            $client = new Client(['timeout' => 180.0, 'http_errors' => false]);
             $packRes = $client->get($mrpackUrl, ['sink' => $tempPack]);
 
             if ($packRes->getStatusCode() !== 200) {
@@ -364,30 +367,46 @@ class ModpackInstallerController extends ClientApiController
                         }
                     }
 
-                    // Extract overrides
-                    for ($i = 0; $i < $zip->numFiles; $i++) {
-                        $stat = $zip->statIndex($i);
-                        $entryName = $stat['name'] ?? '';
-                        if (empty($entryName) || str_ends_with($entryName, '/')) {
-                            continue;
-                        }
+                    // Extract overrides efficiently in a single operation via Wings decompressFile
+                    $overridesZipPath = tempnam(sys_get_temp_dir(), 'ptero_overrides_') . '.zip';
+                    $overridesZip = new ZipArchive();
+                    $hasOverrides = false;
 
-                        $targetPath = null;
-                        if (str_starts_with($entryName, 'overrides/')) {
-                            $targetPath = '/' . substr($entryName, strlen('overrides/'));
-                        } elseif (str_starts_with($entryName, 'server-overrides/')) {
-                            $targetPath = '/' . substr($entryName, strlen('server-overrides/'));
-                        }
+                    if ($overridesZip->open($overridesZipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true) {
+                        for ($i = 0; $i < $zip->numFiles; $i++) {
+                            $stat = $zip->statIndex($i);
+                            $entryName = $stat['name'] ?? '';
+                            if (empty($entryName) || str_ends_with($entryName, '/')) {
+                                continue;
+                            }
 
-                        if ($targetPath && $stat['size'] < 5000000) {
-                            $fileData = $zip->getFromIndex($i);
-                            if ($fileData !== false) {
-                                try {
-                                    $this->fileRepository->setServer($server)->putContent($targetPath, $fileData);
+                            $relPath = null;
+                            if (str_starts_with($entryName, 'overrides/')) {
+                                $relPath = substr($entryName, strlen('overrides/'));
+                            } elseif (str_starts_with($entryName, 'server-overrides/')) {
+                                $relPath = substr($entryName, strlen('server-overrides/'));
+                            }
+
+                            if ($relPath) {
+                                $fileData = $zip->getFromIndex($i);
+                                if ($fileData !== false) {
+                                    $overridesZip->addFromString($relPath, $fileData);
+                                    $hasOverrides = true;
                                     $overridesCount++;
-                                } catch (Throwable $e) {}
+                                }
                             }
                         }
+                        $overridesZip->close();
+
+                        if ($hasOverrides && file_exists($overridesZipPath) && filesize($overridesZipPath) > 0) {
+                            try {
+                                $zipName = '.modpack_overrides_' . time() . '.zip';
+                                $this->fileRepository->setServer($server)->putContent('/' . $zipName, file_get_contents($overridesZipPath));
+                                $this->fileRepository->setServer($server)->decompressFile('/', $zipName);
+                                $this->fileRepository->setServer($server)->deleteFiles('/', [$zipName]);
+                            } catch (Throwable $e) {}
+                        }
+                        @unlink($overridesZipPath);
                     }
 
                     $zip->close();
@@ -427,6 +446,9 @@ class ModpackInstallerController extends ClientApiController
         if (!$request->user()->can(Permission::ACTION_FILE_CREATE, $server)) {
             throw new AuthorizationException();
         }
+
+        @set_time_limit(180);
+        @ini_set('max_execution_time', '180');
 
         $files = $request->input('files', []);
         if (!is_array($files) || empty($files)) {

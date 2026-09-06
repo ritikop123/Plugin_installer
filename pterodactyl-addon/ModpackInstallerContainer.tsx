@@ -289,11 +289,15 @@ export default function ModpackInstallerContainer() {
     const projectId = activeModpack.project_id || activeModpack.id || activeModpack.slug;
 
     try {
-      // Step 1: Prepare
-      const prepRes = await http.post<PrepareResponse>(`/api/client/servers/${uuid}/modpacks/prepare`, {
-        version_id: selectedVersionId,
-        wipe_mode: wipeMode,
-      });
+      // Step 1: Prepare (allow up to 5 mins for downloading large .mrpack archives and extracting overrides)
+      const prepRes = await http.post<PrepareResponse>(
+        `/api/client/servers/${uuid}/modpacks/prepare`,
+        {
+          version_id: selectedVersionId,
+          wipe_mode: wipeMode,
+        },
+        { timeout: 300000 }
+      );
 
       const prepData = prepRes.data;
       if (!prepData || !prepData.success) {
@@ -328,7 +332,8 @@ export default function ModpackInstallerContainer() {
 
           const batchRes = await http.post<{ success: boolean; installed_files: string[] }>(
             `/api/client/servers/${uuid}/modpacks/install-batch`,
-            { files: batch }
+            { files: batch },
+            { timeout: 180000 }
           );
 
           if (batchRes.data && Array.isArray(batchRes.data.installed_files)) {
@@ -342,17 +347,21 @@ export default function ModpackInstallerContainer() {
       setProgressPercent(95);
       setProgressMessage('Finalizing modpack manifest...');
 
-      await http.post(`/api/client/servers/${uuid}/modpacks/finalize`, {
-        project_id: projectId,
-        title: activeModpack.title,
-        version_id: selectedVersionId,
-        version_name: chosenVersion?.version_number || chosenVersion?.name || 'Latest',
-        loader: prepData.loader || chosenVersion?.loaders?.[0] || 'modded',
-        minecraft: prepData.game_version || chosenVersion?.game_versions?.[0] || 'Unknown',
-        icon_url: activeModpack.icon_url || '',
-        total_mods: files.length,
-        installed_files: files.map((f) => f.path),
-      });
+      await http.post(
+        `/api/client/servers/${uuid}/modpacks/finalize`,
+        {
+          project_id: projectId,
+          title: activeModpack.title,
+          version_id: selectedVersionId,
+          version_name: chosenVersion?.version_number || chosenVersion?.name || 'Latest',
+          loader: prepData.loader || chosenVersion?.loaders?.[0] || 'modded',
+          minecraft: prepData.game_version || chosenVersion?.game_versions?.[0] || 'Unknown',
+          icon_url: activeModpack.icon_url || '',
+          total_mods: files.length,
+          installed_files: files.map((f) => f.path),
+        },
+        { timeout: 60000 }
+      );
 
       setProgressPercent(100);
       setInstallPhase('success');
@@ -371,7 +380,7 @@ export default function ModpackInstallerContainer() {
     }
 
     setUninstalling(true);
-    http.post(`/api/client/servers/${uuid}/modpacks/uninstall`, { wipe_mods: true })
+    http.post(`/api/client/servers/${uuid}/modpacks/uninstall`, { wipe_mods: true }, { timeout: 120000 })
       .then(() => {
         setInstalledManifest(null);
         fetchInstalledManifest();
