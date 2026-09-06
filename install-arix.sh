@@ -126,9 +126,11 @@ if (file_exists($file)) {
 ' 2>/dev/null || true
 
 # Remove any old tokens if found in any installed plugin directories
-grep -rli "MODRINTH_TOKEN" app/ resources/ 2>/dev/null | while read -r file; do
-  sed -i '/MODRINTH_TOKEN/d' "$file" 2>/dev/null || true
-done
+if grep -rq "MODRINTH_TOKEN" app/ resources/ 2>/dev/null; then
+  grep -rli "MODRINTH_TOKEN" app/ resources/ 2>/dev/null | while read -r file; do
+    sed -i '/MODRINTH_TOKEN/d' "$file" 2>/dev/null || true
+  done
+fi
 
 # 6. Install PHP Backend Controller
 echo -e "${CYAN}[*] Installing PluginInstallerController.php...${NC}"
