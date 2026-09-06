@@ -257,4 +257,68 @@ class PluginInstallerController extends ClientApiController
             ], 500);
         }
     }
+
+    /**
+     * List all installed plugin files from /plugins.
+     * GET /api/client/servers/{server}/plugins/installed
+     */
+    public function installed(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_READ, $server)) {
+            throw new AuthorizationException();
+        }
+
+        try {
+            $items = $this->fileRepository->setServer($server)->getDirectory('/plugins');
+            $files = [];
+            if (is_array($items)) {
+                foreach ($items as $item) {
+                    $name = $item['name'] ?? '';
+                    $isFile = !empty($item['file']) || !empty($item['is_file']) || (isset($item['directory']) && !$item['directory']);
+                    if ($isFile && preg_match('/\.(jar|zip)$/i', $name)) {
+                        $files[] = [
+                            'name' => $name,
+                            'size' => (int) ($item['size'] ?? 0),
+                            'modified_at' => $item['modified_at'] ?? $item['modifiedAt'] ?? '',
+                        ];
+                    }
+                }
+            }
+            return response()->json($files);
+        } catch (Exception $e) {
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Delete an installed plugin file from /plugins.
+     * POST /api/client/servers/{server}/plugins/delete
+     */
+    public function delete(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $filename = (string) $request->input('filename', '');
+        $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', $filename));
+
+        if (empty($cleanFilename) || !preg_match('/\.(jar|zip)$/i', $cleanFilename)) {
+            return response()->json(['error' => 'Invalid plugin filename to delete.'], 400);
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->deleteFiles('/plugins', [$cleanFilename]);
+            return response()->json([
+                'success' => true,
+                'message' => "Plugin {$cleanFilename} uninstalled successfully.",
+                'filename' => $cleanFilename,
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Failed to delete plugin file from server.',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

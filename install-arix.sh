@@ -154,7 +154,9 @@ Route::group(['prefix' => '/servers/{server}/plugins'], function () {
     Route::get('/', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'index']);
     Route::get('/versions', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'versions']);
     Route::get('/tags', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'tags']);
+    Route::get('/installed', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'installed']);
     Route::post('/install', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'install']);
+    Route::post('/delete', [\Pterodactyl\Http\Controllers\Api\Client\Servers\PluginInstallerController::class, 'delete']);
 });
 /* <<< ARIX PLUGIN INSTALLER END <<< */
 EOF

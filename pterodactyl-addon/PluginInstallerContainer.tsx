@@ -100,9 +100,9 @@ export default function PluginInstallerContainer() {
   };
 
   const formatSize = (bytes?: number): string => {
-    if (!bytes) return 'Unknown';
-    if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
-    return `${(bytes / 1024).toFixed(0)} KB`;
+    if (!bytes) return '0.00 MB';
+    if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
+    return `${(bytes / 1024).toFixed(2)} KB`;
   };
 
   const formatTimeAgo = (dateString?: string): string => {
@@ -139,6 +139,80 @@ export default function PluginInstallerContainer() {
       isMounted = false;
     };
   }, [uuid]);
+
+  // Robustly fetch installed plugins from /plugins directory
+  const fetchInstalledPlugins = useCallback(() => {
+    setLoadingInstalled(true);
+
+    const parseFiles = (rawItems: any[]): PteroFileItem[] => {
+      return rawItems
+        .map((item: any) => {
+          const attr = item.attributes || item;
+          return {
+            name: String(attr.name || ''),
+            size: Number(attr.size || 0),
+            isFile: attr.is_file ?? attr.isFile ?? !attr.directory ?? true,
+            modifiedAt: String(attr.modified_at || attr.modifiedAt || ''),
+          };
+        })
+        .filter((f) => f.isFile && /\.(jar|zip)$/i.test(f.name));
+    };
+
+    // 1. Try our dedicated controller endpoint first
+    http.get<Array<{ name: string; size: number; modified_at?: string }>>(
+      `/api/client/servers/${uuid}/plugins/installed`
+    )
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        if (list.length > 0) {
+          setInstalledFiles(
+            list.map((item) => ({
+              name: item.name,
+              size: item.size || 0,
+              isFile: true,
+              modifiedAt: item.modified_at || '',
+            }))
+          );
+          setLoadingInstalled(false);
+        } else {
+          // 2. Fallback to Pterodactyl native file list endpoint
+          http.get(`/api/client/servers/${uuid}/files/list`, {
+            params: { directory: '/plugins' },
+          })
+            .then((fileRes) => {
+              const raw = Array.isArray(fileRes.data)
+                ? fileRes.data
+                : Array.isArray((fileRes.data as any)?.data)
+                ? (fileRes.data as any).data
+                : [];
+              setInstalledFiles(parseFiles(raw));
+            })
+            .catch(() => setInstalledFiles([]))
+            .finally(() => setLoadingInstalled(false));
+        }
+      })
+      .catch(() => {
+        // Fallback if controller endpoint not refreshed
+        http.get(`/api/client/servers/${uuid}/files/list`, {
+          params: { directory: '/plugins' },
+        })
+          .then((fileRes) => {
+            const raw = Array.isArray(fileRes.data)
+              ? fileRes.data
+              : Array.isArray((fileRes.data as any)?.data)
+              ? (fileRes.data as any).data
+              : [];
+            setInstalledFiles(parseFiles(raw));
+          })
+          .catch(() => setInstalledFiles([]))
+          .finally(() => setLoadingInstalled(false));
+      });
+  }, [uuid]);
+
+  // Load installed plugins on mount so install status is immediately known
+  useEffect(() => {
+    fetchInstalledPlugins();
+  }, [fetchInstalledPlugins]);
 
   // Debounce search input
   useEffect(() => {
@@ -194,57 +268,26 @@ export default function PluginInstallerContainer() {
     }
   }, [fetchPlugins, activeTab]);
 
-  // Fetch installed plugins from container /plugins directory
-  const fetchInstalledPlugins = useCallback(() => {
-    setLoadingInstalled(true);
-    http.get<Array<{ name: string; size: number; is_file: boolean; modified_at: string }>>(
-      `/api/client/servers/${uuid}/files/list`,
-      { params: { directory: '/plugins' } }
-    )
-      .then((res) => {
-        if (Array.isArray(res.data)) {
-          const files: PteroFileItem[] = res.data
-            .filter((f) => f.is_file && /\.(jar|zip)$/i.test(f.name))
-            .map((f) => ({
-              name: f.name,
-              size: f.size,
-              isFile: f.is_file,
-              modifiedAt: f.modified_at,
-            }));
-          setInstalledFiles(files);
-        } else {
-          setInstalledFiles([]);
-        }
-      })
-      .catch(() => {
-        setInstalledFiles([]);
-      })
-      .finally(() => {
-        setLoadingInstalled(false);
-      });
-  }, [uuid]);
-
-  useEffect(() => {
-    if (activeTab === 'installed') {
-      fetchInstalledPlugins();
-    }
-  }, [activeTab, fetchInstalledPlugins]);
-
   // Uninstall / Delete plugin file from /plugins
   const handleUninstall = async (filename: string) => {
-    if (!confirm(`Are you sure you want to uninstall and delete ${filename}?`)) {
+    if (!confirm(`Are you sure you want to delete and uninstall ${filename}?`)) {
       return;
     }
 
     setUninstallingFile(filename);
     try {
-      await http.post(`/api/client/servers/${uuid}/files/delete`, {
-        root: '/plugins',
-        files: [filename],
-      });
+      try {
+        await http.post(`/api/client/servers/${uuid}/plugins/delete`, { filename });
+      } catch {
+        await http.post(`/api/client/servers/${uuid}/files/delete`, {
+          root: '/plugins',
+          files: [filename],
+        });
+      }
+      setInstalledFiles((prev) => prev.filter((f) => f.name !== filename));
       fetchInstalledPlugins();
     } catch (err: unknown) {
-      alert(httpErrorToHuman(err) || `Failed to uninstall ${filename}`);
+      alert(httpErrorToHuman(err) || `Failed to delete ${filename}`);
     } finally {
       setUninstallingFile(null);
     }
@@ -302,6 +345,7 @@ export default function PluginInstallerContainer() {
         success: true,
         message: response.data.message || `Plugin ${file.filename} was successfully installed into /plugins!`,
       });
+      fetchInstalledPlugins();
     } catch (err: unknown) {
       setInstallNotice({
         success: false,
@@ -326,6 +370,19 @@ export default function PluginInstallerContainer() {
   );
   const totalPages = Math.ceil(totalHits / pageSize);
 
+  // Match an installed file on server to a Modrinth plugin
+  const getInstalledFileForPlugin = (plugin: ModrinthSearchHit): PteroFileItem | undefined => {
+    const titleClean = plugin.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const slugClean = (plugin.slug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return installedFiles.find((f) => {
+      const fn = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return (
+        (titleClean.length >= 3 && fn.includes(titleClean)) ||
+        (slugClean.length >= 3 && fn.includes(slugClean))
+      );
+    });
+  };
+
   return (
     <ServerContentBlock title={'Plugin Manager'}>
       <div className="max-w-7xl mx-auto space-y-5 my-2">
@@ -346,7 +403,8 @@ export default function PluginInstallerContainer() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>🔍</span> Browse
+              <i className="fa-solid fa-magnifying-glass text-[11px]"></i>
+              <span>Browse</span>
             </button>
             <button
               onClick={() => setActiveTab('installed')}
@@ -356,7 +414,8 @@ export default function PluginInstallerContainer() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>📦</span> Installed
+              <i className="fa-solid fa-folder text-[11px]"></i>
+              <span>Installed</span>
               {installedFiles.length > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-500/20 text-blue-300 font-mono">
                   {installedFiles.length}
@@ -436,18 +495,21 @@ export default function PluginInstallerContainer() {
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                     Search
                   </label>
-                  <div className="relative">
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3 text-slate-500 pointer-events-none">
+                      <i className="fa-solid fa-magnifying-glass text-xs"></i>
+                    </span>
                     <input
                       type="text"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Search..."
-                      className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
+                      className="w-full pl-8 pr-7 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
                     />
                     {query && (
                       <button
                         onClick={() => setQuery('')}
-                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-xs text-slate-500 hover:text-white"
+                        className="absolute right-2.5 text-xs text-slate-500 hover:text-white"
                       >
                         ✕
                       </button>
@@ -460,7 +522,7 @@ export default function PluginInstallerContainer() {
             {/* Loading Indicator */}
             {loading && (
               <div className="py-20 text-center text-slate-400 space-y-2">
-                <div className="text-xl animate-spin inline-block">⏳</div>
+                <i className="fa-solid fa-spinner fa-spin text-2xl text-blue-400 inline-block"></i>
                 <p className="text-xs font-medium">Searching verified plugins...</p>
               </div>
             )}
@@ -481,7 +543,7 @@ export default function PluginInstallerContainer() {
             {/* Empty State */}
             {!loading && !error && plugins.length === 0 && (
               <div className="py-20 text-center text-slate-400 space-y-3">
-                <div className="text-3xl">🔍</div>
+                <i className="fa-solid fa-folder-open text-3xl text-slate-600 block"></i>
                 <h3 className="text-sm font-bold text-white">No plugins found</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   No plugins match your current filters. Try searching for a different keyword or loader.
@@ -493,78 +555,105 @@ export default function PluginInstallerContainer() {
             {!loading && !error && plugins.length > 0 && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {plugins.map((plugin) => (
-                    <div
-                      key={plugin.project_id}
-                      className="group relative flex flex-col justify-between p-4 bg-slate-900/40 hover:bg-slate-900/60 backdrop-blur-md border border-slate-800/80 hover:border-blue-500/40 rounded-xl transition-all duration-200 shadow-md"
-                    >
-                      <div>
-                        {/* Top: Icon, Title, Author, External Link */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-xl bg-slate-950/70 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
-                              {plugin.icon_url ? (
-                                <img src={plugin.icon_url} alt={plugin.title} className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-xl">📦</span>
-                              )}
+                  {plugins.map((plugin) => {
+                    const installedPluginFile = getInstalledFileForPlugin(plugin);
+                    const isInstalled = !!installedPluginFile;
+
+                    return (
+                      <div
+                        key={plugin.project_id}
+                        className="group relative flex flex-col justify-between p-4 bg-slate-900/40 hover:bg-slate-900/60 backdrop-blur-md border border-slate-800/80 hover:border-blue-500/40 rounded-xl transition-all duration-200 shadow-md"
+                      >
+                        <div>
+                          {/* Top: Icon, Title, Author, External Link */}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div className="w-11 h-11 rounded-xl bg-slate-950/70 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
+                                {plugin.icon_url ? (
+                                  <img src={plugin.icon_url} alt={plugin.title} className="w-full h-full object-cover" />
+                                ) : (
+                                  <i className="fa-solid fa-puzzle-piece text-lg text-slate-400"></i>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <h3
+                                    onClick={() => setSelectedPlugin(plugin)}
+                                    className="text-sm font-bold text-white hover:text-blue-400 transition-colors truncate cursor-pointer"
+                                  >
+                                    {plugin.title}
+                                  </h3>
+                                </div>
+                                <p className="text-xs text-slate-400 truncate mt-0.5">By {plugin.author}</p>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <h3
-                                onClick={() => setSelectedPlugin(plugin)}
-                                className="text-sm font-bold text-white hover:text-blue-400 transition-colors truncate cursor-pointer"
-                              >
-                                {plugin.title}
-                              </h3>
-                              <p className="text-xs text-slate-400 truncate mt-0.5">By {plugin.author}</p>
-                            </div>
+
+                            {/* External Link Icon */}
+                            <a
+                              href={`https://modrinth.com/plugin/${plugin.slug || plugin.project_id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-slate-500 hover:text-slate-300 p-1 transition-colors shrink-0"
+                              title="View on Modrinth"
+                            >
+                              <i className="fa-solid fa-arrow-up-right-from-square text-xs"></i>
+                            </a>
                           </div>
 
-                          {/* External Link Icon */}
-                          <a
-                            href={`https://modrinth.com/plugin/${plugin.slug || plugin.project_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-slate-500 hover:text-slate-300 p-1 transition-colors shrink-0"
-                            title="View on Modrinth"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                              />
-                            </svg>
-                          </a>
+                          {/* Description */}
+                          <p className="text-xs text-slate-300 mt-2.5 line-clamp-2 leading-relaxed">
+                            {plugin.description || 'No description provided.'}
+                          </p>
                         </div>
 
-                        {/* Description */}
-                        <p className="text-xs text-slate-300 mt-2.5 line-clamp-2 leading-relaxed">
-                          {plugin.description || 'No description provided.'}
-                        </p>
-                      </div>
+                        {/* Bottom Row: Downloads, Relative Date, + Install / Installed + Delete */}
+                        <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                            <span className="flex items-center gap-1 font-medium text-slate-300">
+                              <i className="fa-solid fa-download text-[10px]"></i>
+                              <span>{formatNumber(plugin.downloads)}</span>
+                            </span>
+                            <span className="flex items-center gap-1 text-slate-400">
+                              <i className="fa-solid fa-clock text-[10px]"></i>
+                              <span>{formatTimeAgo(plugin.date_modified)}</span>
+                            </span>
+                          </div>
 
-                      {/* Bottom Row: Downloads, Relative Date, + Install */}
-                      <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                          <span className="flex items-center gap-1 font-medium text-slate-300">
-                            ⬇ {formatNumber(plugin.downloads)}
-                          </span>
-                          <span className="flex items-center gap-1 text-slate-400">
-                            🕒 {formatTimeAgo(plugin.date_modified)}
-                          </span>
+                          {/* Action Button: Installed + Delete OR Install */}
+                          {isInstalled && installedPluginFile ? (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() => setSelectedPlugin(plugin)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 flex items-center gap-1 transition-all"
+                              >
+                                <i className="fa-solid fa-check text-[10px]"></i>
+                                <span>Installed</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUninstall(installedPluginFile.name);
+                                }}
+                                disabled={uninstallingFile === installedPluginFile.name}
+                                className="p-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 hover:text-white transition-all flex items-center justify-center w-7 h-7"
+                                title={`Uninstall ${installedPluginFile.name}`}
+                              >
+                                <i className={`fa-solid fa-trash text-[11px] ${uninstallingFile === installedPluginFile.name ? 'fa-spin' : ''}`}></i>
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setSelectedPlugin(plugin)}
+                              className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 flex items-center gap-1.5 transition-all shrink-0"
+                            >
+                              <i className="fa-solid fa-plus text-[10px]"></i>
+                              <span>Install</span>
+                            </button>
+                          )}
                         </div>
-
-                        <button
-                          onClick={() => setSelectedPlugin(plugin)}
-                          className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 transition-all shrink-0"
-                        >
-                          + Install
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Pagination */}
@@ -599,7 +688,7 @@ export default function PluginInstallerContainer() {
           </div>
         )}
 
-        {/* Tab 2: Installed Plugins View */}
+        {/* Tab 2: Installed Plugins View (Matching Screenshot 3) */}
         {activeTab === 'installed' && (
           <div className="space-y-4">
             <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl p-4 flex items-center justify-between">
@@ -610,21 +699,23 @@ export default function PluginInstallerContainer() {
               <button
                 onClick={() => fetchInstalledPlugins()}
                 disabled={loadingInstalled}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5"
               >
-                {loadingInstalled ? 'Refreshing...' : '🔄 Refresh'}
+                <i className={`fa-solid fa-arrows-rotate text-[11px] ${loadingInstalled ? 'fa-spin' : ''}`}></i>
+                <span>{loadingInstalled ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             </div>
 
             {loadingInstalled && (
-              <div className="py-16 text-center text-slate-400 text-xs">
-                Scanning /plugins directory in server container...
+              <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                <i className="fa-solid fa-spinner fa-spin text-2xl text-blue-400"></i>
+                <span>Scanning /plugins directory in server container...</span>
               </div>
             )}
 
             {!loadingInstalled && installedFiles.length === 0 && (
               <div className="py-16 text-center text-slate-400 space-y-2">
-                <div className="text-3xl">📂</div>
+                <i className="fa-solid fa-folder-open text-3xl text-slate-600 block"></i>
                 <h4 className="text-sm font-bold text-white">No plugins installed</h4>
                 <p className="text-xs text-slate-500">
                   You haven&apos;t installed any plugins yet. Switch to the Browse tab to install plugins.
@@ -632,36 +723,38 @@ export default function PluginInstallerContainer() {
               </div>
             )}
 
+            {/* Exact 3-column cards matching Screenshot 3 */}
             {!loadingInstalled && installedFiles.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {installedFiles.map((file) => (
                   <div
                     key={file.name}
-                    className="p-4 bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl flex flex-col justify-between gap-3 shadow-md"
+                    className="bg-[#111728]/70 hover:bg-[#151d32]/90 backdrop-blur-md border border-slate-800/80 hover:border-slate-700/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-md transition-all"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-base shrink-0">
-                        🧩
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Left square puzzle icon box */}
+                      <div className="w-10 h-10 rounded-xl bg-slate-800/70 border border-slate-700/60 flex items-center justify-center shrink-0 text-slate-400">
+                        <i className="fa-solid fa-puzzle-piece text-sm"></i>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-white truncate" title={file.name}>
+                        <p className="text-xs font-semibold text-white truncate" title={file.name}>
                           {file.name}
                         </p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          {formatSize(file.size)} • {formatTimeAgo(file.modifiedAt)}
+                          {formatSize(file.size)}
                         </p>
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800/70 flex items-center justify-end">
-                      <button
-                        onClick={() => handleUninstall(file.name)}
-                        disabled={uninstallingFile === file.name}
-                        className="px-3 py-1 rounded-lg text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors"
-                      >
-                        {uninstallingFile === file.name ? 'Uninstalling...' : 'Uninstall'}
-                      </button>
-                    </div>
+                    {/* Right square delete trash button */}
+                    <button
+                      onClick={() => handleUninstall(file.name)}
+                      disabled={uninstallingFile === file.name}
+                      className="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 border border-slate-700/60 hover:border-rose-500/40 text-slate-400 hover:text-rose-300 flex items-center justify-center transition-all shrink-0"
+                      title={`Delete ${file.name}`}
+                    >
+                      <i className={`fa-solid fa-trash text-xs ${uninstallingFile === file.name ? 'fa-spin text-rose-400' : ''}`}></i>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -680,7 +773,7 @@ export default function PluginInstallerContainer() {
                     {selectedPlugin.icon_url ? (
                       <img src={selectedPlugin.icon_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-lg">📦</span>
+                      <i className="fa-solid fa-puzzle-piece text-slate-400"></i>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -705,7 +798,7 @@ export default function PluginInstallerContainer() {
                       : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                   }`}
                 >
-                  <span>{installNotice.success ? '✓' : '⚠️'}</span>
+                  <i className={installNotice.success ? 'fa-solid fa-check text-xs' : 'fa-solid fa-triangle-exclamation text-xs'}></i>
                   <span className="truncate">{installNotice.message}</span>
                 </div>
               )}
@@ -777,7 +870,10 @@ export default function PluginInstallerContainer() {
               {/* Version Items List */}
               <div className="flex-1 p-3 overflow-y-auto space-y-2">
                 {loadingVersions && (
-                  <div className="py-12 text-center text-slate-400 text-xs">Loading versions from Modrinth...</div>
+                  <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                    <i className="fa-solid fa-spinner fa-spin text-lg text-blue-400"></i>
+                    <span>Loading versions from Modrinth...</span>
+                  </div>
                 )}
 
                 {versionError && (
@@ -796,7 +892,9 @@ export default function PluginInstallerContainer() {
                   !versionError &&
                   filteredVersions.map((ver) => {
                     const primaryFile = ver.files?.find((f) => f.primary) || ver.files?.[0];
-                    const isInstalled = installedVersions[ver.id];
+                    const isAlreadyInstalled =
+                      installedVersions[ver.id] ||
+                      (primaryFile && installedFiles.some((f) => f.name.toLowerCase() === primaryFile.filename.toLowerCase()));
                     const isInstalling = installingId === ver.id;
 
                     return (
@@ -838,24 +936,50 @@ export default function PluginInstallerContainer() {
                               download={primaryFile.filename}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition-colors"
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs border border-slate-700 transition-colors flex items-center justify-center w-7 h-7"
                               title="Direct Download File (.jar)"
                             >
-                              💾
+                              <i className="fa-solid fa-download text-[11px]"></i>
                             </a>
                           )}
 
-                          <button
-                            onClick={() => handleInstall(ver)}
-                            disabled={isInstalling || !primaryFile}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                              isInstalled
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
-                            }`}
-                          >
-                            {isInstalling ? 'Installing...' : isInstalled ? '✓ Installed' : 'Install'}
-                          </button>
+                          {isAlreadyInstalled && primaryFile ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                disabled
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default flex items-center gap-1"
+                              >
+                                <i className="fa-solid fa-check text-[10px]"></i>
+                                <span>Installed</span>
+                              </button>
+                              <button
+                                onClick={() => handleUninstall(primaryFile.filename)}
+                                disabled={uninstallingFile === primaryFile.filename}
+                                className="p-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 hover:text-white transition-all flex items-center justify-center w-7 h-7"
+                                title={`Uninstall ${primaryFile.filename}`}
+                              >
+                                <i className={`fa-solid fa-trash text-[11px] ${uninstallingFile === primaryFile.filename ? 'fa-spin' : ''}`}></i>
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleInstall(ver)}
+                              disabled={isInstalling || !primaryFile}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                            >
+                              {isInstalling ? (
+                                <>
+                                  <i className="fa-solid fa-spinner fa-spin text-[10px]"></i>
+                                  <span>Installing...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className="fa-solid fa-download text-[10px]"></i>
+                                  <span>Install</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
