@@ -14,11 +14,7 @@ const TOKEN_STORAGE_KEY = 'arix_modrinth_pat_token';
 const DEFAULT_USER_AGENT = 'Arix-Theme-PluginInstaller/1.0.0 (pterodactyl-addon@arix.gg)';
 
 export const getStoredToken = (): string => {
-  return (
-    localStorage.getItem(TOKEN_STORAGE_KEY) ||
-    ((import.meta as any).env?.VITE_MODRINTH_TOKEN as string) ||
-    'mrp_vlzxapHEjT5Ep9ITDUImJjDNQULBWhDBxHu0ePAh4j9FFgNSyj7oikFw32Uf'
-  );
+  return localStorage.getItem(TOKEN_STORAGE_KEY) || '';
 };
 
 export const setStoredToken = (token: string): void => {

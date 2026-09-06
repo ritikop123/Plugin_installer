@@ -3,8 +3,7 @@ import { ServerContext } from '@/state/server';
 import http from '@/api/http';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 
-// Pre-configured Modrinth Personal Access Token & User Agent
-const MODRINTH_TOKEN = 'mrp_vlzxapHEjT5Ep9ITDUImJjDNQULBWhDBxHu0ePAh4j9FFgNSyj7oikFw32Uf';
+// Compliant User-Agent for Modrinth API Guidelines
 const USER_AGENT = 'Arix-Theme-PluginInstaller/1.0.0 (pterodactyl-addon@arix.gg)';
 const MODRINTH_API = 'https://api.modrinth.com/v2';
 
@@ -122,7 +121,6 @@ export default function PluginInstallerContainer() {
       const res = await fetch(url.toString(), {
         headers: {
           'User-Agent': USER_AGENT,
-          Authorization: MODRINTH_TOKEN,
         },
       });
 
@@ -155,7 +153,6 @@ export default function PluginInstallerContainer() {
     fetch(`${MODRINTH_API}/project/${selectedPlugin.project_id || selectedPlugin.slug}/version`, {
       headers: {
         'User-Agent': USER_AGENT,
-        Authorization: MODRINTH_TOKEN,
       },
     })
       .then((r) => r.json())
