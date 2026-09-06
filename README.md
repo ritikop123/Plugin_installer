@@ -6,26 +6,33 @@ Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/
 
 ---
 
-## ⚡ 1-Click Installation on Pterodactyl Server
+## ⚡ 1-Click Installation for Arix Theme (No Blueprint Required!)
 
-Run this single command on your Pterodactyl VPS:
+Run this single command on your Pterodactyl VPS terminal as root:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/install.sh)
+bash <(curl -s https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/install-arix.sh)
 ```
+
+This script:
+1. Installs the native `PluginInstallerContainer` component into your Pterodactyl panel.
+2. Automatically adds the `/plugins` route into `ServerRouter.tsx`.
+3. Compiles the panel assets (`yarn build:production`).
 
 ---
 
 ## 🔗 Arix Theme: "Create link in Server Tools" Settings
 
-When adding the link in your Arix Theme settings (as shown in your screenshot):
+In your panel, open Arix Theme settings ➔ **"Create link in Server Tools"**:
 
-| Field | Enter Exactly This | Explanation |
-| :--- | :--- | :--- |
-| **Name** | `Plugin Installer` | The label shown in your server tools sidebar. |
-| **URL** | `/plugins/index.html` (or `/plugins`) | Path where the built installer is hosted on Pterodactyl. |
-| **Icon** | `HiOutlinePuzzle` | Clean puzzle piece icon matching plugins in Heroicons. *(Or `HiOutlineCube` / `HiOutlineDownload`)* |
-| **Enable link** | **Toggle ON** | Activates the button for your users. |
+| Field | Enter Exactly This |
+| :--- | :--- |
+| **Name** | `Plugin Installer` |
+| **URL** | **`/plugins`** |
+| **Icon** | `HiOutlinePuzzle` |
+| **Enable link** | **Toggle ON** |
+
+When clicked on any server, it will open natively at `https://gp.sagarmatha.site/server/<server-id>/plugins` right inside your server dashboard!
 
 ---
 
