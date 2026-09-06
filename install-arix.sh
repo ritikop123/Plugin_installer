@@ -45,18 +45,16 @@ echo -e "${CYAN}[4/5] Patching ServerRouter.tsx with /plugins route...${NC}"
 
 ROUTER_FILE="resources/scripts/routers/ServerRouter.tsx"
 
-# Inject Import if not present
-if ! grep -q "PluginInstallerContainer" "$ROUTER_FILE"; then
-  sed -i '/import ServerContext/a import PluginInstallerContainer from '\''@/components/server/plugin-installer/PluginInstallerContainer'\'';' "$ROUTER_FILE"
-fi
+# Clean any previous incorrect route
+sed -i "/PluginInstallerContainer/d" "$ROUTER_FILE"
 
-# Inject Route if not present
-if ! grep -q "path={'/plugins'}" "$ROUTER_FILE"; then
-  # Insert right before the first </Switch>
-  sed -i "0,/<\/Switch>/s//    <Route path={'\/plugins'} component={PluginInstallerContainer} exact \/>\n&/" "$ROUTER_FILE"
-fi
+# Inject Import
+sed -i '1s/^/import PluginInstallerContainer from '\''@\/components\/server\/plugin-installer\/PluginInstallerContainer'\'';\n/' "$ROUTER_FILE"
 
-echo -e "${GREEN}[✓] Route /plugins successfully registered in Pterodactyl router!${NC}"
+# Inject Route with ${match.path} so it works inside server view
+sed -i "0,/<\/Switch>/s//    <Route path={\`\${match.path}\/plugins\`} component={PluginInstallerContainer} exact \/>\n    <Route path={\`\${match.path}\/mcplugins\`} component={PluginInstallerContainer} exact \/>\n&/" "$ROUTER_FILE"
+
+echo -e "${GREEN}[✓] Route \${match.path}/plugins registered in Pterodactyl router!${NC}"
 
 echo -e "${CYAN}[5/5] Recompiling panel frontend assets... (this may take 1-2 minutes)${NC}"
 if command -v yarn &> /dev/null; then
