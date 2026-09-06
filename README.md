@@ -60,18 +60,23 @@ In your Pterodactyl panel:
 ### 1. Server Options & Properties (`/server/<id>/options`)
 - **Multiplayer Server Banner**: Authentic Minecraft multiplayer server list card styling.
 - **Unchangeable Allocation Address**: Displays primary server IP / domain and port with 1-click copy feedback and read-only lock badge.
-- **Server Icon Manager**: Tap/click to select any image; client-side HTML5 canvas automatically scales/crops it to a 64×64 PNG and uploads it to `/server-icon.png`. Also includes 1-click remove to revert to default.
-- **MOTD Editor & Palette**:
+- **Default & Custom Server Icon Manager**:
+  - Automatically seeds the default **Sagarmatha Hosting 64×64 logo** to `/server-icon.png` in every server root.
+  - Tap/click to upload any custom image; client-side HTML5 canvas automatically scales/crops it to a 64×64 PNG before uploading.
+  - 1-click revert to restore default Sagarmatha Hosting icon anytime.
+- **Default MOTD & Color Palette Editor**:
+  - Automatically sets default MOTD: `Server Hosting at §b§n§lSagarmatha Hosting`.
   - Full 16-color palette (`§0` - `§f`) and formatting styles (Bold `§l`, Italic `§o`, Underline `§n`, Strikethrough `§m`, Magic `§k`, Reset `§r`).
-  - Supports both `§` and `&` formatting prefixes.
-  - Live in-game MOTD preview rendered with Minecraft font, shadows, and exact colors.
+  - Supports both `§` and `&` formatting prefixes with live in-game preview.
+- **1-Click Resource Pack (.zip) Upload**:
+  - Drag & drop or click to upload any `.zip` resource pack directly.
+  - Automatically hosts on panel, computes SHA-1 checksum, and configures `resource-pack` & `resource-pack-sha1` in `server.properties`.
 - **Visual `server.properties` GUI Grid**:
   - **General Settings**: Max Players / Slots stepper, Gamemode dropdown, Difficulty dropdown, Hardcore toggle, Force Gamemode toggle.
   - **Access & Security**: Cracked / Offline mode toggle, Whitelist toggle, Enforce Whitelist toggle, Block VPN/Proxy toggle.
   - **Gameplay & Combat**: PvP toggle, Allow Flight toggle, Command Blocks toggle, Nether toggle, Spawn Protection radius stepper.
   - **World & Spawning**: Spawn Monsters toggle, Spawn Animals toggle, Spawn NPCs/Villagers toggle, View Distance stepper, Simulation Distance stepper.
-  - **Resource Pack**: URL, Prompt message, and Require Resource Pack toggle.
-- **Sticky Save Bar**: Unsaved changes indicator, revert to saved state button, and 1-click save.
+- **Instant Auto-Save**: Every setting, switch, stepper, and MOTD edit auto-saves instantly with debounced background synchronization (no manual save button needed).
 
 ### 2. Plugin Installer (`/server/<id>/plugins`)
 - Modrinth API integration with search, filters, and dynamic version detection.

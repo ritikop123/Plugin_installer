@@ -4,29 +4,24 @@ import http, { httpErrorToHuman } from '@/api/http';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faSlidersH,
-  faServer,
+  faGamepad,
+  faShieldAlt,
+  faSkullCrossbones,
+  faGlobe,
+  faCloudUploadAlt,
+  faCamera,
+  faTrashAlt,
   faCopy,
   faCheck,
   faLock,
-  faCamera,
-  faTrashAlt,
-  faRedo,
-  faSave,
-  faUndo,
-  faExclamationTriangle,
-  faSpinner,
-  faInfoCircle,
-  faShieldAlt,
-  faGamepad,
-  faGlobe,
-  faUsers,
-  faSkullCrossbones,
-  faEye,
-  faCloudUploadAlt,
   faPalette,
   faMinus,
   faPlus,
+  faSpinner,
+  faExclamationTriangle,
+  faFileArchive,
+  faExternalLinkAlt,
+  faCheckCircle,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface OptionsApiResponse {
@@ -34,11 +29,17 @@ interface OptionsApiResponse {
   address?: string;
   port?: number;
   server_name?: string;
-  has_icon?: boolean;
+  has_custom_icon?: boolean;
   icon_data?: string | null;
+  default_icon?: string | null;
+  default_motd?: string;
   file_exists?: boolean;
   properties?: Record<string, string>;
 }
+
+// Default 64x64 Minecraft Server Icon for Sagarmatha Hosting
+const DEFAULT_MC_ICON = 'data:image/png;base64,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';
+const DEFAULT_MOTD = 'Server Hosting at §b§n§lSagarmatha Hosting';
 
 // Minecraft 16 Standard Colors
 const MC_COLORS = [
@@ -79,7 +80,7 @@ const COLOR_MAP: Record<string, string> = {
   'f': '#FFFFFF',
 };
 
-// Minecraft Format Styles
+// Minecraft Formatting Codes
 const MC_FORMATS = [
   { code: 'l', name: 'Bold', label: 'B', style: 'font-bold' },
   { code: 'o', name: 'Italic', label: 'I', style: 'italic' },
@@ -91,15 +92,8 @@ const MC_FORMATS = [
 
 // Parser to convert Minecraft formatting codes into styled React spans
 function renderMotdSpans(rawText: string): React.ReactNode[] {
-  if (!rawText || rawText.trim() === '') {
-    return [
-      <span key="empty" className="text-neutral-400 italic">
-        A Minecraft Server
-      </span>,
-    ];
-  }
-
-  const normalized = rawText.replace(/\\u00A7/gi, '§');
+  const textToRender = rawText && rawText.trim() !== '' ? rawText : DEFAULT_MOTD;
+  const normalized = textToRender.replace(/\\u00A7/gi, '§');
   const tokens: React.ReactNode[] = [];
   let currentColor = '#FFFFFF';
   let isBold = false;
@@ -194,54 +188,94 @@ function renderMotdSpans(rawText: string): React.ReactNode[] {
   return tokens;
 }
 
-// Default Minecraft Grass Block Icon (SVG Data URL)
-const DEFAULT_MC_ICON = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%234b3621"/><polygon points="0,0 64,0 64,22 0,22" fill="%23567d46"/><polygon points="0,22 8,28 16,22 24,30 32,22 40,28 48,22 56,28 64,22 64,26 56,32 48,26 40,32 32,26 24,34 16,26 8,32 0,26" fill="%233e5c2e"/><rect x="8" y="38" width="6" height="6" fill="%233b2a1a"/><rect x="36" y="44" width="8" height="6" fill="%233b2a1a"/><rect x="22" y="52" width="6" height="6" fill="%233b2a1a"/><rect x="48" y="34" width="6" height="6" fill="%233b2a1a"/></svg>';
-
 export default function OptionsContainer() {
   const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
   const serverName = ServerContext.useStoreState((state) => state.server.data!.name);
 
   // Core State
   const [loading, setLoading] = useState<boolean>(true);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [uploadingIcon, setUploadingIcon] = useState<boolean>(false);
   const [deletingIcon, setDeletingIcon] = useState<boolean>(false);
-  const [actionStatus, setActionStatus] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [uploadingPack, setUploadingPack] = useState<boolean>(false);
+  const [deletingPack, setDeletingPack] = useState<boolean>(false);
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastError, setToastError] = useState<string | null>(null);
 
   // Server Info & Properties
   const [serverAddress, setServerAddress] = useState<string>('');
   const [hasCustomIcon, setHasCustomIcon] = useState<boolean>(false);
   const [iconData, setIconData] = useState<string | null>(null);
   const [properties, setProperties] = useState<Record<string, string>>({});
-  const [originalProperties, setOriginalProperties] = useState<Record<string, string>>({});
 
   // UI Interactivity
   const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
   const [motdPrefix, setMotdPrefix] = useState<'§' | '&'>('§');
   const [showMotdTools, setShowMotdTools] = useState<boolean>(false);
 
-  // Refs
+  // Refs for debounced auto-save & inputs
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const packInputRef = useRef<HTMLInputElement>(null);
   const motdTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const latestPropsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    latestPropsRef.current = properties;
+  }, [properties]);
+
+  // Trigger Debounced Auto-Save
+  const triggerAutoSave = useCallback(
+    (propsToSave: Record<string, string>, immediate: boolean = false) => {
+      setAutoSaveStatus('saving');
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+
+      const runSave = async () => {
+        try {
+          await http.post(`/api/client/servers/${uuid}/options`, {
+            properties: propsToSave,
+          });
+          setAutoSaveStatus('saved');
+          setTimeout(() => {
+            setAutoSaveStatus((current) => (current === 'saved' ? 'idle' : current));
+          }, 2500);
+        } catch (err) {
+          console.error(err);
+          setAutoSaveStatus('error');
+        }
+      };
+
+      if (immediate) {
+        runSave();
+      } else {
+        autoSaveTimerRef.current = setTimeout(runSave, 450);
+      }
+    },
+    [uuid]
+  );
 
   // Fetch initial server options and properties
   const loadOptions = useCallback(async () => {
     setLoading(true);
-    setActionError(null);
+    setToastError(null);
     try {
       const res = await http.get<OptionsApiResponse>(`/api/client/servers/${uuid}/options`);
       if (res.data.success) {
         setServerAddress(res.data.address || '');
-        setHasCustomIcon(!!res.data.has_icon);
-        setIconData(res.data.icon_data || null);
-        const props = res.data.properties || {};
-        setProperties(props);
-        setOriginalProperties(props);
+        setHasCustomIcon(!!res.data.has_custom_icon);
+        setIconData(res.data.icon_data || DEFAULT_MC_ICON);
+        const loadedProps = res.data.properties || {};
+        if (!loadedProps.motd) {
+          loadedProps.motd = res.data.default_motd || DEFAULT_MOTD;
+        }
+        setProperties(loadedProps);
       }
     } catch (err) {
       console.error(err);
-      setActionError(httpErrorToHuman(err));
+      setToastError(httpErrorToHuman(err));
     } finally {
       setLoading(false);
     }
@@ -250,13 +284,6 @@ export default function OptionsContainer() {
   useEffect(() => {
     loadOptions();
   }, [loadOptions]);
-
-  // Check for unsaved changes
-  const hasUnsavedChanges = Object.keys(properties).some(
-    (key) => properties[key] !== originalProperties[key]
-  ) || Object.keys(originalProperties).some(
-    (key) => properties[key] !== originalProperties[key]
-  );
 
   // Property helper functions
   const getProp = (key: string, fallback: string = ''): string => {
@@ -269,16 +296,18 @@ export default function OptionsContainer() {
     return val.toLowerCase() === 'true';
   };
 
-  const setProp = (key: string, value: string) => {
-    setProperties((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+  // Immediate update with auto-save
+  const updateProp = (key: string, value: string, immediate: boolean = false) => {
+    setProperties((prev) => {
+      const next = { ...prev, [key]: value };
+      triggerAutoSave(next, immediate);
+      return next;
+    });
   };
 
   const toggleBoolProp = (key: string, fallback: boolean = false) => {
     const current = getBoolProp(key, fallback);
-    setProp(key, (!current).toString());
+    updateProp(key, (!current).toString(), true);
   };
 
   // Copy Address Handler
@@ -293,16 +322,16 @@ export default function OptionsContainer() {
   const handleInsertCode = (code: string) => {
     const insertStr = `${motdPrefix}${code}`;
     const textarea = motdTextareaRef.current;
-    const currentVal = getProp('motd', 'A Minecraft Server');
+    const currentVal = getProp('motd', DEFAULT_MOTD);
     if (!textarea) {
-      setProp('motd', currentVal + insertStr);
+      updateProp('motd', currentVal + insertStr, false);
       return;
     }
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const updated = currentVal.substring(0, start) + insertStr + currentVal.substring(end);
-    setProp('motd', updated);
+    updateProp('motd', updated, false);
 
     setTimeout(() => {
       textarea.focus();
@@ -314,8 +343,6 @@ export default function OptionsContainer() {
   const handleIconSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Reset input value so same file can be reselected if needed
     e.target.value = '';
 
     const reader = new FileReader();
@@ -327,7 +354,7 @@ export default function OptionsContainer() {
         canvas.height = 64;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          setActionError('Unable to process image on this browser.');
+          setToastError('Unable to process image on this browser.');
           return;
         }
 
@@ -335,10 +362,9 @@ export default function OptionsContainer() {
         ctx.drawImage(img, 0, 0, 64, 64);
         const base64Png = canvas.toDataURL('image/png');
 
-        // Upload to Backend
         setUploadingIcon(true);
-        setActionError(null);
-        setActionStatus(null);
+        setToastError(null);
+        setToastMessage(null);
         try {
           const res = await http.post(`/api/client/servers/${uuid}/options/icon`, {
             icon_data: base64Png,
@@ -346,12 +372,12 @@ export default function OptionsContainer() {
           if (res.data.success) {
             setIconData(res.data.icon_data || base64Png);
             setHasCustomIcon(true);
-            setActionStatus('Server icon updated! Restart your server to see it in multiplayer lists.');
-            setTimeout(() => setActionStatus(null), 5000);
+            setToastMessage('Server icon updated! Restart server to see it in multiplayer lists.');
+            setTimeout(() => setToastMessage(null), 5000);
           }
         } catch (err) {
           console.error(err);
-          setActionError(httpErrorToHuman(err));
+          setToastError(httpErrorToHuman(err));
         } finally {
           setUploadingIcon(false);
         }
@@ -361,59 +387,96 @@ export default function OptionsContainer() {
     reader.readAsDataURL(file);
   };
 
-  // Delete Custom Icon
+  // Delete Custom Icon -> Reverts to Sagarmatha Default 64x64 Logo
   const handleDeleteIcon = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to remove the custom server icon and revert to default?')) {
+    if (!confirm('Revert server icon to default Sagarmatha Hosting logo?')) {
       return;
     }
 
     setDeletingIcon(true);
-    setActionError(null);
-    setActionStatus(null);
+    setToastError(null);
+    setToastMessage(null);
     try {
       const res = await http.delete(`/api/client/servers/${uuid}/options/icon`);
       if (res.data.success) {
-        setIconData(null);
+        setIconData(res.data.icon_data || DEFAULT_MC_ICON);
         setHasCustomIcon(false);
-        setActionStatus('Custom server icon removed successfully.');
-        setTimeout(() => setActionStatus(null), 5000);
+        setToastMessage('Server icon reverted to default Sagarmatha Hosting logo.');
+        setTimeout(() => setToastMessage(null), 5000);
       }
     } catch (err) {
       console.error(err);
-      setActionError(httpErrorToHuman(err));
+      setToastError(httpErrorToHuman(err));
     } finally {
       setDeletingIcon(false);
     }
   };
 
-  // Save server.properties
-  const handleSaveProperties = async () => {
-    setSaving(true);
-    setActionError(null);
-    setActionStatus(null);
+  // Resource Pack (.zip) Upload Handler
+  const handlePackSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setToastError('Please select a valid .zip resource pack file.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setUploadingPack(true);
+    setToastError(null);
+    setToastMessage(null);
     try {
-      const res = await http.post(`/api/client/servers/${uuid}/options`, {
-        properties,
+      const res = await http.post(`/api/client/servers/${uuid}/options/resourcepack`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       if (res.data.success) {
-        setOriginalProperties(properties);
-        setActionStatus('Server properties saved successfully! Please restart your server to apply changes.');
-        setTimeout(() => setActionStatus(null), 6000);
+        setProperties((prev) => ({
+          ...prev,
+          'resource-pack': res.data.url,
+          'resource-pack-sha1': res.data.sha1,
+        }));
+        setToastMessage('Resource pack uploaded and automatically linked in server.properties!');
+        setTimeout(() => setToastMessage(null), 6000);
       }
     } catch (err) {
       console.error(err);
-      setActionError(httpErrorToHuman(err));
+      setToastError(httpErrorToHuman(err));
     } finally {
-      setSaving(false);
+      setUploadingPack(false);
     }
   };
 
-  // Reset to original properties
-  const handleResetProperties = () => {
-    setProperties(originalProperties);
-    setActionStatus('Properties reverted to last saved state.');
-    setTimeout(() => setActionStatus(null), 3000);
+  // Remove Uploaded Resource Pack
+  const handleDeletePack = async () => {
+    if (!confirm('Remove the uploaded resource pack from server.properties?')) {
+      return;
+    }
+
+    setDeletingPack(true);
+    setToastError(null);
+    setToastMessage(null);
+    try {
+      const res = await http.delete(`/api/client/servers/${uuid}/options/resourcepack`);
+      if (res.data.success) {
+        setProperties((prev) => ({
+          ...prev,
+          'resource-pack': '',
+          'resource-pack-sha1': '',
+        }));
+        setToastMessage('Resource pack removed from server.properties.');
+        setTimeout(() => setToastMessage(null), 4000);
+      }
+    } catch (err) {
+      console.error(err);
+      setToastError(httpErrorToHuman(err));
+    } finally {
+      setDeletingPack(false);
+    }
   };
 
   if (loading) {
@@ -430,7 +493,7 @@ export default function OptionsContainer() {
   return (
     <ServerContentBlock title="Server Options">
       <div className="space-y-6 pb-12">
-        {/* Hidden File Input for Icon Picker */}
+        {/* Hidden File Inputs */}
         <input
           ref={fileInputRef}
           type="file"
@@ -438,19 +501,63 @@ export default function OptionsContainer() {
           className="hidden"
           onChange={handleIconSelected}
         />
+        <input
+          ref={packInputRef}
+          type="file"
+          accept=".zip,application/zip"
+          className="hidden"
+          onChange={handlePackSelected}
+        />
 
-        {/* Action Status / Error Banners */}
-        {actionStatus && (
+        {/* Top Header Row with Subtle Auto-Save Status */}
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-neutral-400">
+              Changes auto-save automatically. Restart server to apply.
+            </span>
+          </div>
+
+          {/* Auto-Save Live Badge */}
+          <div className="flex items-center space-x-1.5 text-xs font-mono">
+            {autoSaveStatus === 'saving' && (
+              <span className="text-cyan-400 flex items-center space-x-1">
+                <FontAwesomeIcon icon={faSpinner} spin className="text-[11px]" />
+                <span>Saving...</span>
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span className="text-emerald-400 font-semibold flex items-center space-x-1 animate-fade-in">
+                <FontAwesomeIcon icon={faCheckCircle} className="text-[11px]" />
+                <span>Saved</span>
+              </span>
+            )}
+            {autoSaveStatus === 'error' && (
+              <span className="text-red-400 font-semibold flex items-center space-x-1">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-[11px]" />
+                <span>Save Error</span>
+              </span>
+            )}
+            {autoSaveStatus === 'idle' && (
+              <span className="text-neutral-400 flex items-center space-x-1">
+                <FontAwesomeIcon icon={faCheck} className="text-[10px]" />
+                <span>All changes saved</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Action Banners */}
+        {toastMessage && (
           <div className="flex items-center space-x-3 bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 px-4 py-3 rounded-xl shadow-lg transition-all animate-fade-in">
             <FontAwesomeIcon icon={faCheck} className="text-emerald-400 text-lg flex-shrink-0" />
-            <span className="text-sm font-medium">{actionStatus}</span>
+            <span className="text-sm font-medium">{toastMessage}</span>
           </div>
         )}
 
-        {actionError && (
+        {toastError && (
           <div className="flex items-center space-x-3 bg-red-950/70 border border-red-500/50 text-red-200 px-4 py-3 rounded-xl shadow-lg transition-all animate-fade-in">
             <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
-            <span className="text-sm font-medium">{actionError}</span>
+            <span className="text-sm font-medium">{toastError}</span>
           </div>
         )}
 
@@ -458,11 +565,10 @@ export default function OptionsContainer() {
         {/* TOP SECTION: Authentic Minecraft Multiplayer Server Banner */}
         {/* ========================================================================= */}
         <div className="bg-neutral-900/90 border border-neutral-700/80 rounded-2xl p-5 shadow-2xl backdrop-blur-sm relative overflow-hidden">
-          {/* Subtle Background Accent */}
           <div className="absolute top-0 right-0 w-96 h-48 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
-            {/* Left: Icon & Server Info */}
+            {/* Left: 64x64 Icon Box & Server Address */}
             <div className="flex items-center space-x-4">
               {/* 64x64 Minecraft Server Icon Box */}
               <div
@@ -471,9 +577,14 @@ export default function OptionsContainer() {
                 title="Click to change server icon (64×64 PNG)"
               >
                 <img
-                  src={iconData || DEFAULT_MC_ICON}
+                  src={iconData || '/images/sagarmatha_logo.png'}
+                  onError={(e) => {
+                    if (e.currentTarget.src !== DEFAULT_MC_ICON) {
+                      e.currentTarget.src = DEFAULT_MC_ICON;
+                    }
+                  }}
                   alt="Server Icon"
-                  className="w-full h-full object-cover pixelated"
+                  className="w-full h-full object-cover"
                   style={{ imageRendering: 'pixelated' }}
                 />
 
@@ -495,7 +606,7 @@ export default function OptionsContainer() {
                     type="button"
                     onClick={handleDeleteIcon}
                     className="absolute -top-1 -right-1 bg-red-600 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow transition-colors z-20"
-                    title="Remove custom icon"
+                    title="Revert to default Sagarmatha Hosting logo"
                   >
                     {deletingIcon ? (
                       <FontAwesomeIcon icon={faSpinner} spin className="text-[10px]" />
@@ -537,18 +648,8 @@ export default function OptionsContainer() {
               </div>
             </div>
 
-            {/* Right: Signal Bars & MOTD Toggle */}
-            <div className="flex items-center space-x-4 self-end md:self-center">
-              {/* Authentic Minecraft Multiplayer Ping Signal Bars */}
-              <div className="flex items-end space-x-1 h-5 px-2 py-1 bg-neutral-800/70 border border-neutral-700/60 rounded-lg" title="Server Allocation Connected">
-                <span className="w-1 h-2 bg-emerald-400 rounded-sm" />
-                <span className="w-1 h-3 bg-emerald-400 rounded-sm" />
-                <span className="w-1 h-4 bg-emerald-400 rounded-sm" />
-                <span className="w-1 h-5 bg-emerald-400 rounded-sm" />
-                <span className="w-1 h-6 bg-emerald-400 rounded-sm" />
-              </div>
-
-              {/* Toggle MOTD Editor Button */}
+            {/* Right: MOTD Toggle Button */}
+            <div className="flex items-center space-x-3 self-end md:self-center">
               <button
                 type="button"
                 onClick={() => setShowMotdTools(!showMotdTools)}
@@ -576,7 +677,7 @@ export default function OptionsContainer() {
             </div>
             <div className="bg-black/90 border border-neutral-700/80 rounded-xl p-3.5 min-h-[52px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
               <div className="w-full">
-                {renderMotdSpans(getProp('motd', 'A Minecraft Server'))}
+                {renderMotdSpans(getProp('motd', DEFAULT_MOTD))}
               </div>
             </div>
           </div>
@@ -587,7 +688,7 @@ export default function OptionsContainer() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="text-xs font-bold text-neutral-300 flex items-center space-x-2">
                   <span>Change MOTD Description</span>
-                  <span className="text-neutral-400 font-normal text-[11px]">(Supports color codes & line breaks)</span>
+                  <span className="text-neutral-400 font-normal text-[11px]">(Auto-saves as you type)</span>
                 </label>
 
                 {/* Prefix Selector */}
@@ -611,6 +712,13 @@ export default function OptionsContainer() {
                   >
                     &
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => updateProp('motd', DEFAULT_MOTD, true)}
+                    className="ml-2 text-[11px] text-cyan-400 hover:text-cyan-300 underline"
+                  >
+                    Reset to Default MOTD
+                  </button>
                 </div>
               </div>
 
@@ -618,8 +726,8 @@ export default function OptionsContainer() {
               <textarea
                 ref={motdTextareaRef}
                 rows={2}
-                value={getProp('motd', 'A Minecraft Server')}
-                onChange={(e) => setProp('motd', e.target.value)}
+                value={getProp('motd', DEFAULT_MOTD)}
+                onChange={(e) => updateProp('motd', e.target.value, false)}
                 placeholder="Enter server description (MOTD)..."
                 className="w-full bg-neutral-950/90 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-neutral-100 font-mono focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 focus:outline-none resize-y"
               />
@@ -692,7 +800,7 @@ export default function OptionsContainer() {
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('max-players', '20'), 10) || 20;
-                    if (current > 1) setProp('max-players', (current - 1).toString());
+                    if (current > 1) updateProp('max-players', (current - 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -703,14 +811,15 @@ export default function OptionsContainer() {
                   min={1}
                   max={10000}
                   value={getProp('max-players', '20')}
-                  onChange={(e) => setProp('max-players', e.target.value)}
+                  onChange={(e) => updateProp('max-players', e.target.value, false)}
+                  onBlur={(e) => updateProp('max-players', e.target.value, true)}
                   className="w-16 bg-neutral-900 border border-neutral-700 rounded-lg py-1 text-center text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('max-players', '20'), 10) || 20;
-                    setProp('max-players', (current + 1).toString());
+                    updateProp('max-players', (current + 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -727,7 +836,7 @@ export default function OptionsContainer() {
               </div>
               <select
                 value={getProp('gamemode', 'survival').toLowerCase()}
-                onChange={(e) => setProp('gamemode', e.target.value)}
+                onChange={(e) => updateProp('gamemode', e.target.value, true)}
                 className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-cyan-500"
               >
                 <option value="survival">Survival</option>
@@ -745,7 +854,7 @@ export default function OptionsContainer() {
               </div>
               <select
                 value={getProp('difficulty', 'easy').toLowerCase()}
-                onChange={(e) => setProp('difficulty', e.target.value)}
+                onChange={(e) => updateProp('difficulty', e.target.value, true)}
                 className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-cyan-500"
               >
                 <option value="peaceful">Peaceful</option>
@@ -813,7 +922,6 @@ export default function OptionsContainer() {
             </div>
 
             {/* Cracked / Offline Mode Toggle */}
-            {/* Note: online-mode=false means Cracked players CAN join. online-mode=true means Premium accounts only */}
             <div className="flex items-center justify-between py-2">
               <div>
                 <div className="flex items-center space-x-2">
@@ -833,9 +941,8 @@ export default function OptionsContainer() {
               <button
                 type="button"
                 onClick={() => {
-                  // Invert online-mode: when toggled ON, online-mode becomes false (cracked enabled)
                   const isCracked = !getBoolProp('online-mode', true);
-                  setProp('online-mode', isCracked ? 'true' : 'false');
+                  updateProp('online-mode', isCracked ? 'true' : 'false', true);
                 }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   !getBoolProp('online-mode', true) ? 'bg-amber-500' : 'bg-neutral-700'
@@ -1022,7 +1129,7 @@ export default function OptionsContainer() {
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('spawn-protection', '16'), 10) || 0;
-                    if (current > 0) setProp('spawn-protection', (current - 1).toString());
+                    if (current > 0) updateProp('spawn-protection', (current - 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1033,14 +1140,15 @@ export default function OptionsContainer() {
                   min={0}
                   max={500}
                   value={getProp('spawn-protection', '16')}
-                  onChange={(e) => setProp('spawn-protection', e.target.value)}
+                  onChange={(e) => updateProp('spawn-protection', e.target.value, false)}
+                  onBlur={(e) => updateProp('spawn-protection', e.target.value, true)}
                   className="w-16 bg-neutral-900 border border-neutral-700 rounded-lg py-1 text-center text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('spawn-protection', '16'), 10) || 0;
-                    setProp('spawn-protection', (current + 1).toString());
+                    updateProp('spawn-protection', (current + 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1138,7 +1246,7 @@ export default function OptionsContainer() {
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('view-distance', '10'), 10) || 10;
-                    if (current > 2) setProp('view-distance', (current - 1).toString());
+                    if (current > 2) updateProp('view-distance', (current - 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1149,14 +1257,15 @@ export default function OptionsContainer() {
                   min={2}
                   max={32}
                   value={getProp('view-distance', '10')}
-                  onChange={(e) => setProp('view-distance', e.target.value)}
+                  onChange={(e) => updateProp('view-distance', e.target.value, false)}
+                  onBlur={(e) => updateProp('view-distance', e.target.value, true)}
                   className="w-16 bg-neutral-900 border border-neutral-700 rounded-lg py-1 text-center text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('view-distance', '10'), 10) || 10;
-                    if (current < 32) setProp('view-distance', (current + 1).toString());
+                    if (current < 32) updateProp('view-distance', (current + 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1176,7 +1285,7 @@ export default function OptionsContainer() {
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('simulation-distance', '10'), 10) || 10;
-                    if (current > 2) setProp('simulation-distance', (current - 1).toString());
+                    if (current > 2) updateProp('simulation-distance', (current - 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1187,14 +1296,15 @@ export default function OptionsContainer() {
                   min={2}
                   max={32}
                   value={getProp('simulation-distance', '10')}
-                  onChange={(e) => setProp('simulation-distance', e.target.value)}
+                  onChange={(e) => updateProp('simulation-distance', e.target.value, false)}
+                  onBlur={(e) => updateProp('simulation-distance', e.target.value, true)}
                   className="w-16 bg-neutral-900 border border-neutral-700 rounded-lg py-1 text-center text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   type="button"
                   onClick={() => {
                     const current = parseInt(getProp('simulation-distance', '10'), 10) || 10;
-                    if (current < 32) setProp('simulation-distance', (current + 1).toString());
+                    if (current < 32) updateProp('simulation-distance', (current + 1).toString(), true);
                   }}
                   className="w-8 h-8 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 flex items-center justify-center transition-colors"
                 >
@@ -1206,7 +1316,7 @@ export default function OptionsContainer() {
         </div>
 
         {/* ------------------------------------------------------------- */}
-        {/* CARD 5: Resource Pack Settings */}
+        {/* CARD 5: Resource Pack Settings & 1-Click ZIP Upload */}
         {/* ------------------------------------------------------------- */}
         <div className="bg-neutral-800/60 border border-neutral-700/60 rounded-2xl p-5 shadow-lg space-y-4">
           <div className="flex items-center space-x-2.5 pb-3 border-b border-neutral-700/60">
@@ -1215,17 +1325,92 @@ export default function OptionsContainer() {
             </div>
             <div>
               <h3 className="text-base font-bold text-white">Server Resource Pack</h3>
-              <p className="text-xs text-neutral-400">Optional or mandatory texture/resource packs prompted upon joining</p>
+              <p className="text-xs text-neutral-400">Upload a .zip pack directly or link an external download URL</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 1-Click ZIP Upload Dropzone Area */}
+          <div
+            onClick={() => !uploadingPack && packInputRef.current?.click()}
+            className="border-2 border-dashed border-neutral-700 hover:border-cyan-500/80 bg-neutral-950/50 hover:bg-neutral-900/50 rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 group relative"
+          >
+            {uploadingPack ? (
+              <div className="flex flex-col items-center space-y-2 text-cyan-400">
+                <FontAwesomeIcon icon={faSpinner} spin className="text-2xl" />
+                <span className="text-sm font-semibold">Uploading & configuring resource pack in server.properties...</span>
+              </div>
+            ) : getProp('resource-pack') ? (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 flex-shrink-0">
+                    <FontAwesomeIcon icon={faFileArchive} className="text-lg" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-bold text-white">Active Resource Pack</span>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono">
+                        LINKED
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-400 font-mono truncate max-w-md mt-0.5">
+                      {getProp('resource-pack')}
+                    </p>
+                    {getProp('resource-pack-sha1') && (
+                      <p className="text-[11px] text-neutral-400 font-mono mt-0.5">
+                        SHA-1: {getProp('resource-pack-sha1')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => packInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors"
+                  >
+                    Replace .zip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeletePack}
+                    disabled={deletingPack}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/60 transition-colors"
+                  >
+                    {deletingPack ? (
+                      <FontAwesomeIcon icon={faSpinner} spin />
+                    ) : (
+                      <>
+                        <FontAwesomeIcon icon={faTrashAlt} className="mr-1.5" />
+                        Remove
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-neutral-800/80 border border-neutral-700 group-hover:border-cyan-500/50 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
+                  <FontAwesomeIcon icon={faCloudUploadAlt} className="text-xl" />
+                </div>
+                <div className="text-sm font-bold text-neutral-200 group-hover:text-cyan-300 transition-colors">
+                  Upload Resource Pack (.zip)
+                </div>
+                <p className="text-xs text-neutral-400 max-w-sm">
+                  Click to select your server resource pack (.zip). It will automatically be hosted on your panel and written to server.properties!
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             <div>
               <label className="text-xs font-bold text-neutral-300">Resource Pack Direct URL (.zip)</label>
               <input
                 type="text"
                 value={getProp('resource-pack', '')}
-                onChange={(e) => setProp('resource-pack', e.target.value)}
+                onChange={(e) => updateProp('resource-pack', e.target.value, false)}
+                onBlur={(e) => updateProp('resource-pack', e.target.value, true)}
                 placeholder="https://example.com/pack.zip"
                 className="mt-1 w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-neutral-100 font-mono focus:border-cyan-500 focus:outline-none"
               />
@@ -1236,7 +1421,8 @@ export default function OptionsContainer() {
               <input
                 type="text"
                 value={getProp('resource-pack-prompt', '')}
-                onChange={(e) => setProp('resource-pack-prompt', e.target.value)}
+                onChange={(e) => updateProp('resource-pack-prompt', e.target.value, false)}
+                onBlur={(e) => updateProp('resource-pack-prompt', e.target.value, true)}
                 placeholder="Custom message shown to players..."
                 className="mt-1 w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-neutral-100 focus:border-cyan-500 focus:outline-none"
               />
@@ -1260,59 +1446,6 @@ export default function OptionsContainer() {
                   getBoolProp('require-resource-pack', false) ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
-            </button>
-          </div>
-        </div>
-
-        {/* ========================================================================= */}
-        {/* BOTTOM STICKY ACTION BAR */}
-        {/* ========================================================================= */}
-        <div className="sticky bottom-4 z-30 bg-neutral-900/95 border border-neutral-700/80 backdrop-blur-md rounded-2xl p-4 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-2.5 text-xs text-neutral-400">
-            <FontAwesomeIcon icon={faInfoCircle} className="text-cyan-400 text-sm flex-shrink-0" />
-            <span>
-              {hasUnsavedChanges ? (
-                <span className="text-amber-300 font-medium">You have unsaved changes. Remember to restart your server after saving.</span>
-              ) : (
-                <span>All properties are up to date. Restart your server whenever you change configuration.</span>
-              )}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
-            {hasUnsavedChanges && (
-              <button
-                type="button"
-                onClick={handleResetProperties}
-                disabled={saving}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-neutral-300 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition-colors flex items-center space-x-1.5"
-              >
-                <FontAwesomeIcon icon={faUndo} />
-                <span>Discard Changes</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleSaveProperties}
-              disabled={saving}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center space-x-2 ${
-                hasUnsavedChanges
-                  ? 'bg-cyan-500 hover:bg-cyan-400 text-neutral-950 shadow-cyan-500/25'
-                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700'
-              }`}
-            >
-              {saving ? (
-                <>
-                  <FontAwesomeIcon icon={faSpinner} spin />
-                  <span>Saving Properties...</span>
-                </>
-              ) : (
-                <>
-                  <FontAwesomeIcon icon={faSave} />
-                  <span>Save Properties</span>
-                </>
-              )}
             </button>
           </div>
         </div>
