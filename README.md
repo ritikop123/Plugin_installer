@@ -5,7 +5,8 @@ A native, secure suite of Minecraft server management addons built specifically 
 - 📦 **Mods Installer**: Browse and install Forge, Fabric, NeoForge, and Quilt mods directly to `/mods`.
 - 🗃️ **Modpacks Installer**: One-click install complete Modrinth modpacks with configs, overrides, and live batch progress tracking.
 - ⚙️ **Software Installer**: Switch Minecraft server software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Folia, etc.) with build selection and optional server file wipe.
-- 🎛️ **Server Options & Properties**: Visual `server.properties` manager with authentic Minecraft multiplayer server banner, read-only allocation IP/port badge with copy button, live MOTD color code editor & in-game preview, and 64x64 server icon uploader.
+- 🎛️ **Server Options & Properties**: Visual `server.properties` manager with authentic Minecraft multiplayer server banner, unchangeable server address badge with copy button, live MOTD color code editor & in-game preview, instant auto-save on every change, default Sagarmatha Hosting logo auto-seeding, 1-click .zip resource pack uploader, and expiration notice banners.
+- ⏱️ **Admin Auto-Suspension & 3-Day Notice System**: Native expiration date scheduling on server creation and details, background auto-suspension via `ptero:auto-suspend`, and courteous 3-day notice emails sent to server owners.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
 
@@ -106,6 +107,17 @@ In your Pterodactyl panel:
 - **Screen 2**: Version selector with `Go Back` button and `Show Snapshot Versions` filter toggle.
 - **Screen 3**: Install modal with Build selector dropdown, **WIPE SERVER FILES** toggle switch with warning, and Install action button.
 
+### 6. Admin Auto-Suspension & 3-Day Expiration Notice System
+- **Admin Server Creation Card**: Native HTML5 datetime picker box placed prominently above "Core Details" (`admin/servers/new`) allowing admins to set an optional expiration date.
+- **Admin Server Details Management**: View, extend, or clear expiration date at any time in `admin/servers/view/{id}/details`.
+- **Automated Suspension Daemon**: Scheduled command (`php artisan ptero:auto-suspend`) executes every 5 minutes through Pterodactyl's native cron scheduler, suspending expired servers automatically via `SuspensionService` and syncing with Wings.
+- **Courteous 3-Day Owner Notification**:
+  - Automatically notifies the server owner via email exactly 3 days (72 hours) before expiration.
+  - Zero spam: tracks warning timestamps to ensure owners receive exactly one polite notice per renewal period.
+- **In-Panel Expiration Alerts**:
+  - A prominent alert banner appears in the server options view (`/options`) when a server has 3 days or fewer remaining, displaying exact days and renewal reminders.
+  - If suspended, a clear suspension notice informs the user without confusing technical jargon.
+
 ---
 
 ## 🗑️ Uninstallation
@@ -122,7 +134,7 @@ bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/rit
 
 ```text
 Plugin_installer/
-├── install-arix.sh                     # Master 1-click installer (Plugins + Mods + Modpacks + Software + Options)
+├── install-arix.sh                     # Master 1-click installer (Plugins, Mods, Modpacks, Software, Options, Auto-Suspension)
 ├── uninstall-arix.sh                   # Clean uninstaller for all addons
 ├── README.md
 └── pterodactyl-addon/
@@ -134,6 +146,11 @@ Plugin_installer/
     ├── ModpackInstallerController.php  # Laravel controller for Modpacks
     ├── SoftwareInstallerContainer.tsx  # React component for Software
     ├── SoftwareInstallerController.php # Laravel controller for Software
-    ├── OptionsContainer.tsx            # React component for Options & MOTD
-    └── OptionsController.php           # Laravel controller for Options & server.properties
+    ├── OptionsContainer.tsx            # React component for Options, MOTD, and Expiration Alerts
+    ├── OptionsController.php           # Laravel controller for Options, server.properties & resourcepack
+    ├── AutoSuspendServersCommand.php   # Artisan command for automated suspension & 3-day notice
+    ├── ServerSuspensionWarningNotification.php # Courteous email notification for server owners
+    ├── migrations/                     # Database migration adding expire_at and warning timestamp
+    ├── logo_minecraft.png              # 64x64 default server icon (auto-seeded to /server-icon.png)
+    └── logo_highqualtiy.png            # High-resolution Sagarmatha Hosting logo for web GUI
 ```

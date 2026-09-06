@@ -110,6 +110,8 @@ class OptionsController extends ClientApiController
             'default_motd' => self::DEFAULT_MOTD,
             'file_exists' => $fileExists,
             'properties' => $properties,
+            'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
+            'is_suspended' => $server->isSuspended(),
         ]);
     }
 

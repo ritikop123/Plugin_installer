@@ -193,6 +193,12 @@ mkdir -p "$BACKUP_DIR"
 cp "$ROUTES_TS" "$BACKUP_DIR/routes.ts"
 cp "$ROUTES_PHP" "$BACKUP_DIR/api-client.php"
 [ -f "$SERVER_ROUTER" ] && cp "$SERVER_ROUTER" "$BACKUP_DIR/ServerRouter.tsx" || true
+[ -f "resources/views/admin/servers/new.blade.php" ] && cp "resources/views/admin/servers/new.blade.php" "$BACKUP_DIR/new.blade.php" || true
+[ -f "resources/views/admin/servers/view/details.blade.php" ] && cp "resources/views/admin/servers/view/details.blade.php" "$BACKUP_DIR/details.blade.php" || true
+[ -f "app/Http/Controllers/Admin/Servers/CreateServerController.php" ] && cp "app/Http/Controllers/Admin/Servers/CreateServerController.php" "$BACKUP_DIR/CreateServerController.php" || true
+[ -f "app/Http/Controllers/Admin/ServersController.php" ] && cp "app/Http/Controllers/Admin/ServersController.php" "$BACKUP_DIR/ServersController.php" || true
+[ -f "app/Console/Kernel.php" ] && cp "app/Console/Kernel.php" "$BACKUP_DIR/Kernel.php" || true
+[ -f "app/Models/Server.php" ] && cp "app/Models/Server.php" "$BACKUP_DIR/Server.php" || true
 
 echo -e "${GREEN}[✓] Backup created at: ${BACKUP_DIR}${NC}"
 
@@ -206,7 +212,13 @@ rollback() {
   cp "$BACKUP_DIR/routes.ts" "$ROUTES_TS" 2>/dev/null || true
   cp "$BACKUP_DIR/api-client.php" "$ROUTES_PHP" 2>/dev/null || true
   [ -f "$BACKUP_DIR/ServerRouter.tsx" ] && cp "$BACKUP_DIR/ServerRouter.tsx" "$SERVER_ROUTER" 2>/dev/null || true
-  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php
+  [ -f "$BACKUP_DIR/new.blade.php" ] && cp "$BACKUP_DIR/new.blade.php" "resources/views/admin/servers/new.blade.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/details.blade.php" ] && cp "$BACKUP_DIR/details.blade.php" "resources/views/admin/servers/view/details.blade.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/CreateServerController.php" ] && cp "$BACKUP_DIR/CreateServerController.php" "app/Http/Controllers/Admin/Servers/CreateServerController.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/ServersController.php" ] && cp "$BACKUP_DIR/ServersController.php" "app/Http/Controllers/Admin/ServersController.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/Kernel.php" ] && cp "$BACKUP_DIR/Kernel.php" "app/Console/Kernel.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/Server.php" ] && cp "$BACKUP_DIR/Server.php" "app/Models/Server.php" 2>/dev/null || true
+  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php /tmp/ptero_patch_auto_suspend.php
   echo -e "${YELLOW}[!] Original files restored from ${BACKUP_DIR}.${NC}"
   exit 1
 }
@@ -422,6 +434,8 @@ if ($enableOptions) {
     $append .= "    Route::post('/', [Client\\Servers\\OptionsController::class, 'update']);\n";
     $append .= "    Route::post('/icon', [Client\\Servers\\OptionsController::class, 'uploadIcon']);\n";
     $append .= "    Route::delete('/icon', [Client\\Servers\\OptionsController::class, 'deleteIcon']);\n";
+    $append .= "    Route::post('/resourcepack', [Client\\Servers\\OptionsController::class, 'uploadResourcePack']);\n";
+    $append .= "    Route::delete('/resourcepack', [Client\\Servers\\OptionsController::class, 'deleteResourcePack']);\n";
     $append .= "});\n/* <<< ARIX OPTIONS MANAGER END <<< */\n";
 }
 
@@ -543,6 +557,108 @@ if [ "$ENABLE_OPTIONS" = true ]; then
   fi
 fi
 
+
+# 12. Install Auto Suspension & Expiration System
+echo -e "${CYAN}[*] Setting up Server Auto-Suspension & Expiration system...${NC}"
+
+# Download migration
+mkdir -p "database/migrations"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" \
+  -o "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
+
+# Download Artisan command
+mkdir -p "app/Console/Commands"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/AutoSuspendServersCommand.php?t=${CACHE_BUST}" \
+  -o "app/Console/Commands/AutoSuspendServersCommand.php"
+
+# Download Owner Notification
+mkdir -p "app/Notifications"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" \
+  -o "app/Notifications/ServerSuspensionWarningNotification.php"
+
+# Run database migration
+echo -e "${CYAN}[*] Running database migration for auto-suspension...${NC}"
+php artisan migrate --force
+
+# Apply PHP patches for Admin views & controllers
+cat << 'PHP_PATCH_EOF' > /tmp/ptero_patch_auto_suspend.php
+<?php
+// Patch 1: resources/views/admin/servers/new.blade.php
+\$newBladeFile = 'resources/views/admin/servers/new.blade.php';
+if (file_exists(\$newBladeFile)) {
+    \$c = file_get_contents(\$newBladeFile);
+    \$c = preg_replace('/<!--\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*-->.*?<!--\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*-->\\s*/s', '', \$c);
+    \$card = "<!-- >>> ARIX AUTO SUSPENSION START >>> -->\n    <div class=\"row\">\n        <div class=\"col-xs-12\">\n            <div class=\"box\">\n                <div class=\"box-header with-border\">\n                    <h3 class=\"box-title\">Auto Suspension</h3>\n                </div>\n                <div class=\"box-body\">\n                    <div class=\"form-group\">\n                        <label for=\"pExpireAt\">Expiration Date</label>\n                        <input type=\"datetime-local\" class=\"form-control\" id=\"pExpireAt\" name=\"expire_at\" value=\"{{ old('expire_at') }}\">\n                        <p class=\"small text-muted no-margin\">The date when this server will be automatically suspended. Leave empty for no expiration.</p>\n                    </div>\n                </div>\n            </div>\n        </div>\n    </div>\n<!-- <<< ARIX AUTO SUSPENSION END <<< -->\n";
+    if (strpos(\$c, '<h3 class="box-title">Core Details</h3>') !== false) {
+        \$c = preg_replace('/(\\s*<div class="row">\\s*<div class="col-xs-12">\\s*<div class="box">\\s*<div class="box-header with-border">\\s*<h3 class="box-title">Core Details<\\/h3>)/', "\n" . \$card . '\$1', \$c, 1);
+        file_put_contents(\$newBladeFile, \$c);
+    }
+}
+
+// Patch 2: resources/views/admin/servers/view/details.blade.php
+\$detailsBladeFile = 'resources/views/admin/servers/view/details.blade.php';
+if (file_exists(\$detailsBladeFile)) {
+    \$c = file_get_contents(\$detailsBladeFile);
+    \$c = preg_replace('/<!--\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*-->.*?<!--\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*-->\\s*/s', '', \$c);
+    \$field = "<!-- >>> ARIX AUTO SUSPENSION START >>> -->\n                    <div class=\"form-group\">\n                        <label for=\"pExpireAt\" class=\"control-label\">Expiration Date (Auto Suspension)</label>\n                        <input type=\"datetime-local\" name=\"expire_at\" id=\"pExpireAt\" value=\"{{ old('expire_at', \$server->expire_at ? \$server->expire_at->format('Y-m-d\\TH:i') : '') }}\" class=\"form-control\" />\n                        <p class=\"text-muted small\">The date when this server will be automatically suspended. Leave empty or clear to disable auto-suspension.</p>\n                    </div>\n<!-- <<< ARIX AUTO SUSPENSION END <<< -->\n";
+    if (strpos(\$c, 'name="description"') !== false) {
+        \$c = preg_replace('/(<\\/div>\\s*<\\/div>\\s*<div class="box-footer">)/', \$field . '\$1', \$c, 1);
+        file_put_contents(\$detailsBladeFile, \$c);
+    }
+}
+
+// Patch 3: app/Http/Controllers/Admin/Servers/CreateServerController.php
+\$createCtrlFile = 'app/Http/Controllers/Admin/Servers/CreateServerController.php';
+if (file_exists(\$createCtrlFile)) {
+    \$c = file_get_contents(\$createCtrlFile);
+    \$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
+    \$patch = "/* >>> ARIX AUTO SUSPENSION START >>> */\n        if (\$request->filled('expire_at')) {\n            try {\n                \$server->expire_at = \\Carbon\\Carbon::parse(\$request->input('expire_at'));\n                \$server->save();\n            } catch (\\Throwable \$e) {\n                \\Log::warning('Could not set expire_at for new server: ' . \$e->getMessage());\n            }\n        }\n        /* <<< ARIX AUTO SUSPENSION END <<< */\n";
+    if (strpos(\$c, '$server = $this->creationService->handle($data);') !== false) {
+        \$c = preg_replace('/(\\$server = \\$this->creationService->handle\\(\\$data\\);\\s*)/', '\$1' . \$patch, \$c, 1);
+        file_put_contents(\$createCtrlFile, \$c);
+    }
+}
+
+// Patch 4: app/Http/Controllers/Admin/ServersController.php
+\$serversCtrlFile = 'app/Http/Controllers/Admin/ServersController.php';
+if (file_exists(\$serversCtrlFile)) {
+    \$c = file_get_contents(\$serversCtrlFile);
+    \$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
+    \$patch = "/* >>> ARIX AUTO SUSPENSION START >>> */\n        if (\$request->has('expire_at')) {\n            try {\n                \$newExpire = \$request->filled('expire_at') ? \\Carbon\\Carbon::parse(\$request->input('expire_at')) : null;\n                \$server->expire_at = \$newExpire;\n                if (is_null(\$newExpire) || (\$server->expiration_warning_sent_at && \$newExpire->isAfter(\\Carbon\\Carbon::now()->addDays(3)))) {\n                    \$server->expiration_warning_sent_at = null;\n                }\n                \$server->save();\n            } catch (\\Throwable \$e) {\n                \\Log::warning('Could not update expire_at for server ' . \$server->id . ': ' . \$e->getMessage());\n            }\n        }\n        /* <<< ARIX AUTO SUSPENSION END <<< */\n";
+    if (strpos(\$c, '$this->detailsModificationService->handle(') !== false) {
+        \$c = preg_replace('/(\\$this->detailsModificationService->handle\\([^\\n]+\\);\\s*)/', '\$1' . \$patch, \$c, 1);
+        file_put_contents(\$serversCtrlFile, \$c);
+    }
+}
+
+// Patch 5: app/Console/Kernel.php
+\$kernelFile = 'app/Console/Kernel.php';
+if (file_exists(\$kernelFile)) {
+    \$c = file_get_contents(\$kernelFile);
+    \$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
+    \$patch = "/* >>> ARIX AUTO SUSPENSION START >>> */\n        \$schedule->command('ptero:auto-suspend')->everyFiveMinutes()->withoutOverlapping();\n        /* <<< ARIX AUTO SUSPENSION END <<< */\n";
+    if (strpos(\$c, 'protected function schedule(Schedule $schedule): void') !== false) {
+        \$c = preg_replace('/(protected function schedule\\(Schedule \\$schedule\\): void\\s*\\{)/', "\$1\n        " . \$patch, \$c, 1);
+        file_put_contents(\$kernelFile, \$c);
+    }
+}
+
+// Patch 6: app/Models/Server.php
+\$modelFile = 'app/Models/Server.php';
+if (file_exists(\$modelFile)) {
+    \$c = file_get_contents(\$modelFile);
+    \$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
+    \$patch = "/* >>> ARIX AUTO SUSPENSION START >>> */\n        'expire_at' => 'datetime',\n        'expiration_warning_sent_at' => 'datetime',\n        /* <<< ARIX AUTO SUSPENSION END <<< */\n";
+    if (strpos(\$c, "'installed_at' => 'datetime',") !== false) {
+        \$c = preg_replace("/('installed_at' => 'datetime',\\s*)/", "\$1        " . \$patch, \$c, 1);
+        file_put_contents(\$modelFile, \$c);
+    }
+}
+PHP_PATCH_EOF
+
+php /tmp/ptero_patch_auto_suspend.php
+rm -f /tmp/ptero_patch_auto_suspend.php
+
 # 13. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"
 if command -v yarn &> /dev/null; then
@@ -597,6 +713,10 @@ if [ "$ENABLE_OPTIONS" = true ]; then
   echo -e "• ${CYAN}Server Options${NC}: Accessible at ${BOLD}/server/<server-id>/options${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/options${NC}, Name=${CYAN}Server Options${NC}, Icon=${CYAN}HiOutlineAdjustments${NC}"
 fi
+
+echo -e "• ${CYAN}Auto Suspension System${NC}: Active via scheduled command (${BOLD}ptero:auto-suspend${NC})"
+echo -e "  Admin Server Creation & Details pages now feature ${CYAN}Expiration Date${NC} controls."
+echo -e "  Servers approaching expiration receive a courteous notice 3 days prior."
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"

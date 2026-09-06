@@ -35,6 +35,8 @@ interface OptionsApiResponse {
   default_motd?: string;
   file_exists?: boolean;
   properties?: Record<string, string>;
+  expire_at?: string | null;
+  is_suspended?: boolean;
 }
 
 // Default 64x64 Minecraft Server Icon for Sagarmatha Hosting
@@ -208,6 +210,8 @@ export default function OptionsContainer() {
   const [hasCustomIcon, setHasCustomIcon] = useState<boolean>(false);
   const [iconData, setIconData] = useState<string | null>(null);
   const [properties, setProperties] = useState<Record<string, string>>({});
+  const [expireAt, setExpireAt] = useState<string | null>(null);
+  const [isSuspended, setIsSuspended] = useState<boolean>(false);
 
   // UI Interactivity
   const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
@@ -267,6 +271,8 @@ export default function OptionsContainer() {
         setServerAddress(res.data.address || '');
         setHasCustomIcon(!!res.data.has_custom_icon);
         setIconData(res.data.icon_data || DEFAULT_MC_ICON);
+        setExpireAt(res.data.expire_at || null);
+        setIsSuspended(!!res.data.is_suspended);
         const loadedProps = res.data.properties || {};
         if (!loadedProps.motd) {
           loadedProps.motd = res.data.default_motd || DEFAULT_MOTD;
@@ -561,6 +567,43 @@ export default function OptionsContainer() {
           </div>
         )}
 
+        {/* Scheduled Suspension Notice Banner */}
+        {(() => {
+          if (!expireAt) return null;
+          const expTime = new Date(expireAt).getTime();
+          const diffMs = expTime - Date.now();
+          const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          const isExpiringSoon = daysLeft <= 3 && daysLeft >= 0;
+
+          if (isSuspended) {
+            return (
+              <div className="flex items-center space-x-3 bg-red-950/80 border border-red-500/50 text-red-200 px-4 py-3 rounded-xl shadow-lg transition-all animate-fade-in">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
+                <div className="text-xs sm:text-sm">
+                  <span className="font-bold text-white">Server Suspended:</span> This server has been suspended due to reaching its expiration date. Please contact support or renew your plan to reactivate it.
+                </div>
+              </div>
+            );
+          }
+
+          if (isExpiringSoon) {
+            return (
+              <div className="flex items-center space-x-3 bg-amber-950/80 border border-amber-500/50 text-amber-200 px-4 py-3 rounded-xl shadow-lg transition-all animate-fade-in">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-amber-400 text-lg flex-shrink-0" />
+                <div className="text-xs sm:text-sm">
+                  <span className="font-bold text-white">Scheduled Suspension Notice:</span> This server is scheduled for automatic suspension on{' '}
+                  <span className="font-mono text-cyan-300 font-semibold">
+                    {new Date(expireAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>{' '}
+                  {daysLeft === 0 ? '(Today)' : `(in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'})`}. Please renew your service to prevent downtime.
+                </div>
+              </div>
+            );
+          }
+
+          return null;
+        })()}
+
         {/* ========================================================================= */}
         {/* TOP SECTION: Authentic Minecraft Multiplayer Server Banner */}
         {/* ========================================================================= */}
@@ -621,10 +664,6 @@ export default function OptionsContainer() {
               <div>
                 <div className="flex items-center space-x-2.5">
                   <h2 className="text-lg font-bold text-white tracking-wide">{serverName}</h2>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-500/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
-                    Online
-                  </span>
                 </div>
 
                 {/* Unchangeable Server Address with Copy Button */}
@@ -905,6 +944,29 @@ export default function OptionsContainer() {
                 />
               </button>
             </div>
+
+            {/* Server Expiration Status Row */}
+            {expireAt && (
+              <div className="flex items-center justify-between py-2 border-t border-neutral-700/40">
+                <div>
+                  <label className="text-sm font-semibold text-neutral-200">Server Expiration</label>
+                  <p className="text-xs text-neutral-400">Scheduled auto-suspension</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-mono font-bold text-cyan-300">
+                    {new Date(expireAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <p className="text-[11px] text-neutral-400">
+                    {(() => {
+                      const expTime = new Date(expireAt).getTime();
+                      const diffMs = expTime - Date.now();
+                      const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                      return days >= 0 ? `${days} days remaining` : 'Expired';
+                    })()}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ------------------------------------------------------------- */}

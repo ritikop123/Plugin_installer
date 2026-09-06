@@ -52,6 +52,9 @@ rm -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" 2>/de
 rm -f "app/Http/Controllers/Api/Client/Servers/ModpackInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/null || true
+rm -f "app/Console/Commands/AutoSuspendServersCommand.php" 2>/dev/null || true
+rm -f "app/Notifications/ServerSuspensionWarningNotification.php" 2>/dev/null || true
+rm -f "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Cleaning routes from routes/api-client.php...${NC}"
 cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
@@ -116,6 +119,32 @@ sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/options#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
+
+
+echo -e "${CYAN}[*] Cleaning auto-suspension patches from admin views and controllers...${NC}"
+cat << 'PHP_UNPATCH_EOF' > /tmp/ptero_unpatch_auto_suspend.php
+<?php
+\$files = [
+    'resources/views/admin/servers/new.blade.php',
+    'resources/views/admin/servers/view/details.blade.php',
+    'app/Http/Controllers/Admin/Servers/CreateServerController.php',
+    'app/Http/Controllers/Admin/ServersController.php',
+    'app/Console/Kernel.php',
+    'app/Models/Server.php',
+];
+
+foreach (\$files as \$file) {
+    if (file_exists(\$file)) {
+        \$c = file_get_contents(\$file);
+        \$c = preg_replace('/<!--\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*-->.*?<!--\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*-->\\s*/s', '', \$c);
+        \$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
+        file_put_contents(\$file, \$c);
+    }
+}
+PHP_UNPATCH_EOF
+
+php /tmp/ptero_unpatch_auto_suspend.php
+rm -f /tmp/ptero_unpatch_auto_suspend.php
 
 echo -e "${CYAN}[*] Rebuilding frontend assets without addons...${NC}"
 if command -v yarn &> /dev/null; then
