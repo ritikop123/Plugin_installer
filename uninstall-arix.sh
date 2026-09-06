@@ -102,11 +102,11 @@ sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModpackInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//plugins/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//mods/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//modpacks/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//software/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//mcplugins/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/plugins#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/mods#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Rebuilding frontend assets without addons...${NC}"
 if command -v yarn &> /dev/null; then

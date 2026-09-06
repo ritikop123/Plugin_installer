@@ -216,11 +216,11 @@ sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModpackInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//plugins/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//mods/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//modpacks/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//software/d' "$SERVER_ROUTER" 2>/dev/null || true
-sed -i '//mcplugins/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/plugins#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/mods#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 
 rm -f "resources/scripts/routers/ServerRouter.tsx.bak" 2>/dev/null || true
 rm -f "routes/api-client.php.bak" 2>/dev/null || true
@@ -304,12 +304,12 @@ cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX PLUGIN INSTALLER START >>> */
 Route::group(['prefix' => '/servers/{server}/plugins'], function () {
-    Route::get('/', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'index']);
-    Route::get('/versions', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'versions']);
-    Route::get('/tags', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'tags']);
-    Route::get('/installed', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'installed']);
-    Route::post('/install', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'install']);
-    Route::post('/delete', [PterodactylHttpControllersApiClientServersPluginInstallerController::class, 'delete']);
+    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'index']);
+    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'versions']);
+    Route::get('/tags', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'tags']);
+    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'installed']);
+    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'install']);
+    Route::post('/delete', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'delete']);
 });
 /* <<< ARIX PLUGIN INSTALLER END <<< */
 EOF
@@ -320,12 +320,12 @@ cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX MOD INSTALLER START >>> */
 Route::group(['prefix' => '/servers/{server}/mods'], function () {
-    Route::get('/', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'index']);
-    Route::get('/versions', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'versions']);
-    Route::get('/tags', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'tags']);
-    Route::get('/installed', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'installed']);
-    Route::post('/install', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'install']);
-    Route::post('/delete', [PterodactylHttpControllersApiClientServersModInstallerController::class, 'delete']);
+    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'index']);
+    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'versions']);
+    Route::get('/tags', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'tags']);
+    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'installed']);
+    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'install']);
+    Route::post('/delete', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'delete']);
 });
 /* <<< ARIX MOD INSTALLER END <<< */
 EOF
@@ -336,14 +336,14 @@ cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX MODPACK INSTALLER START >>> */
 Route::group(['prefix' => '/servers/{server}/modpacks'], function () {
-    Route::get('/', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'index']);
-    Route::get('/versions', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'versions']);
-    Route::get('/categories', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'categories']);
-    Route::get('/installed', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'installed']);
-    Route::post('/prepare', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'prepare']);
-    Route::post('/install-batch', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'installBatch']);
-    Route::post('/finalize', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'finalize']);
-    Route::post('/uninstall', [PterodactylHttpControllersApiClientServersModpackInstallerController::class, 'uninstall']);
+    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'index']);
+    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'versions']);
+    Route::get('/categories', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'categories']);
+    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'installed']);
+    Route::post('/prepare', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'prepare']);
+    Route::post('/install-batch', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'installBatch']);
+    Route::post('/finalize', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'finalize']);
+    Route::post('/uninstall', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'uninstall']);
 });
 /* <<< ARIX MODPACK INSTALLER END <<< */
 EOF
@@ -354,10 +354,10 @@ cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX SOFTWARE INSTALLER START >>> */
 Route::group(['prefix' => '/servers/{server}/software'], function () {
-    Route::get('/', [PterodactylHttpControllersApiClientServersSoftwareInstallerController::class, 'index']);
-    Route::get('/versions', [PterodactylHttpControllersApiClientServersSoftwareInstallerController::class, 'versions']);
-    Route::get('/builds', [PterodactylHttpControllersApiClientServersSoftwareInstallerController::class, 'builds']);
-    Route::post('/install', [PterodactylHttpControllersApiClientServersSoftwareInstallerController::class, 'install']);
+    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'index']);
+    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'versions']);
+    Route::get('/builds', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'builds']);
+    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'install']);
 });
 /* <<< ARIX SOFTWARE INSTALLER END <<< */
 EOF
