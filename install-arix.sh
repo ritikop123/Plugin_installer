@@ -169,18 +169,17 @@ fi
 
 # 9. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
-php -r "
-\$file = '$ROUTES_PHP';
-\$c = file_get_contents(\$file);
-
-// Clean old route blocks
-\$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX PLUGIN INSTALLER START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX PLUGIN INSTALLER END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
-\$c = preg_replace('/\\/\\*\\s*>>>\\s*ARIX MOD INSTALLER START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX MOD INSTALLER END\\s*<<<\\s*\\*\\/\\s*/s', '', \$c);
-\$c = preg_replace('/Route::group\\(\\[\\x27prefix\\x27\\s*=>\\s*[\\x27\\x22]\\/servers\\/\\{server\\}\\/plugins[\\x27\\x22]\\],.*?\\}\\);\\s*/s', '', \$c);
-\$c = preg_replace('/Route::group\\(\\[\\x27prefix\\x27\\s*=>\\s*[\\x27\\x22]\\/servers\\/\\{server\\}\\/mods[\\x27\\x22]\\],.*?\\}\\);\\s*/s', '', \$c);
-
-file_put_contents(\$file, \$c);
-"
+php -r '
+$file = $argv[1];
+if (file_exists($file)) {
+    $c = file_get_contents($file);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
+    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s", "", $c);
+    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s", "", $c);
+    file_put_contents($file, $c);
+}
+' "$ROUTES_PHP"
 
 if [ "$INSTALL_PLUGINS" = true ]; then
 cat << 'EOF' >> "$ROUTES_PHP"
@@ -216,36 +215,39 @@ fi
 
 # 10. Register Frontend Routes in resources/scripts/routers/routes.ts
 echo -e "${CYAN}[*] Registering frontend routes in resources/scripts/routers/routes.ts...${NC}"
-php -r "
-\$file = '$ROUTES_TS';
-\$c = file_get_contents(\$file);
+php -r '
+$routesTs = $argv[1];
+$installPlugins = ($argv[2] === "true");
+$installMods = ($argv[3] === "true");
+
+$c = file_get_contents($routesTs);
 
 // Clean old imports & routes
-\$c = preg_replace('/import\\s+PluginInstallerContainer[^\\n]*\\n?/s', '', \$c);
-\$c = preg_replace('/import\\s+ModInstallerContainer[^\\n]*\\n?/s', '', \$c);
-\$c = preg_replace('/\\s*\\{\\s*path:\\s*[\\x27\\x22]\\/plugins[\\x27\\x22][^\\}]*\\},?/s', '', \$c);
-\$c = preg_replace('/\\s*\\{\\s*path:\\s*[\\x27\\x22]\\/mods[\\x27\\x22][^\\}]*\\},?/s', '', \$c);
-\$c = preg_replace('/[^\\n]*PluginInstallerContainer[^\\n]*\\n?/', '', \$c);
-\$c = preg_replace('/[^\\n]*ModInstallerContainer[^\\n]*\\n?/', '', \$c);
+$c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
+$c = preg_replace("/import\s+ModInstallerContainer[^\n]*\n?/s", "", $c);
+$c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
+$c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s", "", $c);
+$c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
+$c = preg_replace("/[^\n]*ModInstallerContainer[^\n]*\n?/", "", $c);
 
-\$imports = '';
-\$routes = '';
+$imports = "";
+$routes = "";
 
-if ('$INSTALL_PLUGINS' === 'true') {
-    \$imports .= \"import PluginInstallerContainer from \\x27@/components/server/plugin-installer/PluginInstallerContainer\\x27;\\n\";
-    \$routes .= \"\\n        { path: \\x27/plugins\\x27, permission: \\x27file.*\\x27, name: undefined, component: PluginInstallerContainer, exact: true },\";
+if ($installPlugins) {
+    $imports .= "import PluginInstallerContainer from \x27@/components/server/plugin-installer/PluginInstallerContainer\x27;\n";
+    $routes .= "\n        { path: \x27/plugins\x27, permission: \x27file.*\x27, name: undefined, component: PluginInstallerContainer, exact: true },";
 }
 
-if ('$INSTALL_MODS' === 'true') {
-    \$imports .= \"import ModInstallerContainer from \\x27@/components/server/mod-installer/ModInstallerContainer\\x27;\\n\";
-    \$routes .= \"\\n        { path: \\x27/mods\\x27, permission: \\x27file.*\\x27, name: undefined, component: ModInstallerContainer, exact: true },\";
+if ($installMods) {
+    $imports .= "import ModInstallerContainer from \x27@/components/server/mod-installer/ModInstallerContainer\x27;\n";
+    $routes .= "\n        { path: \x27/mods\x27, permission: \x27file.*\x27, name: undefined, component: ModInstallerContainer, exact: true },";
 }
 
-\$c = \$imports . \$c;
-\$c = preg_replace('/(server:\\s*\\[)/', \"\\${1}\" . \$routes, \$c, 1);
+$c = $imports . $c;
+$c = preg_replace("/(server:\s*\[)/", "$1" . $routes, $c, 1);
 
-file_put_contents(\$file, \$c);
-"
+file_put_contents($routesTs, $c);
+' "$ROUTES_TS" "$INSTALL_PLUGINS" "$INSTALL_MODS"
 
 # Verify registrations
 if [ "$INSTALL_PLUGINS" = true ]; then

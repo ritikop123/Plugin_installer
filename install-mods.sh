@@ -164,7 +164,7 @@ $c = "import ModInstallerContainer from \x27@/components/server/mod-installer/Mo
 
 // Insert route inside server: [ array
 $route = "\n        { path: \x27/mods\x27, permission: \x27file.*\x27, name: undefined, component: ModInstallerContainer, exact: true },";
-$c = preg_replace("/(server:\s*\[)/", "\${1}" . $route, $c, 1);
+$c = preg_replace("/(server:\s*\[)/", "$1" . $route, $c, 1);
 
 file_put_contents($file, $c);
 '
