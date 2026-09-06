@@ -115,25 +115,37 @@ export default function PluginInstallerContainer() {
     }
 
     try {
-      const url = new URL(`${MODRINTH_API}/search`);
-      Object.keys(params).forEach((key) => url.searchParams.append(key, String(params[key])));
-
-      const res = await fetch(url.toString(), {
-        headers: {
-          'User-Agent': USER_AGENT,
+      // Call native Pterodactyl PHP backend
+      const response = await http.get(`/api/client/servers/${uuid}/plugins`, {
+        params: {
+          query: debouncedQuery.trim(),
+          loader,
+          game_version: gameVersion,
+          sort_by: sortBy,
+          page,
         },
       });
 
-      if (!res.ok) throw new Error(`Modrinth returned HTTP ${res.status}`);
-      const data = await res.json();
+      const data = response.data;
       setPlugins(data.hits || []);
       setTotalHits(data.total_hits || 0);
     } catch (err: any) {
-      setError(err?.message || 'Failed to fetch plugins from Modrinth');
+      // Fallback: direct public Modrinth query if PHP endpoint is loading
+      try {
+        const url = new URL(`${MODRINTH_API}/search`);
+        Object.keys(params).forEach((key) => url.searchParams.append(key, String(params[key])));
+        const res = await fetch(url.toString(), { headers: { 'User-Agent': USER_AGENT } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setPlugins(data.hits || []);
+        setTotalHits(data.total_hits || 0);
+      } catch (fallbackErr: any) {
+        setError(fallbackErr?.message || 'Failed to fetch plugins');
+      }
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, loader, gameVersion, sortBy, page]);
+  }, [uuid, debouncedQuery, loader, gameVersion, sortBy, page]);
 
   useEffect(() => {
     fetchPlugins();
@@ -150,22 +162,29 @@ export default function PluginInstallerContainer() {
     setModalType('all');
     setInstallMessage(null);
 
-    fetch(`${MODRINTH_API}/project/${selectedPlugin.project_id || selectedPlugin.slug}/version`, {
-      headers: {
-        'User-Agent': USER_AGENT,
-      },
+    http.get(`/api/client/servers/${uuid}/plugins/versions`, {
+      params: { plugin: selectedPlugin.project_id || selectedPlugin.slug },
     })
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setVersions(data);
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          setVersions(res.data);
         }
       })
-      .catch((e) => console.error('Version fetch error:', e))
+      .catch(() => {
+        // Fallback to direct fetch
+        fetch(`${MODRINTH_API}/project/${selectedPlugin.project_id || selectedPlugin.slug}/version`, {
+          headers: { 'User-Agent': USER_AGENT },
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (Array.isArray(data)) setVersions(data);
+          })
+          .catch((e) => console.error(e));
+      })
       .finally(() => setLoadingVersions(false));
-  }, [selectedPlugin]);
+  }, [uuid, selectedPlugin]);
 
-  // Handle native server installation through Pterodactyl Client API
+  // Handle native server installation through PHP backend controller & Wings
   const handleInstallPlugin = async (ver: ModrinthVersion) => {
     const file = ver.files.find((f) => f.primary) || ver.files[0];
     if (!file) return;
@@ -174,28 +193,31 @@ export default function PluginInstallerContainer() {
     setInstallMessage(null);
 
     try {
-      // Step 1: Ensure /plugins folder exists in container
-      try {
-        await http.post(`/api/client/servers/${uuid}/files/create-folder`, {
-          root: '/',
-          name: 'plugins',
-        });
-      } catch (e) {
-        // Ignore if folder already exists
-      }
-
-      // Step 2: Trigger Pterodactyl Wings to pull/download .jar directly into /plugins
-      await http.post(`/api/client/servers/${uuid}/files/pull`, {
+      // Call Pterodactyl PHP backend controller which auto-creates /plugins and pulls via Wings
+      const res = await http.post(`/api/client/servers/${uuid}/plugins/install`, {
         url: file.url,
-        directory: '/plugins',
         filename: file.filename,
       });
 
       setInstalledVersions((prev) => ({ ...prev, [ver.id]: true }));
-      setInstallMessage(`✓ Successfully installed ${file.filename} into /plugins!`);
+      setInstallMessage(res.data.message || `✓ Successfully installed ${file.filename} into /plugins!`);
     } catch (err: any) {
-      const msg = err?.response?.data?.errors?.[0]?.detail || err?.message || 'Failed to install file to server';
-      setInstallMessage(`⚠️ ${msg}`);
+      // Fallback: direct Pterodactyl Client files API
+      try {
+        try {
+          await http.post(`/api/client/servers/${uuid}/files/create-folder`, { root: '/', name: 'plugins' });
+        } catch {}
+        await http.post(`/api/client/servers/${uuid}/files/pull`, {
+          url: file.url,
+          directory: '/plugins',
+          filename: file.filename,
+        });
+        setInstalledVersions((prev) => ({ ...prev, [ver.id]: true }));
+        setInstallMessage(`✓ Successfully installed ${file.filename} into /plugins!`);
+      } catch (fallbackErr: any) {
+        const msg = fallbackErr?.response?.data?.errors?.[0]?.detail || fallbackErr?.message || 'Failed to install file to server';
+        setInstallMessage(`⚠️ ${msg}`);
+      }
     } finally {
       setInstallingId(null);
     }
