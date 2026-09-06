@@ -56,19 +56,15 @@ class PluginInstallerController extends ClientApiController
 
         $facets = [];
 
-        // Filter server loaders
-        if ($loader !== 'all' && !empty($loader)) {
-            $facets[] = ["categories:{$loader}"];
+        // 1. Must be a plugin
+        $facets[] = ['project_type:plugin'];
+
+        // 2. Filter plugin server loaders
+        $allowedPluginLoaders = ['paper', 'purpur', 'folia', 'spigot', 'velocity', 'waterfall', 'bungeecord', 'bukkit'];
+        if ($loader !== 'all' && !empty($loader) && in_array(strtolower($loader), $allowedPluginLoaders)) {
+            $facets[] = ["categories:" . strtolower($loader)];
         } else {
-            $facets[] = [
-                'categories:spigot',
-                'categories:paper',
-                'categories:purpur',
-                'categories:velocity',
-                'categories:bungeecord',
-                'categories:folia',
-                'categories:fabric',
-            ];
+            $facets[] = array_map(fn ($l) => "categories:{$l}", $allowedPluginLoaders);
         }
 
         if ($gameVersion !== 'all' && !empty($gameVersion)) {
@@ -124,8 +120,25 @@ class PluginInstallerController extends ClientApiController
             return response()->json(['error' => 'Valid plugin ID or slug is required.'], 400);
         }
 
+        $query = [];
+        $loader = strtolower(trim((string) $request->query('loader', '')));
+        $allowedPluginLoaders = ['paper', 'purpur', 'folia', 'spigot', 'velocity', 'waterfall', 'bungeecord', 'bukkit'];
+
+        if (!empty($loader) && in_array($loader, $allowedPluginLoaders)) {
+            $query['loaders'] = json_encode([$loader]);
+        } else {
+            $query['loaders'] = json_encode($allowedPluginLoaders);
+        }
+
+        $gameVersion = trim((string) $request->query('game_version', $request->query('version', '')));
+        if (!empty($gameVersion) && $gameVersion !== 'all') {
+            $query['game_versions'] = json_encode([$gameVersion]);
+        }
+
         try {
-            $response = $this->httpClient->get("project/{$pluginId}/version");
+            $response = $this->httpClient->get("project/{$pluginId}/version", [
+                'query' => $query,
+            ]);
             $statusCode = $response->getStatusCode();
 
             if ($statusCode >= 400) {

@@ -64,12 +64,24 @@ const COMMON_LOADERS = [
   { label: 'All Loaders', value: 'all' },
   { label: 'Paper', value: 'paper' },
   { label: 'Purpur', value: 'purpur' },
+  { label: 'Folia', value: 'folia' },
   { label: 'Spigot', value: 'spigot' },
   { label: 'Velocity', value: 'velocity' },
+  { label: 'Waterfall', value: 'waterfall' },
   { label: 'BungeeCord', value: 'bungeecord' },
-  { label: 'Folia', value: 'folia' },
-  { label: 'Fabric', value: 'fabric' },
+  { label: 'Bukkit', value: 'bukkit' },
 ];
+
+const ALLOWED_PLUGIN_LOADERS = new Set([
+  'paper',
+  'purpur',
+  'folia',
+  'spigot',
+  'velocity',
+  'waterfall',
+  'bungeecord',
+  'bukkit',
+]);
 
 const COMMON_VERSIONS = [
   { label: 'All MC Versions', value: 'all' },
@@ -321,7 +333,10 @@ export default function PluginInstallerContainer() {
 
     try {
       const res = await http.get<ModrinthPluginVersion[]>(`/api/client/servers/${uuid}/plugins/versions`, {
-        params: { plugin: pluginId },
+        params: {
+          plugin: pluginId,
+          loader: selectedLoader !== 'all' ? selectedLoader : undefined,
+        },
       });
 
       if (Array.isArray(res.data)) {
@@ -406,15 +421,23 @@ export default function PluginInstallerContainer() {
     });
   };
 
-  // Modal filtered versions
+  // Modal filtered versions (only plugin platforms allowed)
   const filteredVersions = versions.filter((v) => {
     if (modalType !== 'all' && v.version_type !== modalType) return false;
-    if (modalLoader !== 'all' && !v.loaders?.includes(modalLoader)) return false;
+    const isPlugin = v.loaders?.some((l) => ALLOWED_PLUGIN_LOADERS.has(l.toLowerCase()));
+    if (!isPlugin) return false;
+    if (modalLoader !== 'all' && !v.loaders?.some((l) => l.toLowerCase() === modalLoader.toLowerCase())) return false;
     if (modalGameVersion !== 'all' && !v.game_versions?.includes(modalGameVersion)) return false;
     return true;
   });
 
-  const availableModalLoaders = Array.from(new Set(versions.flatMap((v) => v.loaders || []))).sort();
+  const availableModalLoaders = Array.from(
+    new Set(
+      versions
+        .flatMap((v) => v.loaders || [])
+        .filter((l) => ALLOWED_PLUGIN_LOADERS.has(l.toLowerCase()))
+    )
+  ).sort();
   const availableModalVersions = Array.from(new Set(versions.flatMap((v) => v.game_versions || []))).sort((a, b) =>
     b.localeCompare(a, undefined, { numeric: true })
   );
