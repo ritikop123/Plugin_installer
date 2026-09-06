@@ -3,6 +3,7 @@
 A native, secure suite of Minecraft server management addons built specifically for Pterodactyl Panel with the **Arix Theme**:
 - 🔌 **Plugin Installer**: Discover and install server plugins for Paper, Purpur, Spigot, Folia, Velocity, BungeeCord directly to `/plugins`.
 - 📦 **Mods Installer**: Browse and install Forge, Fabric, NeoForge, and Quilt mods directly to `/mods`.
+- 🗃️ **Modpacks Installer**: One-click install complete Modrinth modpacks with configs, overrides, and live batch progress tracking.
 - ⚙️ **Software Installer**: Switch Minecraft server software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Folia, etc.) with build selection and optional server file wipe.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
@@ -21,14 +22,15 @@ bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/rit
 When executed, you will be prompted:
 ```text
 Select an installation option:
-  1) All: Plugins + Mods + Software Installers (Recommended)
+  1) All: Plugins + Mods + Modpacks + Software (Recommended)
   2) Plugin Installer only (/plugins)
   3) Mods Installer only (/mods)
-  4) Software Installer only (/software)
-  5) Uninstall All
-Enter choice [1-5] (Default: 1): 
+  4) Modpacks Installer only (/modpacks)
+  5) Software Installer only (/software)
+  6) Uninstall All
+Enter choice [1-6] (Default: 1): 
 ```
-*(Press Enter or `1` to install all three addons together in a single build pass!)*
+*(Press Enter or `1` to install all four addons together in a single build pass!)*
 
 ---
 
@@ -43,6 +45,7 @@ In your Pterodactyl panel:
 | :--- | :--- | :--- | :--- |
 | **Plugin Installer** | **`/plugins`** | `HiOutlinePuzzle` | Manages `/plugins` directory. |
 | **Mods Installer** | **`/mods`** | `HiOutlineCubeTransparent` | Manages `/mods` directory. |
+| **Modpacks Installer** | **`/modpacks`** | `HiOutlineCollection` | Installs full modpacks with configs & overrides. |
 | **Software Installer** | **`/software`** | `HiOutlineServer` | Version Changer for server software. |
 
 *Be sure to set **Enable link: ON (Checked)*** for each link.*
@@ -62,7 +65,16 @@ In your Pterodactyl panel:
 - Minecraft version filter.
 - Dynamic installed detection and 3-column card grid in Installed tab.
 
-### 3. Software Installer (`/server/<id>/software`)
+### 3. Modpacks Installer (`/server/<id>/modpacks`)
+- Modrinth Modpacks catalog with categories: **Adventure**, **Technology**, **Magic**, **Quests**, **Optimization**, etc.
+- **Chunked Batch Installation**: Prevents PHP gateway timeouts by extracting configs/overrides and streaming mod downloads in batches with an interactive progress bar.
+- **Wipe Modes**:
+  - *Wipe Mods & Configs (Recommended)*: Cleans existing `/mods` and `/config` folders for a conflict-free install without deleting worlds.
+  - *Wipe Entire Server*: Completely resets the server.
+  - *Keep Existing Files*: Merges with existing files.
+- **Installed Tab & Manifest**: Automatically records `.pterodactyl-modpack.json` on the server and provides a 1-click **Uninstall Modpack** button.
+
+### 4. Software Installer (`/server/<id>/software`)
 - Powered by official **MCJars v2 API** (`mcjars.app/api/v2`).
 - **Screen 1**: Software catalog grid (Vanilla, Paper, Pufferfish, Spigot, Folia, Purpur, Waterfall, Velocity, Fabric, BungeeCord, Quilt, Forge, NeoForge, Mohist, Arclight, Sponge, Leaves, Canvas).
 - **Screen 2**: Version selector with `Go Back` button and `Show Snapshot Versions` filter toggle.
@@ -84,7 +96,7 @@ bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/rit
 
 ```text
 Plugin_installer/
-├── install-arix.sh                     # Master 1-click installer (Plugins + Mods + Software)
+├── install-arix.sh                     # Master 1-click installer (Plugins + Mods + Modpacks + Software)
 ├── uninstall-arix.sh                   # Clean uninstaller for all addons
 ├── README.md
 └── pterodactyl-addon/
@@ -92,6 +104,8 @@ Plugin_installer/
     ├── PluginInstallerController.php   # Laravel controller for Plugins
     ├── ModInstallerContainer.tsx       # React component for Mods
     ├── ModInstallerController.php      # Laravel controller for Mods
+    ├── ModpackInstallerContainer.tsx   # React component for Modpacks
+    ├── ModpackInstallerController.php  # Laravel controller for Modpacks
     ├── SoftwareInstallerContainer.tsx  # React component for Software
     └── SoftwareInstallerController.php # Laravel controller for Software
 ```
