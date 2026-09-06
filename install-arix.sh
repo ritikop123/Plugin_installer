@@ -72,7 +72,11 @@ echo -e "${GREEN}[✓] Backup created at: ${BACKUP_DIR}${NC}"
 
 # Setup Automatic Rollback on Failure
 rollback() {
-  echo -e "\n${RED}[✗] Installation failed! Rolling back to original state...${NC}"
+  local failed_line="$1"
+  local failed_cmd="$2"
+  local failed_code="$3"
+  echo -e "\n${RED}[✗] Installation failed on line ${failed_line}! Command: '${failed_cmd}' exited with code ${failed_code}.${NC}"
+  echo -e "${YELLOW}[*] Rolling back to original state...${NC}"
   cp "$BACKUP_DIR/routes.ts" "$ROUTES_TS" 2>/dev/null || true
   cp "$BACKUP_DIR/api-client.php" "$ROUTES_PHP" 2>/dev/null || true
   cp "$BACKUP_DIR/ServerRouter.tsx" "$SERVER_ROUTER" 2>/dev/null || true
@@ -82,7 +86,7 @@ rollback() {
   exit 1
 }
 
-trap rollback ERR
+trap 'rollback "$LINENO" "$BASH_COMMAND" "$?"' ERR
 
 # 5. Clean Old Implementation
 echo -e "${CYAN}[*] Cleaning any previous plugin installer files...${NC}"
@@ -125,19 +129,13 @@ if (file_exists($file)) {
 }
 ' 2>/dev/null || true
 
-# Remove any old tokens if found in any installed plugin directories
-if grep -rq "MODRINTH_TOKEN" app/ resources/ 2>/dev/null; then
-  grep -rli "MODRINTH_TOKEN" app/ resources/ 2>/dev/null | while read -r file; do
-    sed -i '/MODRINTH_TOKEN/d' "$file" 2>/dev/null || true
-  done
-fi
-
 # 6. Install PHP Backend Controller
 echo -e "${CYAN}[*] Installing PluginInstallerController.php...${NC}"
 CONTROLLER_TARGET="app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php"
 mkdir -p "app/Http/Controllers/Api/Client/Servers"
 
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerController.php" \
+CACHE_BUST="$(date +%s)"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerController.php?t=${CACHE_BUST}" \
   -o "$CONTROLLER_TARGET"
 
 # Verify Controller Download
@@ -165,7 +163,7 @@ echo -e "${CYAN}[*] Installing PluginInstallerContainer.tsx...${NC}"
 COMPONENT_TARGET_DIR="resources/scripts/components/server/plugin-installer"
 mkdir -p "$COMPONENT_TARGET_DIR"
 
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerContainer.tsx" \
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerContainer.tsx?t=${CACHE_BUST}" \
   -o "${COMPONENT_TARGET_DIR}/PluginInstallerContainer.tsx"
 
 if [ ! -s "${COMPONENT_TARGET_DIR}/PluginInstallerContainer.tsx" ]; then
