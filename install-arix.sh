@@ -182,7 +182,7 @@ rollback() {
   cp "$BACKUP_DIR/routes.ts" "$ROUTES_TS" 2>/dev/null || true
   cp "$BACKUP_DIR/api-client.php" "$ROUTES_PHP" 2>/dev/null || true
   [ -f "$BACKUP_DIR/ServerRouter.tsx" ] && cp "$BACKUP_DIR/ServerRouter.tsx" "$SERVER_ROUTER" 2>/dev/null || true
-  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_routes.php
+  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php
   echo -e "${YELLOW}[!] Original files restored from ${BACKUP_DIR}.${NC}"
   exit 1
 }
@@ -279,89 +279,97 @@ fi
 # 11. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
 
-cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
+cat << 'PHP_REG_API_EOF' > /tmp/ptero_reg_api.php
 <?php
 $file = $argv[1];
-if (file_exists($file)) {
-    $c = file_get_contents($file);
-    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
-    $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
-    $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
-    $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    file_put_contents($file, $c);
+$enablePlugins = ($argv[2] === 'true');
+$enableMods = ($argv[3] === 'true');
+$enableModpacks = ($argv[4] === 'true');
+$enableSoftware = ($argv[5] === 'true');
+
+if (!file_exists($file)) {
+    exit(0);
 }
-PHP_CLEAN_EOF
 
-php /tmp/ptero_clean_api.php "$ROUTES_PHP"
-rm -f /tmp/ptero_clean_api.php
+$c = file_get_contents($file);
 
-if [ "$ENABLE_PLUGINS" = true ]; then
-cat << 'EOF' >> "$ROUTES_PHP"
+// Clean old routes
+$c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
-/* >>> ARIX PLUGIN INSTALLER START >>> */
-Route::group(['prefix' => '/servers/{server}/plugins'], function () {
-    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'index']);
-    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'versions']);
-    Route::get('/tags', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'tags']);
-    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'installed']);
-    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'install']);
-    Route::post('/delete', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\PluginInstallerController::class, 'delete']);
-});
-/* <<< ARIX PLUGIN INSTALLER END <<< */
-EOF
-fi
+// Ensure Pterodactyl\Http\Controllers\Api\Client namespace is imported
+if (strpos($c, 'use Pterodactyl\Http\Controllers\Api\Client;') === false) {
+    $c = preg_replace('/<\?php\s*/', "<?php\n\nuse Pterodactyl\\Http\\Controllers\\Api\\Client;\n", $c, 1);
+}
 
-if [ "$ENABLE_MODS" = true ]; then
-cat << 'EOF' >> "$ROUTES_PHP"
+$append = '';
 
-/* >>> ARIX MOD INSTALLER START >>> */
-Route::group(['prefix' => '/servers/{server}/mods'], function () {
-    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'index']);
-    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'versions']);
-    Route::get('/tags', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'tags']);
-    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'installed']);
-    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'install']);
-    Route::post('/delete', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModInstallerController::class, 'delete']);
-});
-/* <<< ARIX MOD INSTALLER END <<< */
-EOF
-fi
+if ($enablePlugins) {
+    $append .= "\n/* >>> ARIX PLUGIN INSTALLER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/plugins'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\PluginInstallerController::class, 'index']);\n";
+    $append .= "    Route::get('/versions', [Client\\Servers\\PluginInstallerController::class, 'versions']);\n";
+    $append .= "    Route::get('/tags', [Client\\Servers\\PluginInstallerController::class, 'tags']);\n";
+    $append .= "    Route::get('/installed', [Client\\Servers\\PluginInstallerController::class, 'installed']);\n";
+    $append .= "    Route::post('/install', [Client\\Servers\\PluginInstallerController::class, 'install']);\n";
+    $append .= "    Route::post('/delete', [Client\\Servers\\PluginInstallerController::class, 'delete']);\n";
+    $append .= "});\n/* <<< ARIX PLUGIN INSTALLER END <<< */\n";
+}
 
-if [ "$ENABLE_MODPACKS" = true ]; then
-cat << 'EOF' >> "$ROUTES_PHP"
+if ($enableMods) {
+    $append .= "\n/* >>> ARIX MOD INSTALLER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/mods'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\ModInstallerController::class, 'index']);\n";
+    $append .= "    Route::get('/versions', [Client\\Servers\\ModInstallerController::class, 'versions']);\n";
+    $append .= "    Route::get('/tags', [Client\\Servers\\ModInstallerController::class, 'tags']);\n";
+    $append .= "    Route::get('/installed', [Client\\Servers\\ModInstallerController::class, 'installed']);\n";
+    $append .= "    Route::post('/install', [Client\\Servers\\ModInstallerController::class, 'install']);\n";
+    $append .= "    Route::post('/delete', [Client\\Servers\\ModInstallerController::class, 'delete']);\n";
+    $append .= "});\n/* <<< ARIX MOD INSTALLER END <<< */\n";
+}
 
-/* >>> ARIX MODPACK INSTALLER START >>> */
-Route::group(['prefix' => '/servers/{server}/modpacks'], function () {
-    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'index']);
-    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'versions']);
-    Route::get('/categories', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'categories']);
-    Route::get('/installed', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'installed']);
-    Route::post('/prepare', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'prepare']);
-    Route::post('/install-batch', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'installBatch']);
-    Route::post('/finalize', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'finalize']);
-    Route::post('/uninstall', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\ModpackInstallerController::class, 'uninstall']);
-});
-/* <<< ARIX MODPACK INSTALLER END <<< */
-EOF
-fi
+if ($enableModpacks) {
+    $append .= "\n/* >>> ARIX MODPACK INSTALLER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/modpacks'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\ModpackInstallerController::class, 'index']);\n";
+    $append .= "    Route::get('/versions', [Client\\Servers\\ModpackInstallerController::class, 'versions']);\n";
+    $append .= "    Route::get('/categories', [Client\\Servers\\ModpackInstallerController::class, 'categories']);\n";
+    $append .= "    Route::get('/installed', [Client\\Servers\\ModpackInstallerController::class, 'installed']);\n";
+    $append .= "    Route::post('/prepare', [Client\\Servers\\ModpackInstallerController::class, 'prepare']);\n";
+    $append .= "    Route::post('/install-batch', [Client\\Servers\\ModpackInstallerController::class, 'installBatch']);\n";
+    $append .= "    Route::post('/finalize', [Client\\Servers\\ModpackInstallerController::class, 'finalize']);\n";
+    $append .= "    Route::post('/uninstall', [Client\\Servers\\ModpackInstallerController::class, 'uninstall']);\n";
+    $append .= "});\n/* <<< ARIX MODPACK INSTALLER END <<< */\n";
+}
 
-if [ "$ENABLE_SOFTWARE" = true ]; then
-cat << 'EOF' >> "$ROUTES_PHP"
+if ($enableSoftware) {
+    $append .= "\n/* >>> ARIX SOFTWARE INSTALLER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/software'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\SoftwareInstallerController::class, 'index']);\n";
+    $append .= "    Route::get('/versions', [Client\\Servers\\SoftwareInstallerController::class, 'versions']);\n";
+    $append .= "    Route::get('/builds', [Client\\Servers\\SoftwareInstallerController::class, 'builds']);\n";
+    $append .= "    Route::post('/install', [Client\\Servers\\SoftwareInstallerController::class, 'install']);\n";
+    $append .= "});\n/* <<< ARIX SOFTWARE INSTALLER END <<< */\n";
+}
 
-/* >>> ARIX SOFTWARE INSTALLER START >>> */
-Route::group(['prefix' => '/servers/{server}/software'], function () {
-    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'index']);
-    Route::get('/versions', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'versions']);
-    Route::get('/builds', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'builds']);
-    Route::post('/install', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\SoftwareInstallerController::class, 'install']);
-});
-/* <<< ARIX SOFTWARE INSTALLER END <<< */
-EOF
-fi
+$c = rtrim($c) . "\n" . $append;
+file_put_contents($file, $c);
+PHP_REG_API_EOF
+
+php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE"
+rm -f /tmp/ptero_reg_api.php
+
+# Verify PHP syntax of routes/api-client.php
+php -l "$ROUTES_PHP" || {
+  echo -e "${RED}[✗] Syntax error detected in $ROUTES_PHP!${NC}"
+  false
+}
 
 # 12. Register Frontend Routes in resources/scripts/routers/routes.ts
 echo -e "${CYAN}[*] Registering frontend routes in resources/scripts/routers/routes.ts...${NC}"

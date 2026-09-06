@@ -71,6 +71,7 @@ PHP_CLEAN_EOF
 
 php /tmp/ptero_clean_api.php "$ROUTES_PHP"
 rm -f /tmp/ptero_clean_api.php
+php -l "$ROUTES_PHP" || true
 
 echo -e "${CYAN}[*] Cleaning routes from resources/scripts/routers/routes.ts...${NC}"
 cat << 'PHP_REG_EOF' > /tmp/ptero_clean_routes.php
