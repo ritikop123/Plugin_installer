@@ -1,4 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faSearch,
+  faFolder,
+  faFolderOpen,
+  faSpinner,
+  faPuzzlePiece,
+  faExternalLinkAlt,
+  faDownload,
+  faClock,
+  faCheck,
+  faTrashAlt,
+  faPlus,
+  faSyncAlt,
+  faExclamationTriangle,
+  faTimes,
+} from '@fortawesome/free-solid-svg-icons';
 import { ServerContext } from '@/state/server';
 import http, { httpErrorToHuman } from '@/api/http';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
@@ -403,7 +420,7 @@ export default function PluginInstallerContainer() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <i className="fa-solid fa-magnifying-glass text-[11px]"></i>
+              <FontAwesomeIcon icon={faSearch} className="text-[11px]" />
               <span>Browse</span>
             </button>
             <button
@@ -414,7 +431,7 @@ export default function PluginInstallerContainer() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <i className="fa-solid fa-folder text-[11px]"></i>
+              <FontAwesomeIcon icon={faFolder} className="text-[11px]" />
               <span>Installed</span>
               {installedFiles.length > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-500/20 text-blue-300 font-mono">
@@ -497,7 +514,7 @@ export default function PluginInstallerContainer() {
                   </label>
                   <div className="relative flex items-center">
                     <span className="absolute left-3 text-slate-500 pointer-events-none">
-                      <i className="fa-solid fa-magnifying-glass text-xs"></i>
+                      <FontAwesomeIcon icon={faSearch} className="text-xs" />
                     </span>
                     <input
                       type="text"
@@ -522,7 +539,7 @@ export default function PluginInstallerContainer() {
             {/* Loading Indicator */}
             {loading && (
               <div className="py-20 text-center text-slate-400 space-y-2">
-                <i className="fa-solid fa-spinner fa-spin text-2xl text-blue-400 inline-block"></i>
+                <FontAwesomeIcon icon={faSpinner} spin className="text-2xl text-blue-400 inline-block" />
                 <p className="text-xs font-medium">Searching verified plugins...</p>
               </div>
             )}
@@ -543,7 +560,7 @@ export default function PluginInstallerContainer() {
             {/* Empty State */}
             {!loading && !error && plugins.length === 0 && (
               <div className="py-20 text-center text-slate-400 space-y-3">
-                <i className="fa-solid fa-folder-open text-3xl text-slate-600 block"></i>
+                <FontAwesomeIcon icon={faFolderOpen} className="text-3xl text-slate-600 block mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-white">No plugins found</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   No plugins match your current filters. Try searching for a different keyword or loader.
@@ -572,7 +589,7 @@ export default function PluginInstallerContainer() {
                                 {plugin.icon_url ? (
                                   <img src={plugin.icon_url} alt={plugin.title} className="w-full h-full object-cover" />
                                 ) : (
-                                  <i className="fa-solid fa-puzzle-piece text-lg text-slate-400"></i>
+                                  <FontAwesomeIcon icon={faPuzzlePiece} className="text-lg text-slate-400" />
                                 )}
                               </div>
                               <div className="min-w-0">
@@ -596,7 +613,7 @@ export default function PluginInstallerContainer() {
                               className="text-slate-500 hover:text-slate-300 p-1 transition-colors shrink-0"
                               title="View on Modrinth"
                             >
-                              <i className="fa-solid fa-arrow-up-right-from-square text-xs"></i>
+                              <FontAwesomeIcon icon={faExternalLinkAlt} className="text-xs" />
                             </a>
                           </div>
 
@@ -610,11 +627,11 @@ export default function PluginInstallerContainer() {
                         <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-3 text-[11px] text-slate-400">
                             <span className="flex items-center gap-1 font-medium text-slate-300">
-                              <i className="fa-solid fa-download text-[10px]"></i>
+                              <FontAwesomeIcon icon={faDownload} className="text-[10px]" />
                               <span>{formatNumber(plugin.downloads)}</span>
                             </span>
                             <span className="flex items-center gap-1 text-slate-400">
-                              <i className="fa-solid fa-clock text-[10px]"></i>
+                              <FontAwesomeIcon icon={faClock} className="text-[10px]" />
                               <span>{formatTimeAgo(plugin.date_modified)}</span>
                             </span>
                           </div>
@@ -626,7 +643,7 @@ export default function PluginInstallerContainer() {
                                 onClick={() => setSelectedPlugin(plugin)}
                                 className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 flex items-center gap-1 transition-all"
                               >
-                                <i className="fa-solid fa-check text-[10px]"></i>
+                                <FontAwesomeIcon icon={faCheck} className="text-[10px]" />
                                 <span>Installed</span>
                               </button>
                               <button
@@ -638,7 +655,7 @@ export default function PluginInstallerContainer() {
                                 className="p-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 hover:text-white transition-all flex items-center justify-center w-7 h-7"
                                 title={`Uninstall ${installedPluginFile.name}`}
                               >
-                                <i className={`fa-solid fa-trash text-[11px] ${uninstallingFile === installedPluginFile.name ? 'fa-spin' : ''}`}></i>
+                                <FontAwesomeIcon icon={uninstallingFile === installedPluginFile.name ? faSpinner : faTrashAlt} spin={uninstallingFile === installedPluginFile.name} className="text-[11px]" />
                               </button>
                             </div>
                           ) : (
@@ -646,7 +663,7 @@ export default function PluginInstallerContainer() {
                               onClick={() => setSelectedPlugin(plugin)}
                               className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 flex items-center gap-1.5 transition-all shrink-0"
                             >
-                              <i className="fa-solid fa-plus text-[10px]"></i>
+                              <FontAwesomeIcon icon={faPlus} className="text-[10px]" />
                               <span>Install</span>
                             </button>
                           )}
@@ -701,21 +718,21 @@ export default function PluginInstallerContainer() {
                 disabled={loadingInstalled}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5"
               >
-                <i className={`fa-solid fa-arrows-rotate text-[11px] ${loadingInstalled ? 'fa-spin' : ''}`}></i>
+                <FontAwesomeIcon icon={loadingInstalled ? faSpinner : faSyncAlt} spin={loadingInstalled} className="text-[11px]" />
                 <span>{loadingInstalled ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             </div>
 
             {loadingInstalled && (
               <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                <i className="fa-solid fa-spinner fa-spin text-2xl text-blue-400"></i>
+                <FontAwesomeIcon icon={faSpinner} spin className="text-2xl text-blue-400" />
                 <span>Scanning /plugins directory in server container...</span>
               </div>
             )}
 
             {!loadingInstalled && installedFiles.length === 0 && (
               <div className="py-16 text-center text-slate-400 space-y-2">
-                <i className="fa-solid fa-folder-open text-3xl text-slate-600 block"></i>
+                <FontAwesomeIcon icon={faFolderOpen} className="text-3xl text-slate-600 block mx-auto mb-2" />
                 <h4 className="text-sm font-bold text-white">No plugins installed</h4>
                 <p className="text-xs text-slate-500">
                   You haven&apos;t installed any plugins yet. Switch to the Browse tab to install plugins.
@@ -733,8 +750,8 @@ export default function PluginInstallerContainer() {
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       {/* Left square puzzle icon box */}
-                      <div className="w-10 h-10 rounded-xl bg-slate-800/70 border border-slate-700/60 flex items-center justify-center shrink-0 text-slate-400">
-                        <i className="fa-solid fa-puzzle-piece text-sm"></i>
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center shrink-0 text-cyan-400">
+                        <FontAwesomeIcon icon={faPuzzlePiece} className="text-base text-cyan-400" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold text-white truncate" title={file.name}>
@@ -753,7 +770,7 @@ export default function PluginInstallerContainer() {
                       className="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 border border-slate-700/60 hover:border-rose-500/40 text-slate-400 hover:text-rose-300 flex items-center justify-center transition-all shrink-0"
                       title={`Delete ${file.name}`}
                     >
-                      <i className={`fa-solid fa-trash text-xs ${uninstallingFile === file.name ? 'fa-spin text-rose-400' : ''}`}></i>
+                      <FontAwesomeIcon icon={uninstallingFile === file.name ? faSpinner : faTrashAlt} spin={uninstallingFile === file.name} className="text-xs" />
                     </button>
                   </div>
                 ))}
@@ -773,7 +790,7 @@ export default function PluginInstallerContainer() {
                     {selectedPlugin.icon_url ? (
                       <img src={selectedPlugin.icon_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <i className="fa-solid fa-puzzle-piece text-slate-400"></i>
+                      <FontAwesomeIcon icon={faPuzzlePiece} className="text-slate-400 text-base" />
                     )}
                   </div>
                   <div className="min-w-0">
@@ -798,7 +815,7 @@ export default function PluginInstallerContainer() {
                       : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                   }`}
                 >
-                  <i className={installNotice.success ? 'fa-solid fa-check text-xs' : 'fa-solid fa-triangle-exclamation text-xs'}></i>
+                  <FontAwesomeIcon icon={installNotice.success ? faCheck : faExclamationTriangle} className="text-xs" />
                   <span className="truncate">{installNotice.message}</span>
                 </div>
               )}
@@ -871,7 +888,7 @@ export default function PluginInstallerContainer() {
               <div className="flex-1 p-3 overflow-y-auto space-y-2">
                 {loadingVersions && (
                   <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                    <i className="fa-solid fa-spinner fa-spin text-lg text-blue-400"></i>
+                    <FontAwesomeIcon icon={faSpinner} spin className="text-lg text-blue-400" />
                     <span>Loading versions from Modrinth...</span>
                   </div>
                 )}
@@ -939,7 +956,7 @@ export default function PluginInstallerContainer() {
                               className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs border border-slate-700 transition-colors flex items-center justify-center w-7 h-7"
                               title="Direct Download File (.jar)"
                             >
-                              <i className="fa-solid fa-download text-[11px]"></i>
+                              <FontAwesomeIcon icon={faDownload} className="text-[11px]" />
                             </a>
                           )}
 
@@ -949,7 +966,7 @@ export default function PluginInstallerContainer() {
                                 disabled
                                 className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default flex items-center gap-1"
                               >
-                                <i className="fa-solid fa-check text-[10px]"></i>
+                                <FontAwesomeIcon icon={faCheck} className="text-[10px]" />
                                 <span>Installed</span>
                               </button>
                               <button
@@ -958,7 +975,7 @@ export default function PluginInstallerContainer() {
                                 className="p-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 hover:text-white transition-all flex items-center justify-center w-7 h-7"
                                 title={`Uninstall ${primaryFile.filename}`}
                               >
-                                <i className={`fa-solid fa-trash text-[11px] ${uninstallingFile === primaryFile.filename ? 'fa-spin' : ''}`}></i>
+                                <FontAwesomeIcon icon={uninstallingFile === primaryFile.filename ? faSpinner : faTrashAlt} spin={uninstallingFile === primaryFile.filename} className="text-[11px]" />
                               </button>
                             </div>
                           ) : (
@@ -969,12 +986,12 @@ export default function PluginInstallerContainer() {
                             >
                               {isInstalling ? (
                                 <>
-                                  <i className="fa-solid fa-spinner fa-spin text-[10px]"></i>
+                                  <FontAwesomeIcon icon={faSpinner} spin className="text-[10px]" />
                                   <span>Installing...</span>
                                 </>
                               ) : (
                                 <>
-                                  <i className="fa-solid fa-download text-[10px]"></i>
+                                  <FontAwesomeIcon icon={faDownload} className="text-[10px]" />
                                   <span>Install</span>
                                 </>
                               )}
