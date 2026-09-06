@@ -49,6 +49,13 @@ if [ ! -f "$ROUTES_TS" ] || [ ! -f "$ROUTES_PHP" ]; then
   exit 1
 fi
 
+# Check what is currently installed
+HAS_EXISTING_PLUGINS=false
+[ -f "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php" ] && HAS_EXISTING_PLUGINS=true
+
+HAS_EXISTING_MODS=false
+[ -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" ] && HAS_EXISTING_MODS=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
@@ -102,6 +109,17 @@ case "$CHOICE" in
     ;;
 esac
 
+# Retain existing addon if user installs one individually
+ENABLE_PLUGINS=false
+if [ "$INSTALL_PLUGINS" = true ] || [ "$HAS_EXISTING_PLUGINS" = true ]; then
+  ENABLE_PLUGINS=true
+fi
+
+ENABLE_MODS=false
+if [ "$INSTALL_MODS" = true ] || [ "$HAS_EXISTING_MODS" = true ]; then
+  ENABLE_MODS=true
+fi
+
 # 5. Create Safe Backup
 BACKUP_DIR="/var/backups/arix-addon-installer/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
@@ -121,16 +139,26 @@ rollback() {
   cp "$BACKUP_DIR/routes.ts" "$ROUTES_TS" 2>/dev/null || true
   cp "$BACKUP_DIR/api-client.php" "$ROUTES_PHP" 2>/dev/null || true
   [ -f "$BACKUP_DIR/ServerRouter.tsx" ] && cp "$BACKUP_DIR/ServerRouter.tsx" "$SERVER_ROUTER" 2>/dev/null || true
+  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_routes.php
   echo -e "${YELLOW}[!] Original files restored from ${BACKUP_DIR}.${NC}"
   exit 1
 }
 
 trap 'rollback "$LINENO" "$BASH_COMMAND" "$?"' ERR
 
-# 6. Clean Artifacts and Prior Injections
+# 6. Clean Prior Configurations & Reinstalled Files
 echo -e "${CYAN}[*] Cleaning old configurations...${NC}"
 
-# Clean any previous router modifications from ServerRouter.tsx
+if [ "$INSTALL_PLUGINS" = true ]; then
+  rm -rf "resources/scripts/components/server/plugin-installer" 2>/dev/null || true
+  rm -f "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php" 2>/dev/null || true
+fi
+
+if [ "$INSTALL_MODS" = true ]; then
+  rm -rf "resources/scripts/components/server/mod-installer" 2>/dev/null || true
+  rm -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" 2>/dev/null || true
+fi
+
 sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/plugins/d' "$SERVER_ROUTER" 2>/dev/null || true
@@ -143,9 +171,9 @@ rm -f "resources/scripts/routers/routes.ts.bak" 2>/dev/null || true
 
 CACHE_BUST="$(date +%s)"
 
-# 7. Install Plugin Installer (if requested)
+# 7. Download Plugin Installer (if installing plugins)
 if [ "$INSTALL_PLUGINS" = true ]; then
-  echo -e "${CYAN}[*] Installing Plugin Installer backend & frontend...${NC}"
+  echo -e "${CYAN}[*] Downloading Plugin Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
   curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php"
@@ -155,9 +183,9 @@ if [ "$INSTALL_PLUGINS" = true ]; then
     -o "resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx"
 fi
 
-# 8. Install Mods Installer (if requested)
+# 8. Download Mods Installer (if installing mods)
 if [ "$INSTALL_MODS" = true ]; then
-  echo -e "${CYAN}[*] Installing Mods Installer backend & frontend...${NC}"
+  echo -e "${CYAN}[*] Downloading Mods Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
   curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php"
@@ -169,19 +197,24 @@ fi
 
 # 9. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
-php -r '
+
+cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
+<?php
 $file = $argv[1];
 if (file_exists($file)) {
     $c = file_get_contents($file);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s", "", $c);
-    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s", "", $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     file_put_contents($file, $c);
 }
-' "$ROUTES_PHP"
+PHP_CLEAN_EOF
 
-if [ "$INSTALL_PLUGINS" = true ]; then
+php /tmp/ptero_clean_api.php "$ROUTES_PHP"
+rm -f /tmp/ptero_clean_api.php
+
+if [ "$ENABLE_PLUGINS" = true ]; then
 cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX PLUGIN INSTALLER START >>> */
@@ -197,7 +230,7 @@ Route::group(['prefix' => '/servers/{server}/plugins'], function () {
 EOF
 fi
 
-if [ "$INSTALL_MODS" = true ]; then
+if [ "$ENABLE_MODS" = true ]; then
 cat << 'EOF' >> "$ROUTES_PHP"
 
 /* >>> ARIX MOD INSTALLER START >>> */
@@ -215,49 +248,55 @@ fi
 
 # 10. Register Frontend Routes in resources/scripts/routers/routes.ts
 echo -e "${CYAN}[*] Registering frontend routes in resources/scripts/routers/routes.ts...${NC}"
-php -r '
+
+cat << 'PHP_REG_EOF' > /tmp/ptero_reg_routes.php
+<?php
 $routesTs = $argv[1];
-$installPlugins = ($argv[2] === "true");
-$installMods = ($argv[3] === "true");
+$enablePlugins = ($argv[2] === 'true');
+$enableMods = ($argv[3] === 'true');
 
 $c = file_get_contents($routesTs);
 
 // Clean old imports & routes
-$c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
-$c = preg_replace("/import\s+ModInstallerContainer[^\n]*\n?/s", "", $c);
-$c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
-$c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s", "", $c);
-$c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
-$c = preg_replace("/[^\n]*ModInstallerContainer[^\n]*\n?/", "", $c);
+$c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
 
-$imports = "";
-$routes = "";
+$imports = '';
+$routes = '';
 
-if ($installPlugins) {
-    $imports .= "import PluginInstallerContainer from \x27@/components/server/plugin-installer/PluginInstallerContainer\x27;\n";
-    $routes .= "\n        { path: \x27/plugins\x27, permission: \x27file.*\x27, name: undefined, component: PluginInstallerContainer, exact: true },";
+if ($enablePlugins) {
+    $imports .= "import PluginInstallerContainer from '@/components/server/plugin-installer/PluginInstallerContainer';\n";
+    $routes .= "\n        { path: '/plugins', permission: 'file.*', name: undefined, component: PluginInstallerContainer, exact: true },";
 }
 
-if ($installMods) {
-    $imports .= "import ModInstallerContainer from \x27@/components/server/mod-installer/ModInstallerContainer\x27;\n";
-    $routes .= "\n        { path: \x27/mods\x27, permission: \x27file.*\x27, name: undefined, component: ModInstallerContainer, exact: true },";
+if ($enableMods) {
+    $imports .= "import ModInstallerContainer from '@/components/server/mod-installer/ModInstallerContainer';\n";
+    $routes .= "\n        { path: '/mods', permission: 'file.*', name: undefined, component: ModInstallerContainer, exact: true },";
 }
 
 $c = $imports . $c;
-$c = preg_replace("/(server:\s*\[)/", "$1" . $routes, $c, 1);
+$c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
 
 file_put_contents($routesTs, $c);
-' "$ROUTES_TS" "$INSTALL_PLUGINS" "$INSTALL_MODS"
+echo "Registered routes successfully in routes.ts\n";
+PHP_REG_EOF
+
+php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS"
+rm -f /tmp/ptero_reg_routes.php
 
 # Verify registrations
-if [ "$INSTALL_PLUGINS" = true ]; then
+if [ "$ENABLE_PLUGINS" = true ]; then
   if ! grep -q "/plugins" "$ROUTES_TS" || ! grep -q "PluginInstallerContainer" "$ROUTES_TS"; then
     echo -e "${RED}[✗] Failed to verify /plugins in routes.ts.${NC}"
     false
   fi
 fi
 
-if [ "$INSTALL_MODS" = true ]; then
+if [ "$ENABLE_MODS" = true ]; then
   if ! grep -q "/mods" "$ROUTES_TS" || ! grep -q "ModInstallerContainer" "$ROUTES_TS"; then
     echo -e "${RED}[✗] Failed to verify /mods in routes.ts.${NC}"
     false
@@ -294,12 +333,12 @@ echo -e "${GREEN}  ✓ ARIX ADDONS INSTALLED SUCCESSFULLY!                      
 echo -e "${GREEN}================================================================${NC}"
 echo ""
 
-if [ "$INSTALL_PLUGINS" = true ]; then
+if [ "$ENABLE_PLUGINS" = true ]; then
   echo -e "• ${CYAN}Plugin Installer${NC}: Accessible at ${BOLD}/server/<server-id>/plugins${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/plugins${NC}, Name=${CYAN}Plugin Installer${NC}, Icon=${CYAN}HiOutlinePuzzle${NC}"
 fi
 
-if [ "$INSTALL_MODS" = true ]; then
+if [ "$ENABLE_MODS" = true ]; then
   echo -e "• ${CYAN}Mods Installer${NC}: Accessible at ${BOLD}/server/<server-id>/mods${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/mods${NC}, Name=${CYAN}Mods Installer${NC}, Icon=${CYAN}HiOutlineCubeTransparent${NC}"
 fi
