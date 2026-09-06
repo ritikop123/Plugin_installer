@@ -123,8 +123,9 @@ php -r '
 $file = "resources/scripts/routers/routes.ts";
 if (file_exists($file)) {
     $c = file_get_contents($file);
-    $c = preg_replace("/import PluginInstallerContainer[^\n]*\n?/", "", $c);
-    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/", "", $c);
+    $c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
+    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
+    $c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
     file_put_contents($file, $c);
 }
 ' 2>/dev/null || true
@@ -176,17 +177,27 @@ echo -e "${CYAN}[*] Registering route in resources/scripts/routers/routes.ts...$
 php -r '
 $file = "resources/scripts/routers/routes.ts";
 $c = file_get_contents($file);
-if (strpos($c, "PluginInstallerContainer") === false) {
-    $c = "import PluginInstallerContainer from \x27@/components/server/plugin-installer/PluginInstallerContainer\x27;\n" . $c;
-    $route = "\n        { path: \x27/plugins\x27, permission: \x27file.*\x27, name: undefined, component: PluginInstallerContainer, exact: true },";
-    $c = preg_replace("/(server:\s*\[)/", "$1" . $route, $c, 1);
-    file_put_contents($file, $c);
-}
+
+// Clean any previous artifacts
+$c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
+$c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
+$c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
+
+// Add import at the top
+$c = "import PluginInstallerContainer from \x27@/components/server/plugin-installer/PluginInstallerContainer\x27;\n" . $c;
+
+// Insert route inside server: [ array
+$route = "\n        { path: \x27/plugins\x27, permission: \x27file.*\x27, name: undefined, component: PluginInstallerContainer, exact: true },";
+$c = preg_replace("/(server:\s*\[)/", "\${1}" . $route, $c, 1);
+
+file_put_contents($file, $c);
 '
 
 # Verify route registration
-if ! grep -q "path: '/plugins'" "$ROUTES_TS"; then
+if ! grep -q "/plugins" "$ROUTES_TS" || ! grep -q "PluginInstallerContainer" "$ROUTES_TS"; then
   echo -e "${RED}[✗] Failed to register /plugins in routes.ts.${NC}"
+  echo -e "${YELLOW}Dumping routes.ts snippet around server routes:${NC}"
+  grep -n -C 5 "server:" "$ROUTES_TS" || head -n 30 "$ROUTES_TS"
   false
 fi
 

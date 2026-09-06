@@ -57,8 +57,9 @@ php -r '
 $file = "resources/scripts/routers/routes.ts";
 if (file_exists($file)) {
     $c = file_get_contents($file);
-    $c = preg_replace("/import PluginInstallerContainer[^\n]*\n?/", "", $c);
-    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/", "", $c);
+    $c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
+    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
+    $c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
     file_put_contents($file, $c);
 }
 ' 2>/dev/null || true
