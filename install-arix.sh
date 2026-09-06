@@ -2,7 +2,8 @@
 set -eo pipefail
 
 # ================================================================
-#    Arix Theme Unified Addon Installer (Clean Native Build)
+#    Arix Theme Unified Addon Suite (Clean Native Build)
+#    Plugins, Mods, & Software Installers for Pterodactyl Panel
 #    Repository: https://github.com/ritikop123/Plugin_installer
 # ================================================================
 
@@ -14,7 +15,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo -e "${CYAN}================================================================${NC}"
-echo -e "${CYAN}    Arix Theme Unified Addon Installer (Plugins & Mods)         ${NC}"
+echo -e "${CYAN}    Arix Theme Unified Addon Suite (Plugins, Mods, Software)    ${NC}"
 echo -e "${CYAN}           https://github.com/ritikop123/Plugin_installer       ${NC}"
 echo -e "${CYAN}================================================================${NC}"
 
@@ -56,46 +57,60 @@ HAS_EXISTING_PLUGINS=false
 HAS_EXISTING_MODS=false
 [ -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" ] && HAS_EXISTING_MODS=true
 
+HAS_EXISTING_SOFTWARE=false
+[ -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" ] && HAS_EXISTING_SOFTWARE=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
   if [ -t 0 ]; then
     echo -e "\n${BOLD}Select an installation option:${NC}"
-    echo -e "  ${CYAN}1)${NC} ${BOLD}Both: Plugin Installer + Mods Installer${NC} ${GREEN}(Recommended)${NC}"
+    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Software Installers${NC} ${GREEN}(Recommended)${NC}"
     echo -e "  ${CYAN}2)${NC} Plugin Installer only (/plugins)"
     echo -e "  ${CYAN}3)${NC} Mods Installer only (/mods)"
-    echo -e "  ${CYAN}4)${NC} Uninstall All"
-    read -r -p "Enter choice [1-4] (Default: 1): " USER_INPUT
+    echo -e "  ${CYAN}4)${NC} Software Installer only (/software)"
+    echo -e "  ${CYAN}5)${NC} Uninstall All"
+    read -r -p "Enter choice [1-5] (Default: 1): " USER_INPUT
     USER_INPUT="${USER_INPUT:-1}"
     case "$USER_INPUT" in
-      1) CHOICE="both" ;;
+      1) CHOICE="all" ;;
       2) CHOICE="plugins" ;;
       3) CHOICE="mods" ;;
-      4) CHOICE="uninstall" ;;
-      *) CHOICE="both" ;;
+      4) CHOICE="software" ;;
+      5) CHOICE="uninstall" ;;
+      *) CHOICE="all" ;;
     esac
   else
-    # Piped via curl (non-interactive): default to installing both
-    CHOICE="both"
+    # Piped via curl (non-interactive): default to installing all
+    CHOICE="all"
   fi
 fi
 
 case "$CHOICE" in
-  both|all)
+  all|both)
     INSTALL_PLUGINS=true
     INSTALL_MODS=true
-    echo -e "${GREEN}[*] Selected mode: Installing BOTH (Plugin Installer + Mods Installer)...${NC}"
+    INSTALL_SOFTWARE=true
+    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Software)...${NC}"
     ;;
   plugins|plugin)
     INSTALL_PLUGINS=true
     INSTALL_MODS=false
+    INSTALL_SOFTWARE=false
     echo -e "${GREEN}[*] Selected mode: Installing Plugin Installer only...${NC}"
     ;;
   mods|mod)
     INSTALL_PLUGINS=false
     INSTALL_MODS=true
+    INSTALL_SOFTWARE=false
     echo -e "${GREEN}[*] Selected mode: Installing Mods Installer only...${NC}"
+    ;;
+  software)
+    INSTALL_PLUGINS=false
+    INSTALL_MODS=false
+    INSTALL_SOFTWARE=true
+    echo -e "${GREEN}[*] Selected mode: Installing Software Installer only...${NC}"
     ;;
   uninstall)
     echo -e "${YELLOW}[*] Selected mode: Uninstalling addons...${NC}"
@@ -105,11 +120,12 @@ case "$CHOICE" in
   *)
     INSTALL_PLUGINS=true
     INSTALL_MODS=true
-    echo -e "${GREEN}[*] Defaulting to: Installing BOTH (Plugin Installer + Mods Installer)...${NC}"
+    INSTALL_SOFTWARE=true
+    echo -e "${GREEN}[*] Defaulting to: Installing ALL addons...${NC}"
     ;;
 esac
 
-# Retain existing addon if user installs one individually
+# Retain existing addons if user installs one individually
 ENABLE_PLUGINS=false
 if [ "$INSTALL_PLUGINS" = true ] || [ "$HAS_EXISTING_PLUGINS" = true ]; then
   ENABLE_PLUGINS=true
@@ -118,6 +134,11 @@ fi
 ENABLE_MODS=false
 if [ "$INSTALL_MODS" = true ] || [ "$HAS_EXISTING_MODS" = true ]; then
   ENABLE_MODS=true
+fi
+
+ENABLE_SOFTWARE=false
+if [ "$INSTALL_SOFTWARE" = true ] || [ "$HAS_EXISTING_SOFTWARE" = true ]; then
+  ENABLE_SOFTWARE=true
 fi
 
 # 5. Create Safe Backup
@@ -159,10 +180,17 @@ if [ "$INSTALL_MODS" = true ]; then
   rm -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" 2>/dev/null || true
 fi
 
+if [ "$INSTALL_SOFTWARE" = true ]; then
+  rm -rf "resources/scripts/components/server/software-installer" 2>/dev/null || true
+  rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 2>/dev/null || true
+fi
+
 sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/plugins/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/mods/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/\/software/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/mcplugins/d' "$SERVER_ROUTER" 2>/dev/null || true
 
 rm -f "resources/scripts/routers/ServerRouter.tsx.bak" 2>/dev/null || true
@@ -195,7 +223,19 @@ if [ "$INSTALL_MODS" = true ]; then
     -o "resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx"
 fi
 
-# 9. Register API Routes in routes/api-client.php
+# 9. Download Software Installer (if installing software)
+if [ "$INSTALL_SOFTWARE" = true ]; then
+  echo -e "${CYAN}[*] Downloading Software Installer files...${NC}"
+  mkdir -p "app/Http/Controllers/Api/Client/Servers"
+  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerController.php?t=${CACHE_BUST}" \
+    -o "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php"
+
+  mkdir -p "resources/scripts/components/server/software-installer"
+  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerContainer.tsx?t=${CACHE_BUST}" \
+    -o "resources/scripts/components/server/software-installer/SoftwareInstallerContainer.tsx"
+fi
+
+# 10. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
 
 cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
@@ -205,8 +245,10 @@ if (file_exists($file)) {
     $c = file_get_contents($file);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     file_put_contents($file, $c);
 }
 PHP_CLEAN_EOF
@@ -246,7 +288,21 @@ Route::group(['prefix' => '/servers/{server}/mods'], function () {
 EOF
 fi
 
-# 10. Register Frontend Routes in resources/scripts/routers/routes.ts
+if [ "$ENABLE_SOFTWARE" = true ]; then
+cat << 'EOF' >> "$ROUTES_PHP"
+
+/* >>> ARIX SOFTWARE INSTALLER START >>> */
+Route::group(['prefix' => '/servers/{server}/software'], function () {
+    Route::get('/', [\Pterodactyl\Http\Controllers\Api\Client\Servers\SoftwareInstallerController::class, 'index']);
+    Route::get('/versions', [\Pterodactyl\Http\Controllers\Api\Client\Servers\SoftwareInstallerController::class, 'versions']);
+    Route::get('/builds', [\Pterodactyl\Http\Controllers\Api\Client\Servers\SoftwareInstallerController::class, 'builds']);
+    Route::post('/install', [\Pterodactyl\Http\Controllers\Api\Client\Servers\SoftwareInstallerController::class, 'install']);
+});
+/* <<< ARIX SOFTWARE INSTALLER END <<< */
+EOF
+fi
+
+# 11. Register Frontend Routes in resources/scripts/routers/routes.ts
 echo -e "${CYAN}[*] Registering frontend routes in resources/scripts/routers/routes.ts...${NC}"
 
 cat << 'PHP_REG_EOF' > /tmp/ptero_reg_routes.php
@@ -254,16 +310,20 @@ cat << 'PHP_REG_EOF' > /tmp/ptero_reg_routes.php
 $routesTs = $argv[1];
 $enablePlugins = ($argv[2] === 'true');
 $enableMods = ($argv[3] === 'true');
+$enableSoftware = ($argv[4] === 'true');
 
 $c = file_get_contents($routesTs);
 
 // Clean old imports & routes
 $c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
 
 $imports = '';
 $routes = '';
@@ -278,6 +338,11 @@ if ($enableMods) {
     $routes .= "\n        { path: '/mods', permission: 'file.*', name: undefined, component: ModInstallerContainer, exact: true },";
 }
 
+if ($enableSoftware) {
+    $imports .= "import SoftwareInstallerContainer from '@/components/server/software-installer/SoftwareInstallerContainer';\n";
+    $routes .= "\n        { path: '/software', permission: 'file.*', name: undefined, component: SoftwareInstallerContainer, exact: true },";
+}
+
 $c = $imports . $c;
 $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
 
@@ -285,7 +350,7 @@ file_put_contents($routesTs, $c);
 echo "Registered routes successfully in routes.ts\n";
 PHP_REG_EOF
 
-php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS"
+php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_SOFTWARE"
 rm -f /tmp/ptero_reg_routes.php
 
 # Verify registrations
@@ -303,7 +368,14 @@ if [ "$ENABLE_MODS" = true ]; then
   fi
 fi
 
-# 11. Rebuild Frontend Assets
+if [ "$ENABLE_SOFTWARE" = true ]; then
+  if ! grep -q "/software" "$ROUTES_TS" || ! grep -q "SoftwareInstallerContainer" "$ROUTES_TS"; then
+    echo -e "${RED}[✗] Failed to verify /software in routes.ts.${NC}"
+    false
+  fi
+fi
+
+# 12. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"
 if command -v yarn &> /dev/null; then
   yarn --frozen-lockfile || yarn
@@ -316,7 +388,7 @@ else
   false
 fi
 
-# 12. Clear Laravel Caches
+# 13. Clear Laravel Caches
 echo -e "${CYAN}[*] Clearing Laravel route, view, and config caches...${NC}"
 php artisan route:clear
 php artisan view:clear
@@ -329,7 +401,7 @@ trap - ERR
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"
-echo -e "${GREEN}  ✓ ARIX ADDONS INSTALLED SUCCESSFULLY!                         ${NC}"
+echo -e "${GREEN}  ✓ ARIX ADDON SUITE INSTALLED SUCCESSFULLY!                    ${NC}"
 echo -e "${GREEN}================================================================${NC}"
 echo ""
 
@@ -341,6 +413,11 @@ fi
 if [ "$ENABLE_MODS" = true ]; then
   echo -e "• ${CYAN}Mods Installer${NC}: Accessible at ${BOLD}/server/<server-id>/mods${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/mods${NC}, Name=${CYAN}Mods Installer${NC}, Icon=${CYAN}HiOutlineCubeTransparent${NC}"
+fi
+
+if [ "$ENABLE_SOFTWARE" = true ]; then
+  echo -e "• ${CYAN}Software Installer${NC}: Accessible at ${BOLD}/server/<server-id>/software${NC}"
+  echo -e "  Arix Server Tools Link: URL=${CYAN}/software${NC}, Name=${CYAN}Software Installer${NC}, Icon=${CYAN}HiOutlineServer${NC} (or HiOutlineTerminal)"
 fi
 
 echo ""

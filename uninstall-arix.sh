@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# Arix Theme Addon Uninstaller (Plugins & Mods)
+# Arix Theme Addon Suite Uninstaller (Plugins, Mods, Software)
 # GitHub: https://github.com/ritikop123/Plugin_installer
 # ==============================================================================
 
@@ -15,7 +15,7 @@ NC='\033[0m'
 
 echo -e "${CYAN}"
 echo "================================================================"
-echo "          Arix Theme Addon Uninstaller (Plugins & Mods)         "
+echo "    Arix Theme Addon Suite Uninstaller (Plugins, Mods, Software) "
 echo "================================================================"
 echo -e "${NC}"
 
@@ -41,45 +41,62 @@ ROUTES_TS="resources/scripts/routers/routes.ts"
 ROUTES_PHP="routes/api-client.php"
 SERVER_ROUTER="resources/scripts/routers/ServerRouter.tsx"
 
-echo -e "${CYAN}[*] Removing plugin and mod installer components & controllers...${NC}"
+echo -e "${CYAN}[*] Removing addons components and controllers...${NC}"
 rm -rf "resources/scripts/components/server/plugin-installer" 2>/dev/null || true
 rm -rf "resources/scripts/components/server/mod-installer" 2>/dev/null || true
+rm -rf "resources/scripts/components/server/software-installer" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" 2>/dev/null || true
+rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Cleaning routes from routes/api-client.php...${NC}"
-php -r '
-$file = "routes/api-client.php";
+cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
+<?php
+$file = $argv[1];
 if (file_exists($file)) {
     $c = file_get_contents($file);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s", "", $c);
-    $c = preg_replace("/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s", "", $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     file_put_contents($file, $c);
 }
-' 2>/dev/null || true
+PHP_CLEAN_EOF
+
+php /tmp/ptero_clean_api.php "$ROUTES_PHP"
+rm -f /tmp/ptero_clean_api.php
 
 echo -e "${CYAN}[*] Cleaning routes from resources/scripts/routers/routes.ts...${NC}"
-php -r '
-$file = "resources/scripts/routers/routes.ts";
-if (file_exists($file)) {
-    $c = file_get_contents($file);
-    $c = preg_replace("/import\s+PluginInstallerContainer[^\n]*\n?/s", "", $c);
-    $c = preg_replace("/import\s+ModInstallerContainer[^\n]*\n?/s", "", $c);
-    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s", "", $c);
-    $c = preg_replace("/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s", "", $c);
-    $c = preg_replace("/[^\n]*PluginInstallerContainer[^\n]*\n?/", "", $c);
-    $c = preg_replace("/[^\n]*ModInstallerContainer[^\n]*\n?/", "", $c);
-    file_put_contents($file, $c);
-}
-' 2>/dev/null || true
+cat << 'PHP_REG_EOF' > /tmp/ptero_clean_routes.php
+<?php
+$routesTs = $argv[1];
+$c = file_get_contents($routesTs);
+
+$c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
+
+file_put_contents($routesTs, $c);
+PHP_REG_EOF
+
+php /tmp/ptero_clean_routes.php "$ROUTES_TS"
+rm -f /tmp/ptero_clean_routes.php
 
 echo -e "${CYAN}[*] Cleaning any legacy ServerRouter.tsx references...${NC}"
 sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/plugins/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/mods/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/\/software/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/\/mcplugins/d' "$SERVER_ROUTER" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Rebuilding frontend assets...${NC}"
