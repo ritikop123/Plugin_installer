@@ -403,12 +403,12 @@ export default function ModInstallerContainer() {
   };
 
   return (
-    <ServerContentBlock title={'Mod Manager'}>
+    <ServerContentBlock title={'Mods Installer'}>
       <div className="max-w-7xl mx-auto space-y-5 my-2">
         {/* Header Bar */}
         <div className="space-y-3">
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Plugin Manager</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Mods Installer</h1>
             <p className="text-xs text-slate-400 mt-0.5">Discover and manage Forge, Fabric, NeoForge, and Quilt mods for your server.</p>
           </div>
 
@@ -426,7 +426,10 @@ export default function ModInstallerContainer() {
               <span>Browse</span>
             </button>
             <button
-              onClick={() => setActiveTab('installed')}
+              onClick={() => {
+                setActiveTab('installed');
+                fetchInstalledPlugins();
+              }}
               className={`flex items-center gap-2 pb-2.5 -mb-px transition-colors ${
                 activeTab === 'installed'
                   ? 'text-blue-400 border-b-2 border-blue-500'
@@ -448,7 +451,7 @@ export default function ModInstallerContainer() {
         {activeTab === 'browse' && (
           <div className="space-y-4">
             {/* Filter Bar */}
-            <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-xl p-4 shadow-lg">
+            <div className="bg-[#111728]/70 backdrop-blur-md border border-slate-800/80 rounded-xl p-3 shadow-lg">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Platform */}
                 <div>
@@ -499,13 +502,10 @@ export default function ModInstallerContainer() {
                     className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-lg text-xs text-white focus:outline-none transition-colors"
                   >
                     <option value="all">All Loaders</option>
-                    <option value="paper">Paper</option>
-                    <option value="purpur">Purpur</option>
-                    <option value="spigot">Spigot</option>
-                    <option value="velocity">Velocity</option>
-                    <option value="bungeecord">BungeeCord</option>
-                    <option value="folia">Folia</option>
                     <option value="fabric">Fabric</option>
+                    <option value="forge">Forge</option>
+                    <option value="neoforge">NeoForge</option>
+                    <option value="quilt">Quilt</option>
                   </select>
                 </div>
 
