@@ -205,7 +205,7 @@ if (file_exists($routesApiFile)) {
     $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-        Route::get('/subscription', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\OptionsController::class, 'subscription']);
+        Route::get('/subscription', [\Pterodactyl\Http\Controllers\Api\Client\Servers\OptionsController::class, 'subscription']);
         /* <<< ARIX AUTO SUSPENSION END <<< */
 PATCH;
     if (strpos($c, "'/options', [Servers\\OptionsController::class, 'index']") !== false) {
