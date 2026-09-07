@@ -562,13 +562,16 @@ if [ "$ENABLE_OPTIONS" = true ]; then
 fi
 
 
-# 12. Install Auto Suspension & Expiration System
-echo -e "${CYAN}[*] Setting up Server Auto-Suspension & Expiration system...${NC}"
+# 12. Install Auto Suspension, Expiration & Plan Details System
+echo -e "${CYAN}[*] Setting up Server Auto-Suspension, Expiration & Plan Details system...${NC}"
 
-# Download migration
+# Download migrations
 mkdir -p "database/migrations"
 curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" \
   -o "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
+
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php?t=${CACHE_BUST}" \
+  -o "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php"
 
 # Download Artisan command
 mkdir -p "app/Console/Commands"
@@ -580,18 +583,32 @@ mkdir -p "app/Notifications"
 curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" \
   -o "app/Notifications/ServerSuspensionWarningNotification.php"
 
+# Download Server Expiry & Plan Card component
+mkdir -p "resources/scripts/components/server"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerExpiryCard.tsx?t=${CACHE_BUST}" \
+  -o "resources/scripts/components/server/ServerExpiryCard.tsx"
+
 # Run database migration
-echo -e "${CYAN}[*] Running database migration for auto-suspension...${NC}"
+echo -e "${CYAN}[*] Running database migration for auto-suspension and plan details...${NC}"
 php artisan migrate --force
 
 # Apply patches for Admin views & controllers
-echo -e "${CYAN}[*] Applying auto-suspension patches to Admin panel...${NC}"
+echo -e "${CYAN}[*] Applying auto-suspension & plan detail patches to Admin panel...${NC}"
 rm -f "/tmp/ptero_patch_auto_suspend.php"
 curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/patch-auto-suspend.php?t=${CACHE_BUST}" \
   -o "/tmp/ptero_patch_auto_suspend.php"
 
 php /tmp/ptero_patch_auto_suspend.php
 rm -f /tmp/ptero_patch_auto_suspend.php
+
+# Apply patch to Server Dashboard to inject ServerExpiryCard below stat cards
+echo -e "${CYAN}[*] Injecting Server Expiry & Plan Card into Server Dashboard...${NC}"
+rm -f "/tmp/ptero_patch_dashboard_card.php"
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/patch-dashboard-card.php?t=${CACHE_BUST}" \
+  -o "/tmp/ptero_patch_dashboard_card.php"
+
+php /tmp/ptero_patch_dashboard_card.php
+rm -f /tmp/ptero_patch_dashboard_card.php
 
 # 13. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"
@@ -653,9 +670,11 @@ if [ "$ENABLE_OPTIONS" = true ]; then
   echo -e "  Arix Server Tools Link: URL=${CYAN}/options${NC}, Name=${CYAN}Server Options${NC}, Icon=${CYAN}HiOutlineAdjustments${NC}"
 fi
 
-echo -e "• ${CYAN}Auto Suspension System${NC}: Active via scheduled command (${BOLD}ptero:auto-suspend${NC})"
-echo -e "  Admin Server Creation & Details pages now feature ${CYAN}Expiration Date${NC} controls."
+echo -e "• ${CYAN}Auto Suspension & Expiry System${NC}: Active via scheduled command (${BOLD}ptero:auto-suspend${NC})"
+echo -e "  Admin Server Creation & Edit pages now feature ${CYAN}Expiration Date${NC}, ${CYAN}Plan Name${NC}, and ${CYAN}Plan Price${NC}."
 echo -e "  Servers approaching expiration receive a courteous notice 3 days prior."
+echo -e "• ${CYAN}Server Expiry & Plan Card${NC}: Displayed directly beneath stat cards on the dashboard."
+echo -e "  Color-coded: ${YELLOW}Yellow${NC} when ≤ 3 days, ${RED}Red${NC} when ≤ 24 hours / expired."
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"

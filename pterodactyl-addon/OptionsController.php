@@ -112,6 +112,31 @@ class OptionsController extends ClientApiController
             'properties' => $properties,
             'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
             'is_suspended' => $server->isSuspended(),
+            'plan_name' => $server->plan_name ?? null,
+            'plan_price' => $server->plan_price ?? null,
+        ]);
+    }
+
+    /**
+     * Get server subscription details (Arix Theme subscription widget / billing integration).
+     * GET /api/client/servers/{server}/subscription
+     */
+    public function subscription(Request $request, Server $server): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'status' => $server->isSuspended() ? 'suspended' : 'active',
+                'expires_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
+                'product' => $server->plan_name ?: 'N/A',
+                'price' => [
+                    'amount' => $server->plan_price ?: 'N/A',
+                    'currency' => '',
+                ],
+                'serviceLink' => '',
+                'invoice' => [
+                    'pending' => false,
+                ],
+            ],
         ]);
     }
 

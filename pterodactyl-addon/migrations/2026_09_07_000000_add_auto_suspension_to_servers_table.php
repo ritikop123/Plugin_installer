@@ -18,6 +18,12 @@ return new class extends Migration
             if (!Schema::hasColumn('servers', 'expiration_warning_sent_at')) {
                 $table->timestamp('expiration_warning_sent_at')->nullable()->after('expire_at');
             }
+            if (!Schema::hasColumn('servers', 'plan_name')) {
+                $table->string('plan_name', 191)->nullable()->after('expiration_warning_sent_at');
+            }
+            if (!Schema::hasColumn('servers', 'plan_price')) {
+                $table->string('plan_price', 191)->nullable()->after('plan_name');
+            }
         });
     }
 

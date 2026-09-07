@@ -54,7 +54,9 @@ rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 
 rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/null || true
 rm -f "app/Console/Commands/AutoSuspendServersCommand.php" 2>/dev/null || true
 rm -f "app/Notifications/ServerSuspensionWarningNotification.php" 2>/dev/null || true
+rm -f "resources/scripts/components/server/ServerExpiryCard.tsx" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php" 2>/dev/null || true
+rm -f "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Cleaning routes from routes/api-client.php...${NC}"
 cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php
@@ -127,6 +129,13 @@ curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/p
 
 php /tmp/ptero_unpatch_auto_suspend.php
 rm -f /tmp/ptero_unpatch_auto_suspend.php
+
+echo -e "${CYAN}[*] Cleaning dashboard card patches...${NC}"
+curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/unpatch-dashboard-card.php?t=${CACHE_BUST}" \
+  -o "/tmp/ptero_unpatch_dashboard_card.php"
+
+php /tmp/ptero_unpatch_dashboard_card.php
+rm -f /tmp/ptero_unpatch_dashboard_card.php
 
 echo -e "${CYAN}[*] Rebuilding frontend assets without addons...${NC}"
 if command -v yarn &> /dev/null; then
