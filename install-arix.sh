@@ -565,13 +565,106 @@ fi
 # 12. Install Auto Suspension, Expiration & Plan Details System
 echo -e "${CYAN}[*] Setting up Server Auto-Suspension, Expiration & Plan Details system...${NC}"
 
-# Download migrations
-mkdir -p "database/migrations"
-curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" \
-  -o "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
+# Write migration 1: auto suspension & plan details
+cat << 'MIGRATE_0_EOF' > "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
+<?php
 
-curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php?t=${CACHE_BUST}" \
-  -o "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php"
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('servers', function (Blueprint $table) {
+            if (!Schema::hasColumn('servers', 'expire_at')) {
+                $table->timestamp('expire_at')->nullable()->after('status')->index();
+            }
+            if (!Schema::hasColumn('servers', 'expiration_warning_sent_at')) {
+                $table->timestamp('expiration_warning_sent_at')->nullable()->after('expire_at');
+            }
+            if (!Schema::hasColumn('servers', 'plan_name')) {
+                $table->string('plan_name', 191)->nullable()->after('expiration_warning_sent_at');
+            }
+            if (!Schema::hasColumn('servers', 'plan_price')) {
+                $table->string('plan_price', 191)->nullable()->after('plan_name');
+            }
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('servers', function (Blueprint $table) {
+            if (Schema::hasColumn('servers', 'expire_at')) {
+                $table->dropColumn('expire_at');
+            }
+            if (Schema::hasColumn('servers', 'expiration_warning_sent_at')) {
+                $table->dropColumn('expiration_warning_sent_at');
+            }
+            if (Schema::hasColumn('servers', 'plan_name')) {
+                $table->dropColumn('plan_name');
+            }
+            if (Schema::hasColumn('servers', 'plan_price')) {
+                $table->dropColumn('plan_price');
+            }
+        });
+    }
+};
+MIGRATE_0_EOF
+
+# Write migration 2: plan details (for existing auto suspension setups)
+cat << 'MIGRATE_1_EOF' > "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php"
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('servers', function (Blueprint $table) {
+            if (!Schema::hasColumn('servers', 'plan_name')) {
+                $table->string('plan_name', 191)->nullable()->after('expire_at');
+            }
+            if (!Schema::hasColumn('servers', 'plan_price')) {
+                $table->string('plan_price', 191)->nullable()->after('plan_name');
+            }
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('servers', function (Blueprint $table) {
+            if (Schema::hasColumn('servers', 'plan_name')) {
+                $table->dropColumn('plan_name');
+            }
+            if (Schema::hasColumn('servers', 'plan_price')) {
+                $table->dropColumn('plan_price');
+            }
+        });
+    }
+};
+MIGRATE_1_EOF
+
+# Ensure all namespaces in migrations are properly formatted
+sed -i 's/IlluminateDatabaseMigrationsMigration/Illuminate\\Database\\Migrations\\Migration/g' database/migrations/*.php 2>/dev/null || true
+sed -i 's/IlluminateDatabaseSchemaBlueprint/Illuminate\\Database\\Schema\\Blueprint/g' database/migrations/*.php 2>/dev/null || true
+sed -i 's/IlluminateSupportFacadesSchema/Illuminate\\Support\\Facades\\Schema/g' database/migrations/*.php 2>/dev/null || true
 
 # Download Artisan command
 mkdir -p "app/Console/Commands"
