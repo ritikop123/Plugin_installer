@@ -221,6 +221,8 @@ rollback() {
   [ -f "$BACKUP_DIR/Kernel.php" ] && cp "$BACKUP_DIR/Kernel.php" "app/Console/Kernel.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/Server.php" ] && cp "$BACKUP_DIR/Server.php" "app/Models/Server.php" 2>/dev/null || true
   rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php /tmp/ptero_patch_auto_suspend.php
+  chmod -R 755 public 2>/dev/null || true
+  chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
   echo -e "${YELLOW}[!] Original files restored from ${BACKUP_DIR}.${NC}"
   exit 1
 }
@@ -593,6 +595,8 @@ rm -f /tmp/ptero_patch_auto_suspend.php
 
 # 13. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
+
 if command -v yarn &> /dev/null; then
   yarn --frozen-lockfile || yarn
   yarn build:production
@@ -603,6 +607,9 @@ else
   echo -e "${RED}[✗] No package manager found (yarn or npm required).${NC}"
   false
 fi
+
+# Ensure web server has read/execute permissions to all built assets
+chmod -R 755 public
 
 # 14. Clear Laravel Caches
 echo -e "${CYAN}[*] Clearing Laravel route, view, and config caches...${NC}"
