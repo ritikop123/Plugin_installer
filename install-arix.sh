@@ -269,7 +269,7 @@ rm -f "resources/scripts/routers/ServerRouter.tsx.bak" 2>/dev/null || true
 rm -f "routes/api-client.php.bak" 2>/dev/null || true
 rm -f "resources/scripts/routers/routes.ts.bak" 2>/dev/null || true
 
-CACHE_BUST="$(date +%s)"
+CACHE_BUST="$(date +%s%N)"
 
 # 7. Download Plugin Installer (if installing plugins)
 if [ "$INSTALL_PLUGINS" = true ]; then
@@ -582,7 +582,8 @@ php artisan migrate --force
 
 # Apply patches for Admin views & controllers
 echo -e "${CYAN}[*] Applying auto-suspension patches to Admin panel...${NC}"
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/patch-auto-suspend.php?t=${CACHE_BUST}" \
+rm -f "/tmp/ptero_patch_auto_suspend.php"
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/patch-auto-suspend.php?t=${CACHE_BUST}" \
   -o "/tmp/ptero_patch_auto_suspend.php"
 
 php /tmp/ptero_patch_auto_suspend.php
