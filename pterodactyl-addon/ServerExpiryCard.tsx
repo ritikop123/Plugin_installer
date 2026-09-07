@@ -10,14 +10,7 @@ import {
     faCreditCard,
     faExclamationTriangle,
     faCheckCircle,
-    faTimesCircle,
 } from "@fortawesome/free-solid-svg-icons";
-
-interface ServerExpiryData {
-    expire_at: string | null;
-    plan_name: string | null;
-    plan_price: string | null;
-}
 
 const ServerExpiryCard: React.FC = () => {
     const server = ServerContext.useStoreState((state) => state.server.data);
@@ -32,7 +25,6 @@ const ServerExpiryCard: React.FC = () => {
     const [planPrice, setPlanPrice] = useState<string | null>(
         (server as any)?.plan_price || null
     );
-    const [loading, setLoading] = useState<boolean>(true);
 
     useEffect(() => {
         if (!uuid) return;
@@ -56,7 +48,6 @@ const ServerExpiryCard: React.FC = () => {
                 if (data.plan_price !== undefined) setPlanPrice(data.plan_price);
             })
             .catch(() => {
-                // Fallback to subscription endpoint if options fails
                 http.get(`/api/client/servers/${uuid}/subscription`)
                     .then(({ data }) => {
                         const sub = data?.data || data;
@@ -67,8 +58,7 @@ const ServerExpiryCard: React.FC = () => {
                         }
                     })
                     .catch(() => {});
-            })
-            .finally(() => setLoading(false));
+            });
     }, [uuid]);
 
     // Format Expiration Date & Time
@@ -95,11 +85,12 @@ const ServerExpiryCard: React.FC = () => {
             return {
                 tier: "none",
                 label: "NO EXPIRATION",
-                badgeClass: "bg-neutral-700/60 text-neutral-300 border-neutral-600/50",
-                dotClass: "bg-neutral-400",
-                cardBorder: "border-neutral-700/60",
-                expiryTextClass: "text-neutral-200",
-                expiryIconClass: "text-neutral-400",
+                badgeClass: "bg-white/10 text-gray-300 border border-white/15",
+                dotClass: "bg-gray-400",
+                cardBorder: "",
+                expiryBoxClass: "bg-black/20 border border-white/10",
+                expiryTextClass: "text-white",
+                expiryIconClass: "text-arix",
                 relativeText: "Lifetime / No suspension date set",
                 warning: null,
             };
@@ -114,10 +105,11 @@ const ServerExpiryCard: React.FC = () => {
             return {
                 tier: "expired",
                 label: "EXPIRED / SUSPENDED",
-                badgeClass: "bg-red-500/25 text-red-400 border-red-500/50",
-                dotClass: "bg-red-500 animate-pulse",
-                cardBorder: "border-red-500/60 shadow-lg shadow-red-500/10",
-                expiryTextClass: "text-red-400 font-bold",
+                badgeClass: "bg-red-500/20 text-red-300 border border-red-500/40",
+                dotClass: "bg-red-400 animate-pulse",
+                cardBorder: "border-red-500/40",
+                expiryBoxClass: "bg-red-500/15 border border-red-500/40",
+                expiryTextClass: "text-red-300 font-bold",
                 expiryIconClass: "text-red-400",
                 relativeText: "Server expired and scheduled for auto-suspension",
                 warning: {
@@ -133,10 +125,11 @@ const ServerExpiryCard: React.FC = () => {
             return {
                 tier: "urgent",
                 label: `SUSPENDS IN ${h}H`,
-                badgeClass: "bg-red-500/25 text-red-400 border-red-500/50 animate-pulse",
-                dotClass: "bg-red-500",
-                cardBorder: "border-red-500/60 shadow-lg shadow-red-500/10",
-                expiryTextClass: "text-red-400 font-bold",
+                badgeClass: "bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse",
+                dotClass: "bg-red-400",
+                cardBorder: "border-red-500/40",
+                expiryBoxClass: "bg-red-500/15 border border-red-500/40",
+                expiryTextClass: "text-red-300 font-bold",
                 expiryIconClass: "text-red-400",
                 relativeText: `Auto-suspension triggers in ${h} hour${h > 1 ? "s" : ""}!`,
                 warning: {
@@ -152,11 +145,12 @@ const ServerExpiryCard: React.FC = () => {
             return {
                 tier: "warning",
                 label: `EXPIRES IN ${days}D`,
-                badgeClass: "bg-amber-500/25 text-amber-300 border-amber-500/50",
-                dotClass: "bg-amber-400",
-                cardBorder: "border-amber-500/60 shadow-lg shadow-amber-500/10",
-                expiryTextClass: "text-amber-300 font-bold",
-                expiryIconClass: "text-amber-400",
+                badgeClass: "bg-yellow-500/20 text-yellow-300 border border-yellow-500/40",
+                dotClass: "bg-yellow-400",
+                cardBorder: "border-yellow-500/40",
+                expiryBoxClass: "bg-yellow-500/15 border border-yellow-500/40",
+                expiryTextClass: "text-yellow-300 font-bold",
+                expiryIconClass: "text-yellow-400",
                 relativeText: `Scheduled for suspension in ${days} days`,
                 warning: {
                     level: "yellow",
@@ -170,11 +164,12 @@ const ServerExpiryCard: React.FC = () => {
         return {
             tier: "active",
             label: `ACTIVE (${days}D LEFT)`,
-            badgeClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+            badgeClass: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
             dotClass: "bg-emerald-400",
-            cardBorder: "border-neutral-700/60 hover:border-cyan-500/40",
-            expiryTextClass: "text-neutral-100 font-bold",
-            expiryIconClass: "text-cyan-400",
+            cardBorder: "",
+            expiryBoxClass: "bg-black/20 border border-white/10",
+            expiryTextClass: "text-white font-bold",
+            expiryIconClass: "text-arix",
             relativeText: `Valid for ${days} more days`,
             warning: null,
         };
@@ -182,19 +177,19 @@ const ServerExpiryCard: React.FC = () => {
 
     return (
         <div
-            className={`rounded-2xl bg-neutral-800/80 backdrop-blur-md border p-5 md:p-6 transition-all duration-300 shadow-xl ${status.cardBorder}`}
+            className={`bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-6 transition-all duration-300 ${status.cardBorder}`}
         >
             {/* Header: Title & Status Badge */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-neutral-700/60">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-                        <FontAwesomeIcon icon={faShieldAlt} className="text-lg" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 mb-5 border-b border-gray-600/60">
+                <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-component bg-arix text-white flex items-center justify-center shadow">
+                        <FontAwesomeIcon icon={faShieldAlt} className="text-xl" />
                     </div>
                     <div>
-                        <h3 className="text-base font-semibold text-neutral-100 flex items-center gap-2">
+                        <h3 className="text-lg font-semibold text-white">
                             Server Plan & Expiration
                         </h3>
-                        <p className="text-xs text-neutral-400">
+                        <p className="text-xs text-gray-300 mt-0.5">
                             Billing details, plan tier, and automated suspension status
                         </p>
                     </div>
@@ -202,7 +197,7 @@ const ServerExpiryCard: React.FC = () => {
 
                 <div>
                     <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider border ${status.badgeClass}`}
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider ${status.badgeClass}`}
                     >
                         <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
                         {status.label}
@@ -213,51 +208,43 @@ const ServerExpiryCard: React.FC = () => {
             {/* 3 Metrics Grid: Expiration Date, Plan Name, Plan Price */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 1. Expiration Date & Time */}
-                <div
-                    className={`p-4 rounded-xl border transition-all ${
-                        status.tier === "expired" || status.tier === "urgent"
-                            ? "bg-red-500/10 border-red-500/40"
-                            : status.tier === "warning"
-                            ? "bg-amber-500/10 border-amber-500/40"
-                            : "bg-neutral-900/40 border-neutral-700/50"
-                    }`}
-                >
-                    <div className="flex items-center gap-2 text-xs font-medium text-neutral-400 mb-1.5 uppercase tracking-wider">
+                <div className={`p-4 rounded-component transition-all ${status.expiryBoxClass}`}>
+                    <div className="flex items-center gap-2 text-xs font-medium text-gray-300 mb-1.5 uppercase tracking-wider">
                         <FontAwesomeIcon icon={faClock} className={status.expiryIconClass} />
                         <span>Expiration Date & Time</span>
                     </div>
                     <div className={`text-lg tracking-tight ${status.expiryTextClass}`}>
                         {formattedExpiry}
                     </div>
-                    <div className="text-xs text-neutral-400 mt-1">
+                    <div className="text-xs text-gray-400 mt-1">
                         {status.relativeText}
                     </div>
                 </div>
 
                 {/* 2. Plan Name */}
-                <div className="p-4 rounded-xl border border-neutral-700/50 bg-neutral-900/40">
-                    <div className="flex items-center gap-2 text-xs font-medium text-neutral-400 mb-1.5 uppercase tracking-wider">
-                        <FontAwesomeIcon icon={faBox} className="text-cyan-400" />
+                <div className="p-4 rounded-component bg-black/20 border border-white/10">
+                    <div className="flex items-center gap-2 text-xs font-medium text-gray-300 mb-1.5 uppercase tracking-wider">
+                        <FontAwesomeIcon icon={faBox} className="text-arix" />
                         <span>Plan Name</span>
                     </div>
-                    <div className="text-lg font-bold text-neutral-100 tracking-tight">
+                    <div className="text-lg font-bold text-white tracking-tight">
                         {planName || "N/A"}
                     </div>
-                    <div className="text-xs text-neutral-400 mt-1">
+                    <div className="text-xs text-gray-400 mt-1">
                         Assigned server plan tier
                     </div>
                 </div>
 
                 {/* 3. Plan Price */}
-                <div className="p-4 rounded-xl border border-neutral-700/50 bg-neutral-900/40">
-                    <div className="flex items-center gap-2 text-xs font-medium text-neutral-400 mb-1.5 uppercase tracking-wider">
-                        <FontAwesomeIcon icon={faCreditCard} className="text-emerald-400" />
+                <div className="p-4 rounded-component bg-black/20 border border-white/10">
+                    <div className="flex items-center gap-2 text-xs font-medium text-gray-300 mb-1.5 uppercase tracking-wider">
+                        <FontAwesomeIcon icon={faCreditCard} className="text-arix" />
                         <span>Plan Price</span>
                     </div>
-                    <div className="text-lg font-bold text-neutral-100 tracking-tight">
+                    <div className="text-lg font-bold text-white tracking-tight">
                         {planPrice || "N/A"}
                     </div>
-                    <div className="text-xs text-neutral-400 mt-1">
+                    <div className="text-xs text-gray-400 mt-1">
                         Recurring subscription cost
                     </div>
                 </div>
@@ -266,16 +253,16 @@ const ServerExpiryCard: React.FC = () => {
             {/* Warning / Urgent Alert Banner */}
             {status.warning && (
                 <div
-                    className={`mt-4 p-3.5 rounded-xl border flex items-center gap-3 text-sm ${
+                    className={`mt-5 p-4 rounded-component border flex items-center gap-3 text-sm ${
                         status.warning.level === "red"
                             ? "bg-red-500/15 border-red-500/40 text-red-200"
-                            : "bg-amber-500/15 border-amber-500/40 text-amber-200"
+                            : "bg-yellow-500/15 border-yellow-500/40 text-yellow-200"
                     }`}
                 >
                     <FontAwesomeIcon
                         icon={faExclamationTriangle}
                         className={`text-lg shrink-0 ${
-                            status.warning.level === "red" ? "text-red-400 animate-pulse" : "text-amber-400"
+                            status.warning.level === "red" ? "text-red-400 animate-pulse" : "text-yellow-400"
                         }`}
                     />
                     <div>
