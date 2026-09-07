@@ -279,11 +279,11 @@ CACHE_BUST="$(date +%s%N)"
 if [ "$INSTALL_PLUGINS" = true ]; then
   echo -e "${CYAN}[*] Downloading Plugin Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerController.php?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php"
 
   mkdir -p "resources/scripts/components/server/plugin-installer"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerContainer.tsx?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PluginInstallerContainer.tsx?t=${CACHE_BUST}" \
     -o "resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx"
 fi
 
@@ -291,11 +291,11 @@ fi
 if [ "$INSTALL_MODS" = true ]; then
   echo -e "${CYAN}[*] Downloading Mods Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModInstallerController.php?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php"
 
   mkdir -p "resources/scripts/components/server/mod-installer"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModInstallerContainer.tsx?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModInstallerContainer.tsx?t=${CACHE_BUST}" \
     -o "resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx"
 fi
 
@@ -303,11 +303,11 @@ fi
 if [ "$INSTALL_MODPACKS" = true ]; then
   echo -e "${CYAN}[*] Downloading Modpacks Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModpackInstallerController.php?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModpackInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/ModpackInstallerController.php"
 
   mkdir -p "resources/scripts/components/server/modpack-installer"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" \
     -o "resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx"
 fi
 
@@ -315,11 +315,11 @@ fi
 if [ "$INSTALL_SOFTWARE" = true ]; then
   echo -e "${CYAN}[*] Downloading Software Installer files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerController.php?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php"
 
   mkdir -p "resources/scripts/components/server/software-installer"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerContainer.tsx?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/SoftwareInstallerContainer.tsx?t=${CACHE_BUST}" \
     -o "resources/scripts/components/server/software-installer/SoftwareInstallerContainer.tsx"
 fi
 
@@ -327,18 +327,18 @@ fi
 if [ "$INSTALL_OPTIONS" = true ]; then
   echo -e "${CYAN}[*] Downloading Server Options & Properties files...${NC}"
   mkdir -p "app/Http/Controllers/Api/Client/Servers"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsController.php?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsController.php?t=${CACHE_BUST}" \
     -o "app/Http/Controllers/Api/Client/Servers/OptionsController.php"
 
   mkdir -p "resources/scripts/components/server/options"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsContainer.tsx?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/OptionsContainer.tsx?t=${CACHE_BUST}" \
     -o "resources/scripts/components/server/options/OptionsContainer.tsx"
 
   # Download Sagarmatha default server logos & ensure public/resourcepacks directory exists
   mkdir -p "public/images"
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/logo_highqualtiy.png?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/logo_highqualtiy.png?t=${CACHE_BUST}" \
     -o "public/images/sagarmatha_logo.png" 2>/dev/null || true
-  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/logo_minecraft.png?t=${CACHE_BUST}" \
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/logo_minecraft.png?t=${CACHE_BUST}" \
     -o "public/images/sagarmatha_mc_logo.png" 2>/dev/null || true
 
   mkdir -p "public/resourcepacks"
@@ -567,25 +567,25 @@ echo -e "${CYAN}[*] Setting up Server Auto-Suspension, Expiration & Plan Details
 
 # Download migrations
 mkdir -p "database/migrations"
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" \
   -o "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
 
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php?t=${CACHE_BUST}" \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php?t=${CACHE_BUST}" \
   -o "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php"
 
 # Download Artisan command
 mkdir -p "app/Console/Commands"
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/AutoSuspendServersCommand.php?t=${CACHE_BUST}" \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/AutoSuspendServersCommand.php?t=${CACHE_BUST}" \
   -o "app/Console/Commands/AutoSuspendServersCommand.php"
 
 # Download Owner Notification
 mkdir -p "app/Notifications"
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" \
   -o "app/Notifications/ServerSuspensionWarningNotification.php"
 
 # Download Server Expiry & Plan Card component
 mkdir -p "resources/scripts/components/server"
-curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerExpiryCard.tsx?t=${CACHE_BUST}" \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/ServerExpiryCard.tsx?t=${CACHE_BUST}" \
   -o "resources/scripts/components/server/ServerExpiryCard.tsx"
 
 # Run database migration
