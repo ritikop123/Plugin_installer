@@ -2,6 +2,7 @@
 
 $files = [
     'resources/views/admin/servers/new.blade.php',
+    'resources/views/admin/servers/view/build.blade.php',
     'resources/views/admin/servers/view/details.blade.php',
     'app/Http/Controllers/Admin/Servers/CreateServerController.php',
     'app/Http/Controllers/Admin/ServersController.php',

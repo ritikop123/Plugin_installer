@@ -195,6 +195,7 @@ cp "$ROUTES_PHP" "$BACKUP_DIR/api-client.php"
 [ -f "$SERVER_ROUTER" ] && cp "$SERVER_ROUTER" "$BACKUP_DIR/ServerRouter.tsx" || true
 [ -f "resources/views/admin/servers/new.blade.php" ] && cp "resources/views/admin/servers/new.blade.php" "$BACKUP_DIR/new.blade.php" || true
 [ -f "resources/views/admin/servers/view/details.blade.php" ] && cp "resources/views/admin/servers/view/details.blade.php" "$BACKUP_DIR/details.blade.php" || true
+[ -f "resources/views/admin/servers/view/build.blade.php" ] && cp "resources/views/admin/servers/view/build.blade.php" "$BACKUP_DIR/build.blade.php" || true
 [ -f "app/Http/Controllers/Admin/Servers/CreateServerController.php" ] && cp "app/Http/Controllers/Admin/Servers/CreateServerController.php" "$BACKUP_DIR/CreateServerController.php" || true
 [ -f "app/Http/Controllers/Admin/ServersController.php" ] && cp "app/Http/Controllers/Admin/ServersController.php" "$BACKUP_DIR/ServersController.php" || true
 [ -f "app/Console/Kernel.php" ] && cp "app/Console/Kernel.php" "$BACKUP_DIR/Kernel.php" || true
@@ -214,6 +215,7 @@ rollback() {
   [ -f "$BACKUP_DIR/ServerRouter.tsx" ] && cp "$BACKUP_DIR/ServerRouter.tsx" "$SERVER_ROUTER" 2>/dev/null || true
   [ -f "$BACKUP_DIR/new.blade.php" ] && cp "$BACKUP_DIR/new.blade.php" "resources/views/admin/servers/new.blade.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/details.blade.php" ] && cp "$BACKUP_DIR/details.blade.php" "resources/views/admin/servers/view/details.blade.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/build.blade.php" ] && cp "$BACKUP_DIR/build.blade.php" "resources/views/admin/servers/view/build.blade.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/CreateServerController.php" ] && cp "$BACKUP_DIR/CreateServerController.php" "app/Http/Controllers/Admin/Servers/CreateServerController.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/ServersController.php" ] && cp "$BACKUP_DIR/ServersController.php" "app/Http/Controllers/Admin/ServersController.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/Kernel.php" ] && cp "$BACKUP_DIR/Kernel.php" "app/Console/Kernel.php" 2>/dev/null || true

@@ -1,6 +1,6 @@
 <?php
 
-// Patch 1: resources/views/admin/servers/new.blade.php
+// Patch 1: resources/views/admin/servers/new.blade.php (Creation Page)
 $newBladeFile = 'resources/views/admin/servers/new.blade.php';
 if (file_exists($newBladeFile)) {
     $c = file_get_contents($newBladeFile);
@@ -32,7 +32,37 @@ CARD;
     }
 }
 
-// Patch 2: resources/views/admin/servers/view/details.blade.php
+// Patch 2: resources/views/admin/servers/view/build.blade.php (Build Configuration Page - already created servers)
+$buildBladeFile = 'resources/views/admin/servers/view/build.blade.php';
+if (file_exists($buildBladeFile)) {
+    $c = file_get_contents($buildBladeFile);
+    $c = preg_replace('/<!--\s*>>>\s*ARIX AUTO SUSPENSION START\s*>>>\s*-->.*?<!--\s*<<<\s*ARIX AUTO SUSPENSION END\s*<<<\s*-->\s*/s', '', $c);
+    $card = <<<'CARD'
+<!-- >>> ARIX AUTO SUSPENSION START >>> -->
+        <div class="col-xs-12">
+            <div class="box">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Auto Suspension</h3>
+                </div>
+                <div class="box-body">
+                    <div class="form-group">
+                        <label for="pExpireAt">Expiration Date</label>
+                        <input type="datetime-local" class="form-control" id="pExpireAt" name="expire_at" value="{{ old('expire_at', $server->expire_at ? $server->expire_at->format('Y-m-d\TH:i') : '') }}">
+                        <p class="small text-muted no-margin">The date when this server will be automatically suspended. Leave empty for no expiration.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+<!-- <<< ARIX AUTO SUSPENSION END <<< -->
+
+CARD;
+    if (strpos($c, 'admin.servers.view.build') !== false) {
+        $c = preg_replace('/(<form action="\{\{\s*route\(\x27admin\.servers\.view\.build\x27,\s*\$server->id\)\s*\}\}" method="POST">\s*)/', "$1" . $card, $c, 1);
+        file_put_contents($buildBladeFile, $c);
+    }
+}
+
+// Patch 3: resources/views/admin/servers/view/details.blade.php (Details Page)
 $detailsBladeFile = 'resources/views/admin/servers/view/details.blade.php';
 if (file_exists($detailsBladeFile)) {
     $c = file_get_contents($detailsBladeFile);
@@ -53,7 +83,7 @@ FIELD;
     }
 }
 
-// Patch 3: app/Http/Controllers/Admin/Servers/CreateServerController.php
+// Patch 4: app/Http/Controllers/Admin/Servers/CreateServerController.php
 $createCtrlFile = 'app/Http/Controllers/Admin/Servers/CreateServerController.php';
 if (file_exists($createCtrlFile)) {
     $c = file_get_contents($createCtrlFile);
@@ -77,7 +107,7 @@ PATCH;
     }
 }
 
-// Patch 4: app/Http/Controllers/Admin/ServersController.php
+// Patch 5: app/Http/Controllers/Admin/ServersController.php
 $serversCtrlFile = 'app/Http/Controllers/Admin/ServersController.php';
 if (file_exists($serversCtrlFile)) {
     $c = file_get_contents($serversCtrlFile);
@@ -101,11 +131,14 @@ if (file_exists($serversCtrlFile)) {
 PATCH;
     if (strpos($c, '$this->detailsModificationService->handle(') !== false) {
         $c = preg_replace('/(\$this->detailsModificationService->handle\([^\n]+\);\s*)/', '$1' . $patch, $c, 1);
-        file_put_contents($serversCtrlFile, $c);
     }
+    if (strpos($c, 'alerts.build_updated') !== false) {
+        $c = preg_replace('/(\$this->alert->success\(trans\(\x27admin\/server\.alerts\.build_updated\x27\)\)->flash\(\);\s*)/', $patch . '        $1', $c, 1);
+    }
+    file_put_contents($serversCtrlFile, $c);
 }
 
-// Patch 5: app/Console/Kernel.php
+// Patch 6: app/Console/Kernel.php
 $kernelFile = 'app/Console/Kernel.php';
 if (file_exists($kernelFile)) {
     $c = file_get_contents($kernelFile);
@@ -122,7 +155,7 @@ PATCH;
     }
 }
 
-// Patch 6: app/Models/Server.php
+// Patch 7: app/Models/Server.php
 $modelFile = 'app/Models/Server.php';
 if (file_exists($modelFile)) {
     $c = file_get_contents($modelFile);
