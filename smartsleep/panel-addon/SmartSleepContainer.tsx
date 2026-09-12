@@ -37,6 +37,7 @@ export default function SmartSleepContainer() {
     bedrock_port: null,
   });
 
+  const [isProxy, setIsProxy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [waking, setWaking] = useState(false);
@@ -45,10 +46,13 @@ export default function SmartSleepContainer() {
   const fetchSettings = useCallback(() => {
     setLoading(true);
     http
-      .get<{ success: boolean; settings: SmartSleepSettings }>(`/api/client/servers/${uuid}/smartsleep`)
+      .get<{ success: boolean; settings: SmartSleepSettings; is_proxy?: boolean }>(`/api/client/servers/${uuid}/smartsleep`)
       .then((res) => {
         if (res.data?.settings) {
           setSettings(res.data.settings);
+        }
+        if (res.data?.is_proxy) {
+          setIsProxy(true);
         }
       })
       .catch((err) => {
@@ -165,6 +169,19 @@ export default function SmartSleepContainer() {
           >
             <FontAwesomeIcon icon={notice.success ? faCheckCircle : faInfoCircle} />
             <span>{notice.message}</span>
+          </div>
+        )}
+
+        {/* Velocity / Proxy Server Notice */}
+        {isProxy && (
+          <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-start gap-3 shadow-md">
+            <FontAwesomeIcon icon={faInfoCircle} className="text-base mt-0.5 text-indigo-400 shrink-0" />
+            <div>
+              <h4 className="font-bold text-white text-sm">Proxy Server Detected (Velocity / BungeeCord)</h4>
+              <p className="mt-0.5 text-slate-300 leading-relaxed">
+                SmartSleep automatically detected this server as a network proxy. Auto-hibernation is safely disabled for proxy servers to keep your player routing network online 24/7.
+              </p>
+            </div>
           </div>
         )}
 

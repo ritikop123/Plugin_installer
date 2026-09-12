@@ -109,7 +109,7 @@ func (t *Tracker) syncServers() {
 			runtime.Info = s
 		}
 
-		// Check if SmartSleep is disabled for this server
+		// Check if SmartSleep is disabled for this server or if it is a proxy
 		if !s.Enabled {
 			if t.portManager.IsBound(s.Identifier) {
 				t.portManager.UnbindServer(s.Identifier)

@@ -228,6 +228,39 @@ EOF
         log_info "API routes already registered."
     fi
 
+    # 2b. Ensure smartsleep_enabled database column exists (Default: 1 / Enabled for all servers)
+    log_info "Ensuring smartsleep_enabled database column exists..."
+    php artisan tinker --execute="
+    if (!\Illuminate\Support\Facades\Schema::hasColumn('servers', 'smartsleep_enabled')) {
+        \Illuminate\Support\Facades\Schema::table('servers', function (\$table) {
+            \$table->boolean('smartsleep_enabled')->default(true);
+        });
+        echo 'Database column smartsleep_enabled added.';
+    }
+    " || true
+
+    # 2c. Inject SmartSleep into Admin Server Build View (where RAM/CPU/Disk are defined)
+    BUILD_VIEW="${PTERO_DIR}/resources/views/admin/servers/view/build.blade.php"
+    if [ -f "${BUILD_VIEW}" ] && ! grep -q "pSmartSleepEnabled" "${BUILD_VIEW}"; then
+        log_info "Injecting SmartSleep toggle into Admin Server Build configuration..."
+        SMARTSLEEP_BUILD_HTML='<div class="col-xs-12"><div class="box box-primary"><div class="box-header with-border"><h3 class="box-title">SmartSleep Optimization</h3></div><div class="box-body"><div class="form-group"><label for="pSmartSleepEnabled" class="control-label">SmartSleep Auto-Hibernation</label><div><select name="smartsleep_enabled" id="pSmartSleepEnabled" class="form-control"><option value="1" {{ ($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Enabled (Default: Auto-hibernate when 0 players to save RAM/CPU)</option><option value="0" {{ !($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Disabled (Keep 24/7 Always On - e.g. Velocity / BungeeCord / Hub)</option></select></div><p class="text-muted small">Controls whether SmartSleep can hibernate this server. Defaults to <strong>Enabled</strong> for all servers. Set to <strong>Disabled</strong> for proxy servers or servers that must never sleep.</p></div></div></div></div>'
+        sed -i "/<\/form>/i \\$SMARTSLEEP_BUILD_HTML" "${BUILD_VIEW}" || true
+    fi
+
+    # 2d. Update ServerBuildController.php to save smartsleep_enabled
+    BUILD_CTRL="${PTERO_DIR}/app/Http/Controllers/Admin/Servers/ServerBuildController.php"
+    if [ -f "${BUILD_CTRL}" ] && ! grep -q "smartsleep_enabled" "${BUILD_CTRL}"; then
+        log_info "Updating ServerBuildController to save smartsleep_enabled setting..."
+        sed -i "s/'oom_disabled' => \$request->input('oom_disabled'),/'oom_disabled' => \$request->input('oom_disabled'),\n            'smartsleep_enabled' => (bool) \$request->input('smartsleep_enabled', true),/" "${BUILD_CTRL}" || true
+    fi
+
+    # 2e. Update ServerTransformer.php to export smartsleep_enabled to Application API
+    TRANSFORMER="${PTERO_DIR}/app/Transformers/Api/Application/ServerTransformer.php"
+    if [ -f "${TRANSFORMER}" ] && ! grep -q "smartsleep_enabled" "${TRANSFORMER}"; then
+        log_info "Exporting smartsleep_enabled in ServerTransformer..."
+        sed -i "s/'created_at' => \$server->created_at->toIso8601String(),/'created_at' => \$server->created_at->toIso8601String(),\n            'smartsleep_enabled' => (bool) (\$server->smartsleep_enabled ?? true),/" "${TRANSFORMER}" || true
+    fi
+
     # 3. Install React Component
     COMP_DIR="${PTERO_DIR}/resources/scripts/components/server/smartsleep"
     mkdir -p "${COMP_DIR}"

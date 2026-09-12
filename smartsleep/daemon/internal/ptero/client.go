@@ -26,6 +26,7 @@ type ServerInfo struct {
 
 	// SmartSleep specific properties derived from environment/metadata
 	Enabled        bool
+	IsProxy        bool
 	IdleTimeout    time.Duration
 	CustomMOTD     string
 	BedrockPort    int
@@ -84,12 +85,15 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 	var raw struct {
 		Data []struct {
 			Attributes struct {
-				ID          int    `json:"id"`
-				UUID        string `json:"uuid"`
-				Identifier  string `json:"identifier"`
-				Name        string `json:"name"`
-				NodeID      int    `json:"node"`
-				Container   struct {
+				ID                int    `json:"id"`
+				UUID              string `json:"uuid"`
+				Identifier        string `json:"identifier"`
+				Name              string `json:"name"`
+				NodeID            int    `json:"node"`
+				SmartSleepEnabled *bool  `json:"smartsleep_enabled"`
+				Container         struct {
+					Startup     string                 `json:"startup"`
+					Image       string                 `json:"image"`
 					Environment map[string]interface{} `json:"environment"`
 				} `json:"container"`
 				Relationships struct {
@@ -127,8 +131,28 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			Name:        attr.Name,
 			NodeID:      attr.NodeID,
 			Environment: make(map[string]string),
-			Enabled:     true, // Default enabled unless disabled in env
+			Enabled:     true, // Default ENABLED for all servers (new and existing)
+			IsProxy:     false,
 			IdleTimeout: 20 * time.Minute,
+		}
+
+		// 1. Auto-detect Proxy servers (Velocity, BungeeCord, Waterfall, FlameCord, Gate, etc.)
+		lowerName := strings.ToLower(attr.Name)
+		lowerStartup := strings.ToLower(attr.Container.Startup)
+		lowerImage := strings.ToLower(attr.Container.Image)
+
+		proxyKeywords := []string{"velocity", "bungee", "waterfall", "flamecord", "travertine", "gate-proxy", "bungeecord"}
+		for _, kw := range proxyKeywords {
+			if strings.Contains(lowerName, kw) || strings.Contains(lowerStartup, kw) || strings.Contains(lowerImage, kw) {
+				server.IsProxy = true
+				server.Enabled = false // Proxies must never hibernate!
+				break
+			}
+		}
+
+		// 2. Read SmartSleepEnabled from server build configuration (if defined)
+		if !server.IsProxy && attr.SmartSleepEnabled != nil {
+			server.Enabled = *attr.SmartSleepEnabled
 		}
 
 		for k, v := range attr.Container.Environment {
@@ -149,10 +173,13 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			}
 		}
 
-		// Read SmartSleep preferences from environment variables
-		if val, exists := server.Environment["SMARTSLEEP_ENABLED"]; exists {
-			server.Enabled = strings.ToLower(val) == "true" || val == "1"
+		// 3. Environment variable override: SMARTSLEEP_ENABLED=0 or false
+		if !server.IsProxy {
+			if val, exists := server.Environment["SMARTSLEEP_ENABLED"]; exists {
+				server.Enabled = strings.ToLower(val) == "true" || val == "1"
+			}
 		}
+
 		if val, exists := server.Environment["SMARTSLEEP_TIMEOUT"]; exists {
 			if mins, err := strconv.Atoi(val); err == nil && mins > 0 {
 				server.IdleTimeout = time.Duration(mins) * time.Minute

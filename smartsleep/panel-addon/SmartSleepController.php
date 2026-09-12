@@ -34,9 +34,21 @@ class SmartSleepController extends ClientApiController
     {
         $settings = $this->loadSettings($server);
 
+        // Check if server is a proxy (Velocity / BungeeCord / Waterfall)
+        $isProxy = false;
+        $lowerName = strtolower($server->name);
+        $proxyKeywords = ['velocity', 'bungee', 'waterfall', 'flamecord', 'travertine', 'gate-proxy', 'bungeecord'];
+        foreach ($proxyKeywords as $kw) {
+            if (str_contains($lowerName, $kw)) {
+                $isProxy = true;
+                break;
+            }
+        }
+
         return response()->json([
             'success' => true,
             'settings' => $settings,
+            'is_proxy' => $isProxy,
             'server' => [
                 'name' => $server->name,
                 'memory_limit' => $server->memory,
@@ -57,13 +69,22 @@ class SmartSleepController extends ClientApiController
             'bedrock_port' => 'nullable|integer|min:1|max:65535',
         ]);
 
+        $enabled = (bool) $request->input('enabled', true);
+
         $settings = [
-            'enabled' => (bool) $request->input('enabled', true),
+            'enabled' => $enabled,
             'timeout' => (int) $request->input('timeout', 20),
             'custom_motd' => (string) $request->input('custom_motd', ''),
             'bedrock_port' => $request->input('bedrock_port') ? (int) $request->input('bedrock_port') : null,
             'updated_at' => now()->toIso8601String(),
         ];
+
+        // Sync with servers table column if it exists
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('servers', 'smartsleep_enabled')) {
+                $server->update(['smartsleep_enabled' => $enabled]);
+            }
+        } catch (Throwable $e) {}
 
         try {
             $this->fileRepository->setServer($server)->putContent(
@@ -111,8 +132,13 @@ class SmartSleepController extends ClientApiController
      */
     protected function loadSettings(Server $server): array
     {
+        $defaultEnabled = true;
+        if (isset($server->smartsleep_enabled)) {
+            $defaultEnabled = (bool) $server->smartsleep_enabled;
+        }
+
         $defaults = [
-            'enabled' => true,
+            'enabled' => $defaultEnabled,
             'timeout' => 20,
             'custom_motd' => '',
             'bedrock_port' => null,
