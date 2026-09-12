@@ -50,17 +50,62 @@ class SmartSleepController extends ClientApiController
             $defaultEnabled = (bool) $server->smartsleep_enabled;
         }
 
-        // Determine if server is currently considered hibernating (offline & smartsleep enabled)
+        // Determine if server is currently considered hibernating (query daemon or fallback)
         $isHibernating = false;
         if ($defaultEnabled && !$isProxy && ($settings['enabled'] ?? true)) {
-            try {
-                $status = $this->powerRepository->setServer($server)->getStatus();
-                if ($status === 'offline') {
+            // 1. Fetch primary port
+            $port = null;
+            if (!empty($server->allocation_id)) {
+                $port = \Illuminate\Support\Facades\DB::table('allocations')->where('id', $server->allocation_id)->value('port');
+            }
+            if (!$port && !empty($server->id)) {
+                $port = \Illuminate\Support\Facades\DB::table('allocations')->where('server_id', $server->id)->value('port');
+            }
+
+            // 2. Query SmartSleep daemon IPC status
+            $hosts = ['127.0.0.1'];
+            if (!empty($server->node_id)) {
+                $fqdn = \Illuminate\Support\Facades\DB::table('nodes')->where('id', $server->node_id)->value('fqdn');
+                if (!empty($fqdn) && !in_array($fqdn, ['localhost', '127.0.0.1'])) {
+                    $hosts[] = $fqdn;
+                }
+            }
+
+            $daemonQueried = false;
+            $shortId = $server->identifier ?? substr($server->uuid, 0, 8);
+            $queryUrl = "uuid=" . urlencode($server->uuid) . "&id=" . urlencode($shortId) . ($port ? "&port=" . (int) $port : "");
+
+            foreach ($hosts as $h) {
+                try {
+                    $ch = curl_init("http://{$h}:8995/status?{$queryUrl}");
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 200);
+                    curl_setopt($ch, CURLOPT_TIMEOUT_MS, 400);
+                    $resp = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+
+                    if ($httpCode === 200 && $resp) {
+                        $daemonData = json_decode($resp, true);
+                        if (isset($daemonData['is_sleeping'])) {
+                            $isHibernating = (bool) $daemonData['is_sleeping'];
+                            $daemonQueried = true;
+                            break;
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            // 3. Fallback to Wings container status if daemon could not be reached
+            if (!$daemonQueried) {
+                try {
+                    $status = $this->powerRepository->setServer($server)->getStatus();
+                    if ($status === 'offline') {
+                        $isHibernating = true;
+                    }
+                } catch (Throwable $e) {
                     $isHibernating = true;
                 }
-            } catch (Throwable $e) {
-                // If daemon status query fails, treat as hibernating if offline
-                $isHibernating = true;
             }
         }
 

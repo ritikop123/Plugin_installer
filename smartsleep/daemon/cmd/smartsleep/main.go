@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -174,9 +175,11 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 	mux.HandleFunc("/wake", func(w http.ResponseWriter, r *http.Request) {
 		portStr := r.URL.Query().Get("port")
 		if portStr != "" {
-			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
-				log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
-				portManager.UnbindPort(p)
+			for _, part := range strings.Split(portStr, ",") {
+				if p, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && p > 0 {
+					log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
+					portManager.UnbindPort(p)
+				}
 			}
 		}
 		uuid := r.URL.Query().Get("uuid")
@@ -195,9 +198,11 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 	mux.HandleFunc("/unbind", func(w http.ResponseWriter, r *http.Request) {
 		portStr := r.URL.Query().Get("port")
 		if portStr != "" {
-			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
-				log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
-				portManager.UnbindPort(p)
+			for _, part := range strings.Split(portStr, ",") {
+				if p, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && p > 0 {
+					log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
+					portManager.UnbindPort(p)
+				}
 			}
 		}
 		uuid := r.URL.Query().Get("uuid")
@@ -215,6 +220,24 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 	// /status
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		uuid := r.URL.Query().Get("uuid")
+		if uuid == "" {
+			uuid = r.URL.Query().Get("id")
+		}
+		portStr := r.URL.Query().Get("port")
+		port := 0
+		if portStr != "" {
+			parts := strings.Split(portStr, ",")
+			if len(parts) > 0 {
+				port, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
+			}
+		}
+
+		if uuid != "" || port > 0 {
+			isSleeping, state := tracker.GetServerSleepStatus(uuid, port)
+			fmt.Fprintf(w, `{"status":"active","version":"%s","is_sleeping":%t,"server_state":"%s"}`, Version, isSleeping, state)
+			return
+		}
 		fmt.Fprintf(w, `{"status":"active","version":"%s"}`, Version)
 	})
 

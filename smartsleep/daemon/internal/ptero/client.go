@@ -260,7 +260,10 @@ func (c *Client) GetServerState(serverIdentifier string) (string, error) {
 // SendPowerAction sends a power signal to a server: start, stop, restart, kill
 func (c *Client) SendPowerAction(serverIdentifier, signal string) error {
 	endpoint := fmt.Sprintf("%s/api/client/servers/%s/power", c.baseURL, serverIdentifier)
-	payload, _ := json.Marshal(map[string]string{"signal": signal})
+	payload, _ := json.Marshal(map[string]string{
+		"signal": signal,
+		"source": "smartsleep",
+	})
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(payload))
 	if err != nil {

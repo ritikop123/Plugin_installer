@@ -28,6 +28,7 @@ type ServerRuntime struct {
 	IdleSince       time.Time
 	LastStarted     time.Time
 	LastPlayerCount int
+	ManualStop      bool
 }
 
 type Tracker struct {
@@ -127,6 +128,15 @@ func (t *Tracker) syncServers() {
 
 		switch pteroState {
 		case "offline":
+			// If server was manually stopped by user in panel, keep it offline and do not bind sleeping port
+			if runtime.ManualStop {
+				if t.portManager.IsBound(s.Identifier) {
+					t.portManager.UnbindServer(s.Identifier)
+					t.portManager.UnbindPort(s.PrimaryPort)
+				}
+				continue
+			}
+
 			// If server is currently waking up, protect it from rebinding for 3 minutes while Wings pulls images/starts
 			if runtime.State == StateWaking {
 				if time.Since(runtime.LastStarted) < 3*time.Minute {
@@ -168,6 +178,7 @@ func (t *Tracker) syncServers() {
 			}
 
 		case "running":
+			runtime.ManualStop = false
 			// If server is running, make sure Gateway is NOT holding the port
 			t.portManager.UnbindServer(s.Identifier)
 			t.portManager.UnbindPort(s.PrimaryPort)
@@ -181,11 +192,18 @@ func (t *Tracker) syncServers() {
 				runtime.LastStarted = time.Now()
 				runtime.IdleSince = time.Time{}
 				runtime.State = StateRunning
-				log.Printf("[SmartSleep] Server %s is now RUNNING. Grace period: %v", s.Name, t.cfg.Sleep.GracePeriod)
+				log.Printf("[SmartSleep] Server %s is now RUNNING. Idle timeout: %v", s.Name, s.IdleTimeout)
 			}
 
-			// Check Grace Period! While within Grace Period after starting, protect server from sleeping
-			if time.Since(runtime.LastStarted) < t.cfg.Sleep.GracePeriod {
+			// Check Grace Period (capped to min(grace_period, 45s, idle_timeout/2))
+			effectiveGrace := t.cfg.Sleep.GracePeriod
+			if effectiveGrace > s.IdleTimeout/2 && s.IdleTimeout > 0 {
+				effectiveGrace = s.IdleTimeout / 2
+			}
+			if effectiveGrace > 45*time.Second {
+				effectiveGrace = 45 * time.Second
+			}
+			if time.Since(runtime.LastStarted) < effectiveGrace {
 				runtime.State = StateRunning
 				runtime.IdleSince = time.Time{}
 				continue
@@ -222,6 +240,7 @@ func (t *Tracker) syncServers() {
 
 		case "starting":
 			runtime.State = StateWaking
+			runtime.ManualStop = false
 			runtime.IdleSince = time.Time{}
 			if runtime.LastStarted.IsZero() {
 				runtime.LastStarted = time.Now()
@@ -255,6 +274,7 @@ func (t *Tracker) hibernateServer(runtime *ServerRuntime) {
 	t.mu.Lock()
 	runtime.IdleSince = time.Time{}
 	runtime.LastStarted = time.Time{}
+	runtime.ManualStop = false
 	runtime.State = StateSleeping
 	t.mu.Unlock()
 }
@@ -294,6 +314,7 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 
 	t.mu.Lock()
 	runtime.State = StateWaking
+	runtime.ManualStop = false
 	runtime.IdleSince = time.Time{}
 	runtime.LastStarted = time.Now()
 	t.mu.Unlock()
@@ -325,6 +346,7 @@ func (t *Tracker) UnbindAndWake(serverIdentifier string) {
 	for id, runtime := range t.servers {
 		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
 			runtime.State = StateWaking
+			runtime.ManualStop = false
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Now()
 			t.portManager.UnbindServer(id)
@@ -348,6 +370,7 @@ func (t *Tracker) Unbind(serverIdentifier string) {
 	for id, runtime := range t.servers {
 		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
 			runtime.State = StateOffline
+			runtime.ManualStop = true
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Time{}
 			t.portManager.UnbindServer(id)
@@ -361,5 +384,38 @@ func (t *Tracker) Unbind(serverIdentifier string) {
 	}
 
 	t.portManager.UnbindServer(serverIdentifier)
+}
+
+// GetServerSleepStatus returns true if the server is currently sleeping/hibernating
+func (t *Tracker) GetServerSleepStatus(serverIdentifier string, port int) (bool, string) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if port > 0 {
+		for id, runtime := range t.servers {
+			if runtime.Info.PrimaryPort == port || runtime.Info.BedrockPort == port {
+				isBound := t.portManager.IsBound(id) || t.portManager.IsPortBound(port)
+				isSleeping := (runtime.State == StateSleeping || isBound) && !runtime.ManualStop
+				return isSleeping, string(runtime.State)
+			}
+		}
+	}
+
+	for id, runtime := range t.servers {
+		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
+			isBound := t.portManager.IsBound(id)
+			if port > 0 && !isBound {
+				isBound = t.portManager.IsPortBound(port)
+			}
+			isSleeping := (runtime.State == StateSleeping || isBound) && !runtime.ManualStop
+			return isSleeping, string(runtime.State)
+		}
+	}
+
+	if port > 0 {
+		return t.portManager.IsPortBound(port), "unknown"
+	}
+
+	return false, "unknown"
 }
 

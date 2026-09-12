@@ -330,11 +330,29 @@ EOF
         download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
     fi
 
-    # Clean up any previous console banner additions (keep console clean & stock)
-    log_info "Ensuring console page remains clean and stock (removing any banner additions)..."
+    log_info "Installing SmartSleepStatus.tsx (Theme-adaptive console status)..."
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+    fi
+
+    # Clean up any old banner additions
+    log_info "Cleaning up old banner artifacts..."
     rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
     find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
     find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
+
+    # Inject SmartSleepStatus into console container and Arix dashboard
+    log_info "Injecting SmartSleepStatus into console page and dashboard..."
+    PATCH_STATUS_SCRIPT="/tmp/patch-console-status.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
+    fi
+    php "${PATCH_STATUS_SCRIPT}" || true
+    rm -f "${PATCH_STATUS_SCRIPT}"
 
     chown -R www-data:www-data "${COMP_DIR}"
 
@@ -393,7 +411,7 @@ EOF
 
 patch_power_buttons() {
     print_banner
-    echo -e "${C_BOLD}=== Patching Native Power Buttons (Start/Restart/Stop) ===${C_RESET}\n"
+    echo -e "${C_BOLD}=== Patching Native Power Buttons & Console Status ===${C_RESET}\n"
     ensure_root
 
     if [ ! -d "${PTERO_DIR}" ]; then
@@ -401,9 +419,23 @@ patch_power_buttons() {
         exit 1
     fi
 
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+
+    # 1. Update SmartSleepController.php
+    CTRL_DIR="${PTERO_DIR}/app/Http/Controllers/Api/Client/Servers"
+    if [ -d "${CTRL_DIR}" ]; then
+        log_info "Updating SmartSleepController.php..."
+        if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepController.php" ]; then
+            cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
+        else
+            download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
+        fi
+        chown www-data:www-data "${CTRL_DIR}/SmartSleepController.php"
+    fi
+
+    # 2. Hook native panel Start/Restart/Stop power buttons
     log_info "Hooking native panel Start/Restart/Stop power buttons into SmartSleep..."
     PATCH_POWER_SCRIPT="/tmp/patch-power-controller.php"
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
     if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" ]; then
         cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
     else
@@ -413,17 +445,83 @@ patch_power_buttons() {
     php "${PATCH_POWER_SCRIPT}" || true
     rm -f "${PATCH_POWER_SCRIPT}"
 
-    # Also clean any leftover console banner
-    log_info "Ensuring console page remains clean and stock..."
-    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
-    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
-    rm -f "${PTERO_DIR}/resources/scripts/components/server/smartsleep/SmartSleepConsoleBanner.tsx"
+    # 3. Clean old banner artifacts & install SmartSleepStatus.tsx
+    COMP_DIR="${PTERO_DIR}/resources/scripts/components/server/smartsleep"
+    if [ -d "${COMP_DIR}" ]; then
+        log_info "Updating SmartSleepStatus.tsx..."
+        if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" ]; then
+            cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+        else
+            download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+        fi
+
+        rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
+        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
+        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
+
+        # Inject SmartSleepStatus
+        PATCH_STATUS_SCRIPT="/tmp/patch-console-status.php"
+        if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" ]; then
+            cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
+        else
+            download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
+        fi
+        php "${PATCH_STATUS_SCRIPT}" || true
+        rm -f "${PATCH_STATUS_SCRIPT}"
+        chown -R www-data:www-data "${COMP_DIR}"
+    fi
 
     php artisan cache:clear || true
     php artisan config:clear || true
+    php artisan view:clear || true
     chown -R www-data:www-data "${PTERO_DIR}"
 
-    log_success "PowerController successfully hooked! Start, Restart, and Stop buttons now work seamlessly."
+    log_success "Power buttons and SmartSleep status successfully patched!"
+}
+
+update_daemon() {
+    print_banner
+    echo -e "${C_BOLD}=== Updating SmartSleep Daemon ===${C_RESET}\n"
+    ensure_root
+    install_go_if_missing
+
+    BUILD_DIR="/tmp/smartsleep-update-$(date +%s)"
+    mkdir -p "${BUILD_DIR}/cmd/smartsleep"
+    mkdir -p "${BUILD_DIR}/internal/config"
+    mkdir -p "${BUILD_DIR}/internal/ptero"
+    mkdir -p "${BUILD_DIR}/internal/gateway"
+    mkdir -p "${BUILD_DIR}/internal/monitor"
+    mkdir -p "${BUILD_DIR}/internal/security"
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+    if [ -n "$SCRIPT_DIR" ] && [ -d "${SCRIPT_DIR}/smartsleep/daemon" ]; then
+        log_info "Using local repository daemon files..."
+        cp -r "${SCRIPT_DIR}/smartsleep/daemon/"* "${BUILD_DIR}/"
+    else
+        download_file "${REPO_BASE}/smartsleep/daemon/go.mod" "${BUILD_DIR}/go.mod"
+        download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
+    fi
+
+    log_info "Compiling latest SmartSleep binary..."
+    cd "${BUILD_DIR}"
+    go mod tidy
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o "${BINARY_PATH}" cmd/smartsleep/main.go
+    chmod +x "${BINARY_PATH}"
+    rm -rf "${BUILD_DIR}"
+
+    systemctl restart smartsleep
+    log_success "SmartSleep daemon updated and restarted successfully!"
+
+    if [ -d "${PTERO_DIR}" ]; then
+        patch_power_buttons
+    fi
 }
 
 free_all_ports() {
@@ -601,6 +699,9 @@ case "$1" in
     --patch-power)
         patch_power_buttons
         ;;
+    --update-daemon|--update)
+        update_daemon
+        ;;
     --config)
         reconfigure_credentials
         ;;
@@ -622,11 +723,12 @@ case "$1" in
         echo "  [5] Toggle SmartSleep ON/OFF on this Node"
         echo "  [6] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
         echo "  [7] Reconfigure Panel URL & API Keys"
-        echo "  [8] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
-        echo "  [9] Uninstall SmartSleep"
-        echo "  [10] Exit"
+        echo "  [8] Patch Panel Power Buttons & Console Status (Enables Start, Restart, Stop & Hibernating status)"
+        echo "  [9] Update SmartSleep Daemon (Quick recompile & restart)"
+        echo "  [10] Uninstall SmartSleep"
+        echo "  [11] Exit"
         echo ""
-        read -rp "Enter choice [1-10]: " CHOICE
+        read -rp "Enter choice [1-11]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
@@ -636,7 +738,8 @@ case "$1" in
             6) set_global_timeout ;;
             7) reconfigure_credentials ;;
             8) patch_power_buttons ;;
-            9) uninstall ;;
+            9) update_daemon ;;
+            10) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;

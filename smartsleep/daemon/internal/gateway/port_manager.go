@@ -138,6 +138,22 @@ func (pm *PortManager) IsBound(serverID string) bool {
 	return exists
 }
 
+// IsPortBound returns true if any listener is active on the specified port
+func (pm *PortManager) IsPortBound(port int) bool {
+	if port <= 0 {
+		return false
+	}
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	for _, group := range pm.listeners {
+		if group.Port == port || group.BedrockPort == port {
+			return true
+		}
+	}
+	return false
+}
+
 // UnbindAll closes all active listeners across all servers (used during daemon shutdown)
 func (pm *PortManager) UnbindAll() {
 	pm.mu.Lock()
