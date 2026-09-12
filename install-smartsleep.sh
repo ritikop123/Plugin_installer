@@ -88,6 +88,12 @@ install_go_if_missing() {
     log_success "Go installed successfully ($(go version | awk '{print $3}'))."
 }
 
+download_file() {
+    local url="$1"
+    local dest="$2"
+    curl -sL -H 'Cache-Control: no-cache, no-store' "${url}?$(date +%s%N)" -o "${dest}"
+}
+
 install_node_daemon() {
     print_banner
     echo -e "${C_BOLD}=== STEP 1: Installing SmartSleep Node Daemon ===${C_RESET}\n"
@@ -107,15 +113,15 @@ install_node_daemon() {
     mkdir -p "${BUILD_DIR}/internal/monitor"
     mkdir -p "${BUILD_DIR}/internal/security"
 
-    curl -sL "${REPO_BASE}/smartsleep/daemon/go.mod" -o "${BUILD_DIR}/go.mod"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" -o "${BUILD_DIR}/cmd/smartsleep/main.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" -o "${BUILD_DIR}/internal/config/config.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" -o "${BUILD_DIR}/internal/ptero/client.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" -o "${BUILD_DIR}/internal/gateway/java_listener.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" -o "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" -o "${BUILD_DIR}/internal/gateway/port_manager.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" -o "${BUILD_DIR}/internal/security/ratelimit.go"
-    curl -sL "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" -o "${BUILD_DIR}/internal/monitor/tracker.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/go.mod" "${BUILD_DIR}/go.mod"
+    download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
+    download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
 
     log_info "Compiling SmartSleep binary..."
     cd "${BUILD_DIR}"
@@ -208,7 +214,7 @@ install_panel_addon() {
     log_info "Installing SmartSleepController.php..."
     CTRL_DIR="${PTERO_DIR}/app/Http/Controllers/Api/Client/Servers"
     mkdir -p "${CTRL_DIR}"
-    curl -sL "${REPO_BASE}/smartsleep/panel-addon/SmartSleepController.php" -o "${CTRL_DIR}/SmartSleepController.php"
+    download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
     chown -R www-data:www-data "${CTRL_DIR}/SmartSleepController.php"
 
     # 2. Add Routes
@@ -267,7 +273,7 @@ EOF
     COMP_DIR="${PTERO_DIR}/resources/scripts/components/server/smartsleep"
     mkdir -p "${COMP_DIR}"
     log_info "Installing SmartSleepContainer.tsx..."
-    curl -sL "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" -o "${COMP_DIR}/SmartSleepContainer.tsx"
+    download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
     chown -R www-data:www-data "${COMP_DIR}"
 
     # 4. Inject into ServerRouter.tsx
