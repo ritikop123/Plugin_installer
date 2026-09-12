@@ -275,21 +275,47 @@ export default function SmartSleepContainer() {
               <p className="text-xs text-slate-400">
                 Number of minutes the server can remain completely empty (0 players) before saving and sleeping.
               </p>
-              <div className="pt-2">
+              <div className="pt-2 space-y-2">
                 <input
                   type="range"
-                  min="5"
+                  min="1"
                   max="120"
-                  step="5"
+                  step="1"
                   value={settings.timeout}
                   onChange={(e) => setSettings((s) => ({ ...s, timeout: Number(e.target.value) }))}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                  <span>5 mins</span>
-                  <span>20 mins (Recommended)</span>
+                <div className="flex justify-between text-[10px] text-slate-500">
+                  <span>1 min</span>
+                  <span>20 mins (Default)</span>
                   <span>60 mins</span>
                   <span>120 mins</span>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Presets:</span>
+                  {[
+                    { label: '2 mins (Test)', val: 2 },
+                    { label: '5 mins', val: 5 },
+                    { label: '15 mins', val: 15 },
+                    { label: '20 mins', val: 20 },
+                    { label: '30 mins', val: 30 },
+                    { label: '60 mins', val: 60 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.val}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...s, timeout: preset.val }))}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        settings.timeout === preset.val
+                          ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300 font-bold'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

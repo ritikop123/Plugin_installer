@@ -26,6 +26,7 @@ func main() {
 	enableNode := flag.Bool("enable", false, "Enable SmartSleep hibernation across this node")
 	disableNode := flag.Bool("disable", false, "Disable SmartSleep hibernation across this node")
 	statusNode := flag.Bool("status", false, "Display SmartSleep status for this node")
+	timeoutStr := flag.String("timeout", "", "Set global idle timeout (e.g. 2m, 5m, 20m)")
 	flag.Parse()
 
 	if *showVersion {
@@ -45,6 +46,23 @@ func main() {
 	cfg, err := config.LoadConfig(targetConfig)
 	if err != nil {
 		log.Fatalf("[SmartSleep] Configuration error: %v", err)
+	}
+
+	if *timeoutStr != "" {
+		dur, err := time.ParseDuration(*timeoutStr)
+		if err != nil {
+			log.Fatalf("Invalid duration format: %v (use e.g. 2m, 5m, 20m)", err)
+		}
+		cfg.Sleep.DefaultIdleTimeout = dur
+		if dur <= 2*time.Minute {
+			cfg.Sleep.CheckInterval = 10 * time.Second
+			cfg.Sleep.GracePeriod = 30 * time.Second
+		}
+		if err := cfg.SaveConfig(targetConfig); err != nil {
+			log.Fatalf("Failed to save config: %v", err)
+		}
+		fmt.Printf("SmartSleep global idle timeout set to %v (saved in %s).\n", dur, targetConfig)
+		os.Exit(0)
 	}
 
 	if *enableNode {

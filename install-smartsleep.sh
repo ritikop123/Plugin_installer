@@ -376,6 +376,35 @@ toggle_node_smartsleep() {
     esac
 }
 
+set_global_timeout() {
+    print_banner
+    echo -e "${C_BOLD}=== Set Global Inactivity Timeout for this Node ===${C_RESET}\n"
+
+    ensure_root
+    if [ ! -f "${BINARY_PATH}" ] || [ ! -f "${SMARTSLEEP_DIR}/config.yaml" ]; then
+        log_error "SmartSleep is not installed on this node."
+        exit 1
+    fi
+
+    echo -e "Current status:"
+    ${BINARY_PATH} -status || true
+    echo ""
+    echo "Common options:"
+    echo -e "  • ${C_GREEN}2m${C_RESET}   (Fast testing: hibernates after 2 minutes of 0 players)"
+    echo -e "  • ${C_CYAN}5m${C_RESET}   (Short testing / aggressive savings)"
+    echo -e "  • ${C_BLUE}20m${C_RESET}  (Standard recommended default)"
+    echo -e "  • ${C_YELLOW}30m${C_RESET}  (Relaxed)"
+    echo ""
+    read -rp "Enter desired timeout (e.g. 2m, 5m, 20m): " NEW_TIMEOUT
+    if [ -n "$NEW_TIMEOUT" ]; then
+        ${BINARY_PATH} -timeout "${NEW_TIMEOUT}"
+        systemctl restart smartsleep || true
+        log_success "Global timeout updated to ${NEW_TIMEOUT} and smartsleep daemon restarted!"
+    else
+        echo "No changes made."
+    fi
+}
+
 # Parse command line flags or interactive menu
 case "$1" in
     --node)
@@ -397,6 +426,13 @@ case "$1" in
     --status-node)
         ${BINARY_PATH} -status
         ;;
+    --timeout)
+        if [ -n "$2" ]; then
+            ${BINARY_PATH} -timeout "$2" && systemctl restart smartsleep
+        else
+            set_global_timeout
+        fi
+        ;;
     --uninstall)
         uninstall
         ;;
@@ -412,16 +448,18 @@ case "$1" in
         echo "  [2] Install SmartSleep Panel UI Addon (Run on Pterodactyl web VPS)"
         echo "  [3] Install Both (If your Panel and Wings node share the same VPS)"
         echo "  [4] Toggle SmartSleep ON/OFF on this Node"
-        echo "  [5] Uninstall SmartSleep"
-        echo "  [6] Exit"
+        echo "  [5] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
+        echo "  [6] Uninstall SmartSleep"
+        echo "  [7] Exit"
         echo ""
-        read -rp "Enter choice [1-6]: " CHOICE
+        read -rp "Enter choice [1-7]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
             3) install_node_daemon; install_panel_addon ;;
             4) toggle_node_smartsleep ;;
-            5) uninstall ;;
+            5) set_global_timeout ;;
+            6) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;

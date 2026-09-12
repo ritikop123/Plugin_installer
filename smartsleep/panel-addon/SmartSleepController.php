@@ -64,7 +64,7 @@ class SmartSleepController extends ClientApiController
     {
         $this->validate($request, [
             'enabled' => 'required|boolean',
-            'timeout' => 'required|integer|min:5|max:240',
+            'timeout' => 'required|integer|min:1|max:240',
             'custom_motd' => 'nullable|string|max:120',
             'bedrock_port' => 'nullable|integer|min:1|max:65535',
         ]);

@@ -38,6 +38,7 @@ type AllocationInfo struct {
 }
 
 type Client struct {
+	cfg          *config.Config
 	baseURL      string
 	appAPIKey    string
 	clientAPIKey string
@@ -47,6 +48,7 @@ type Client struct {
 func NewClient(cfg *config.Config) *Client {
 	url := strings.TrimRight(cfg.Panel.URL, "/")
 	return &Client{
+		cfg:          cfg,
 		baseURL:      url,
 		appAPIKey:    cfg.Panel.APIKey,
 		clientAPIKey: cfg.Panel.ClientAPIKey,
@@ -124,6 +126,11 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			continue
 		}
 
+		defaultTimeout := 20 * time.Minute
+		if c.cfg != nil && c.cfg.Sleep.DefaultIdleTimeout > 0 {
+			defaultTimeout = c.cfg.Sleep.DefaultIdleTimeout
+		}
+
 		server := &ServerInfo{
 			ID:          attr.ID,
 			UUID:        attr.UUID,
@@ -133,7 +140,7 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			Environment: make(map[string]string),
 			Enabled:     true, // Default ENABLED for all servers (new and existing)
 			IsProxy:     false,
-			IdleTimeout: 20 * time.Minute,
+			IdleTimeout: defaultTimeout,
 		}
 
 		// 1. Auto-detect Proxy servers (Velocity, BungeeCord, Waterfall, FlameCord, Gate, etc.)
