@@ -57,7 +57,7 @@ func main() {
 		cfg.Sleep.DefaultIdleTimeout = dur
 		if dur <= 2*time.Minute {
 			cfg.Sleep.CheckInterval = 10 * time.Second
-			cfg.Sleep.GracePeriod = 30 * time.Second
+			cfg.Sleep.GracePeriod = 45 * time.Second
 		}
 		if err := cfg.SaveConfig(targetConfig); err != nil {
 			log.Fatalf("Failed to save config: %v", err)

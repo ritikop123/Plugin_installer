@@ -54,19 +54,22 @@ func (b *BedrockListener) Start() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	bindAddr := fmt.Sprintf("%s:%d", b.ip, b.port)
-	if b.ip == "127.0.0.1" || b.ip == "" {
-		bindAddr = fmt.Sprintf("0.0.0.0:%d", b.port)
+	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", b.port))
+	if err != nil {
+		return fmt.Errorf("failed to resolve UDP addr for port %d: %w", b.port, err)
 	}
 
-	udpAddr, err := net.ResolveUDPAddr("udp", bindAddr)
-	if err != nil {
-		udpAddr, _ = net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", b.port))
+	var conn *net.UDPConn
+	for attempt := 1; attempt <= 10; attempt++ {
+		conn, err = net.ListenUDP("udp", udpAddr)
+		if err == nil {
+			break
+		}
+		time.Sleep(1 * time.Second)
 	}
 
-	conn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		return fmt.Errorf("failed to bind UDP port %d: %w", b.port, err)
+		return fmt.Errorf("failed to bind UDP 0.0.0.0:%d after 10s: %w", b.port, err)
 	}
 
 	b.conn = conn

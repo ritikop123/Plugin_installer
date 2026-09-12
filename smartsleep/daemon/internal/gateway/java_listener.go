@@ -111,19 +111,20 @@ func (l *JavaListener) Start() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	bindAddr := fmt.Sprintf("%s:%d", l.ip, l.port)
-	// Fallback to 0.0.0.0 if specific IP binding fails or is localhost/internal
-	if l.ip == "127.0.0.1" || l.ip == "" {
-		bindAddr = fmt.Sprintf("0.0.0.0:%d", l.port)
+	var ln net.Listener
+	var err error
+
+	// Retry binding on 0.0.0.0 for up to 10 seconds while Docker releases the host port
+	for attempt := 1; attempt <= 10; attempt++ {
+		ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", l.port))
+		if err == nil {
+			break
+		}
+		time.Sleep(1 * time.Second)
 	}
 
-	ln, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		// Try 0.0.0.0 fallback
-		ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", l.port))
-		if err != nil {
-			return fmt.Errorf("failed to bind TCP port %d: %w", l.port, err)
-		}
+		return fmt.Errorf("failed to bind TCP 0.0.0.0:%d after 10s: %w", l.port, err)
 	}
 
 	l.listener = ln
@@ -289,12 +290,7 @@ func (l *JavaListener) handleLogin(conn net.Conn) {
 		return
 	}
 
-	// 1. Fire Wake Server event callback asynchronously
-	if l.onWake != nil {
-		go l.onWake(l.serverID)
-	}
-
-	// 2. Format Disconnect Packet (ID 0x00 in Login State)
+	// 1. Format Disconnect Packet (ID 0x00 in Login State)
 	disconnectObj := map[string]interface{}{
 		"text": l.wakeMsg,
 	}
@@ -312,7 +308,12 @@ func (l *JavaListener) handleLogin(conn net.Conn) {
 	_, _ = conn.Write(fullBuf.Bytes())
 
 	// Small pause to allow client to process packet before closing TCP connection
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
+
+	// 2. Fire Wake Server event callback asynchronously AFTER sending message
+	if l.onWake != nil {
+		go l.onWake(l.serverID)
+	}
 }
 
 // QueryPlayerCount performs a quick Server List Ping to a running Minecraft server

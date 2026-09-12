@@ -125,6 +125,9 @@ func (t *Tracker) syncServers() {
 
 		switch pteroState {
 		case "offline":
+			runtime.LastStarted = time.Time{}
+			runtime.IdleSince = time.Time{}
+
 			// If server is offline, Gateway should hold the port to answer pings and wake on join
 			if !t.portManager.IsBound(s.Identifier) {
 				motd := s.CustomMOTD
@@ -160,10 +163,25 @@ func (t *Tracker) syncServers() {
 			}
 			t.rateLimiter.RecordStarted(s.Identifier)
 
+			// If transitioning to running from offline/waking, track startup time and reset idle
+			if runtime.LastStarted.IsZero() {
+				runtime.LastStarted = time.Now()
+				runtime.IdleSince = time.Time{}
+				runtime.State = StateRunning
+				log.Printf("[SmartSleep] Server %s is now RUNNING. Grace period: %v", s.Name, t.cfg.Sleep.GracePeriod)
+			}
+
+			// Check Grace Period! While within Grace Period after starting, protect server from sleeping
+			if time.Since(runtime.LastStarted) < t.cfg.Sleep.GracePeriod {
+				runtime.State = StateRunning
+				runtime.IdleSince = time.Time{}
+				continue
+			}
+
 			// Check player count via Server List Ping to localhost
 			playerCount, err := gateway.QueryPlayerCount("127.0.0.1", s.PrimaryPort)
 			if err != nil {
-				// Server might still be in startup sequence
+				// Server might still be in internal startup sequence
 				continue
 			}
 
@@ -181,19 +199,23 @@ func (t *Tracker) syncServers() {
 					log.Printf("[SmartSleep] Server %s has 0 players. Starting idle timer (%v)...", s.Name, s.IdleTimeout)
 				} else if time.Since(runtime.IdleSince) >= s.IdleTimeout {
 					// Idle timeout reached -> Hibernate server
-					log.Printf("[SmartSleep] Idle timeout expired for %s. Initiating graceful sleep...", s.Name)
+					log.Printf("[SmartSleep] Idle timeout (%v) expired for %s. Initiating graceful sleep...", s.IdleTimeout, s.Name)
 					go t.hibernateServer(runtime)
 				}
 			}
 
 		case "starting":
 			runtime.State = StateWaking
+			runtime.IdleSince = time.Time{}
+			runtime.LastStarted = time.Now()
 			if t.portManager.IsBound(s.Identifier) {
 				t.portManager.UnbindServer(s.Identifier)
 			}
 
 		case "stopping":
 			runtime.State = StateOffline
+			runtime.IdleSince = time.Time{}
+			runtime.LastStarted = time.Time{}
 		}
 	}
 }
@@ -210,6 +232,12 @@ func (t *Tracker) hibernateServer(runtime *ServerRuntime) {
 	if err := t.pteroClient.SendPowerAction(s.Identifier, "stop"); err != nil {
 		log.Printf("[SmartSleep] [Hibernate] Failed to stop server %s: %v", s.Name, err)
 	}
+
+	t.mu.Lock()
+	runtime.IdleSince = time.Time{}
+	runtime.LastStarted = time.Time{}
+	runtime.State = StateOffline
+	t.mu.Unlock()
 }
 
 // WakeServer is called by JavaListener or BedrockListener when a player joins a sleeping server
@@ -243,6 +271,10 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 		return
 	}
 
+	t.mu.Lock()
 	runtime.State = StateWaking
+	runtime.IdleSince = time.Time{}
+	runtime.LastStarted = time.Now()
+	t.mu.Unlock()
 	log.Printf("[SmartSleep] [Wake] Server %s has been signaled to START successfully.", runtime.Info.Name)
 }
