@@ -322,7 +322,26 @@ EOF
     else
         download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
     fi
+
+    # 3b. Install Console Hibernation Banner React Component
+    log_info "Installing SmartSleepConsoleBanner.tsx..."
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
+    fi
     chown -R www-data:www-data "${COMP_DIR}"
+
+    # 3c. Patch Console & Dashboard to display Hibernation status & live uptime
+    log_info "Injecting SmartSleep Hibernation Banner into Server Console..."
+    PATCH_BANNER_SCRIPT="/tmp/patch-console-banner.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-banner.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-banner.php" "${PATCH_BANNER_SCRIPT}"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-banner.php" "${PATCH_BANNER_SCRIPT}"
+    fi
+    php "${PATCH_BANNER_SCRIPT}" || true
+    rm -f "${PATCH_BANNER_SCRIPT}"
 
     # 4. Inject into ServerRouter.tsx
     ROUTER_FILE="${PTERO_DIR}/resources/scripts/routers/ServerRouter.tsx"

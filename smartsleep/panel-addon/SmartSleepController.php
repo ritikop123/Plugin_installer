@@ -45,14 +45,39 @@ class SmartSleepController extends ClientApiController
             }
         }
 
+        $defaultEnabled = true;
+        if (isset($server->smartsleep_enabled)) {
+            $defaultEnabled = (bool) $server->smartsleep_enabled;
+        }
+
+        // Determine if server is currently considered hibernating (offline & smartsleep enabled)
+        $isHibernating = false;
+        if ($defaultEnabled && !$isProxy && ($settings['enabled'] ?? true)) {
+            try {
+                $status = $this->powerRepository->setServer($server)->getStatus();
+                if ($status === 'offline') {
+                    $isHibernating = true;
+                }
+            } catch (Throwable $e) {
+                // If daemon status query fails, treat as hibernating if offline
+                $isHibernating = true;
+            }
+        }
+
+        // Calculate continuous virtual uptime
+        $createdSeconds = $server->created_at ? $server->created_at->diffInSeconds(now()) : 86400;
+
         return response()->json([
             'success' => true,
             'settings' => $settings,
             'is_proxy' => $isProxy,
+            'is_hibernating' => $isHibernating,
+            'virtual_uptime' => $createdSeconds,
             'server' => [
                 'name' => $server->name,
                 'memory_limit' => $server->memory,
                 'cpu_limit' => $server->cpu,
+                'smartsleep_enabled' => $defaultEnabled,
             ],
         ]);
     }
