@@ -294,8 +294,12 @@ EOF
 
     # 6. Rebuild Assets
     log_info "Rebuilding panel frontend assets with Yarn..."
-    export NODE_OPTIONS="--max-old-space-size=4096"
-    yarn build:production || npm run build:production
+    export NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=4096"
+    if ! yarn build:production; then
+        log_warning "Build with legacy provider flag failed or not supported, retrying standard build..."
+        export NODE_OPTIONS="--max-old-space-size=4096"
+        yarn build:production || npm run build:production
+    fi
     chown -R www-data:www-data "${PTERO_DIR}"
 
     log_success "SmartSleep Panel Addon successfully installed!"
