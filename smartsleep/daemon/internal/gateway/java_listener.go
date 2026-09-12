@@ -84,6 +84,7 @@ type JavaListener struct {
 	motd        string
 	wakeMsg     string
 	listener    net.Listener
+	activeConns map[net.Conn]struct{}
 	onWake      func(serverID string)
 	closing     bool
 	mu          sync.Mutex
@@ -97,14 +98,30 @@ func NewJavaListener(serverID, serverName, ip string, port int, motd, wakeMsg st
 		wakeMsg = "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
 	}
 	return &JavaListener{
-		serverID:   serverID,
-		serverName: serverName,
-		ip:         ip,
-		port:       port,
-		motd:       motd,
-		wakeMsg:    wakeMsg,
-		onWake:     onWake,
+		serverID:    serverID,
+		serverName:  serverName,
+		ip:          ip,
+		port:        port,
+		motd:        motd,
+		wakeMsg:     wakeMsg,
+		activeConns: make(map[net.Conn]struct{}),
+		onWake:      onWake,
 	}
+}
+
+func (l *JavaListener) addConn(c net.Conn) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.activeConns == nil {
+		l.activeConns = make(map[net.Conn]struct{})
+	}
+	l.activeConns[c] = struct{}{}
+}
+
+func (l *JavaListener) removeConn(c net.Conn) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.activeConns, c)
 }
 
 func (l *JavaListener) Start() error {
@@ -141,6 +158,13 @@ func (l *JavaListener) Stop() {
 		_ = l.listener.Close()
 		l.listener = nil
 	}
+	for c := range l.activeConns {
+		if tcpConn, ok := c.(*net.TCPConn); ok {
+			_ = tcpConn.SetLinger(0)
+		}
+		_ = c.Close()
+		delete(l.activeConns, c)
+	}
 	l.mu.Unlock()
 }
 
@@ -158,12 +182,19 @@ func (l *JavaListener) acceptLoop() {
 			continue
 		}
 
+		l.addConn(conn)
 		go l.handleConn(conn)
 	}
 }
 
 func (l *JavaListener) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			_ = tcpConn.SetLinger(0)
+		}
+		_ = conn.Close()
+		l.removeConn(conn)
+	}()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	// 1. Read Packet Length
@@ -307,10 +338,17 @@ func (l *JavaListener) handleLogin(conn net.Conn) {
 	// Send disconnect notice to player
 	_, _ = conn.Write(fullBuf.Bytes())
 
-	// Small pause to allow client to process packet before closing TCP connection
-	time.Sleep(300 * time.Millisecond)
+	// Force-close connection immediately with zero linger so TCP port is freed right now
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.SetLinger(0)
+	}
+	_ = conn.Close()
+	l.removeConn(conn)
 
-	// 2. Fire Wake Server event callback asynchronously AFTER sending message
+	// Small pause to allow kernel socket state to clear
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. Fire Wake Server event callback AFTER socket is completely released
 	if l.onWake != nil {
 		go l.onWake(l.serverID)
 	}

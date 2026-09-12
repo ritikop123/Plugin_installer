@@ -3,12 +3,16 @@ package gateway
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 )
 
 type ActiveListeners struct {
-	Java    *JavaListener
-	Bedrock *BedrockListener
+	ServerID    string
+	Port        int
+	BedrockPort int
+	Java        *JavaListener
+	Bedrock     *BedrockListener
 }
 
 type PortManager struct {
@@ -37,20 +41,31 @@ func (pm *PortManager) BindSleepingServer(
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// If already bound, stop old listeners first
-	if existing, exists := pm.listeners[serverID]; exists {
-		if existing.Java != nil {
-			existing.Java.Stop()
+	// 1. If any server is holding this port or if already bound, stop old listeners first
+	for id, existing := range pm.listeners {
+		if id == serverID || existing.Port == port || (bedrockPort > 0 && existing.BedrockPort == bedrockPort) {
+			if existing.Java != nil {
+				existing.Java.Stop()
+			}
+			if existing.Bedrock != nil {
+				existing.Bedrock.Stop()
+			}
+			delete(pm.listeners, id)
 		}
-		if existing.Bedrock != nil {
-			existing.Bedrock.Stop()
-		}
-		delete(pm.listeners, serverID)
 	}
 
-	group := &ActiveListeners{}
+	targetBedrockPort := bedrockPort
+	if targetBedrockPort <= 0 {
+		targetBedrockPort = port // Fallback to same port UDP for Geyser clone_remote_port
+	}
 
-	// 1. Start Java TCP Listener
+	group := &ActiveListeners{
+		ServerID:    serverID,
+		Port:        port,
+		BedrockPort: targetBedrockPort,
+	}
+
+	// 2. Start Java TCP Listener
 	javaListener := NewJavaListener(serverID, serverName, ip, port, motd, wakeMsg, onWake)
 	if err := javaListener.Start(); err != nil {
 		return fmt.Errorf("failed to bind Java listener on %s:%d: %w", ip, port, err)
@@ -58,12 +73,7 @@ func (pm *PortManager) BindSleepingServer(
 	group.Java = javaListener
 	log.Printf("[SmartSleep] [Gateway] Listening for Java clients on %s:%d (Server: %s)", ip, port, serverName)
 
-	// 2. Start Bedrock UDP Listener (if bedrockPort > 0 or same port)
-	targetBedrockPort := bedrockPort
-	if targetBedrockPort <= 0 {
-		targetBedrockPort = port // Fallback to same port UDP for Geyser clone_remote_port
-	}
-
+	// 3. Start Bedrock UDP Listener (if bedrockPort > 0 or same port)
 	bedrockListener := NewBedrockListener(serverID, serverName, ip, targetBedrockPort, motd, bedrockWakeMsg, onWake)
 	if err := bedrockListener.Start(); err != nil {
 		log.Printf("[SmartSleep] [Gateway] Warning: Bedrock listener failed on UDP port %d: %v", targetBedrockPort, err)
@@ -77,24 +87,47 @@ func (pm *PortManager) BindSleepingServer(
 }
 
 // UnbindServer closes and frees the TCP and UDP sockets for this server
-func (pm *PortManager) UnbindServer(serverID string) {
+func (pm *PortManager) UnbindServer(serverIdentifier string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	group, exists := pm.listeners[serverID]
-	if !exists {
+	for id, group := range pm.listeners {
+		if id == serverIdentifier ||
+			strings.HasPrefix(serverIdentifier, id) ||
+			strings.HasPrefix(id, serverIdentifier) ||
+			fmt.Sprintf("%d", group.Port) == serverIdentifier {
+			if group.Java != nil {
+				group.Java.Stop()
+			}
+			if group.Bedrock != nil {
+				group.Bedrock.Stop()
+			}
+			delete(pm.listeners, id)
+			log.Printf("[SmartSleep] [Gateway] Released ports for server %s (TCP: %d, UDP: %d)", id, group.Port, group.BedrockPort)
+		}
+	}
+}
+
+// UnbindPort forcefully closes any listener running on the specified port
+func (pm *PortManager) UnbindPort(port int) {
+	if port <= 0 {
 		return
 	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
-	if group.Java != nil {
-		group.Java.Stop()
+	for id, group := range pm.listeners {
+		if group.Port == port || group.BedrockPort == port {
+			if group.Java != nil {
+				group.Java.Stop()
+			}
+			if group.Bedrock != nil {
+				group.Bedrock.Stop()
+			}
+			delete(pm.listeners, id)
+			log.Printf("[SmartSleep] [Gateway] Forcefully released port %d for server %s", port, id)
+		}
 	}
-	if group.Bedrock != nil {
-		group.Bedrock.Stop()
-	}
-
-	delete(pm.listeners, serverID)
-	log.Printf("[SmartSleep] [Gateway] Released ports for server %s", serverID)
 }
 
 // IsBound returns true if the gateway is currently holding ports for this server

@@ -128,18 +128,23 @@ func (t *Tracker) syncServers() {
 
 		switch pteroState {
 		case "offline":
+			// If server is currently waking up, protect it from rebinding for 3 minutes while Wings pulls images/starts
+			if runtime.State == StateWaking {
+				if time.Since(runtime.LastStarted) < 3*time.Minute {
+					continue
+				}
+				log.Printf("[SmartSleep] Server %s waking window expired without starting.", s.Name)
+				runtime.State = StateOffline
+			}
+
 			runtime.LastStarted = time.Time{}
 			runtime.IdleSince = time.Time{}
-
-			// If server is currently waking up, do NOT re-bind
-			if runtime.State == StateWaking {
-				continue
-			}
 
 			// If server was manually stopped by panel, keep it offline and unbind
 			if runtime.ManuallyStopped {
 				if t.portManager.IsBound(s.Identifier) {
 					t.portManager.UnbindServer(s.Identifier)
+					t.portManager.UnbindPort(s.PrimaryPort)
 				}
 				continue
 			}
@@ -175,8 +180,10 @@ func (t *Tracker) syncServers() {
 		case "running":
 			runtime.ManuallyStopped = false
 			// If server is running, make sure Gateway is NOT holding the port
-			if t.portManager.IsBound(s.Identifier) {
-				t.portManager.UnbindServer(s.Identifier)
+			t.portManager.UnbindServer(s.Identifier)
+			t.portManager.UnbindPort(s.PrimaryPort)
+			if s.BedrockPort > 0 {
+				t.portManager.UnbindPort(s.BedrockPort)
 			}
 			t.rateLimiter.RecordStarted(s.Identifier)
 
@@ -225,9 +232,13 @@ func (t *Tracker) syncServers() {
 			runtime.State = StateWaking
 			runtime.ManuallyStopped = false
 			runtime.IdleSince = time.Time{}
-			runtime.LastStarted = time.Now()
-			if t.portManager.IsBound(s.Identifier) {
-				t.portManager.UnbindServer(s.Identifier)
+			if runtime.LastStarted.IsZero() {
+				runtime.LastStarted = time.Now()
+			}
+			t.portManager.UnbindServer(s.Identifier)
+			t.portManager.UnbindPort(s.PrimaryPort)
+			if s.BedrockPort > 0 {
+				t.portManager.UnbindPort(s.BedrockPort)
 			}
 
 		case "stopping":
@@ -265,6 +276,20 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 	t.mu.RUnlock()
 
 	if !exists {
+		t.mu.RLock()
+		for id, r := range t.servers {
+			if id == serverIdentifier || r.Info.UUID == serverIdentifier || strings.HasPrefix(r.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
+				runtime = r
+				serverIdentifier = id
+				exists = true
+				break
+			}
+		}
+		t.mu.RUnlock()
+	}
+
+	if !exists {
+		log.Printf("[SmartSleep] Wake requested for unknown server: %s", serverIdentifier)
 		return
 	}
 
@@ -275,7 +300,7 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 		return
 	}
 
-	log.Printf("[SmartSleep] [Wake] Player detected on %s (%s). Starting server...", runtime.Info.Name, serverIdentifier)
+	log.Printf("[SmartSleep] [Wake] Player detected on %s (%s). Releasing port %d and starting server...", runtime.Info.Name, serverIdentifier, runtime.Info.PrimaryPort)
 
 	t.mu.Lock()
 	runtime.ManuallyStopped = false
@@ -286,6 +311,10 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 
 	// 2. Unbind gateway listeners immediately so Docker can bind the port
 	t.portManager.UnbindServer(serverIdentifier)
+	t.portManager.UnbindPort(runtime.Info.PrimaryPort)
+	if runtime.Info.BedrockPort > 0 {
+		t.portManager.UnbindPort(runtime.Info.BedrockPort)
+	}
 
 	// 3. Record wake in security limiter
 	t.rateLimiter.RecordWake(serverIdentifier)
@@ -311,7 +340,11 @@ func (t *Tracker) UnbindAndWake(serverIdentifier string) {
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Now()
 			t.portManager.UnbindServer(id)
-			log.Printf("[SmartSleep] [IPC] Port released for server %s (%s). Ready for Docker start.", runtime.Info.Name, id)
+			t.portManager.UnbindPort(runtime.Info.PrimaryPort)
+			if runtime.Info.BedrockPort > 0 {
+				t.portManager.UnbindPort(runtime.Info.BedrockPort)
+			}
+			log.Printf("[SmartSleep] [IPC] Port %d released for server %s (%s). Ready for Docker start.", runtime.Info.PrimaryPort, runtime.Info.Name, id)
 			return
 		}
 	}
@@ -331,7 +364,11 @@ func (t *Tracker) Unbind(serverIdentifier string) {
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Time{}
 			t.portManager.UnbindServer(id)
-			log.Printf("[SmartSleep] [IPC] Server %s stopped. Ports released.", runtime.Info.Name)
+			t.portManager.UnbindPort(runtime.Info.PrimaryPort)
+			if runtime.Info.BedrockPort > 0 {
+				t.portManager.UnbindPort(runtime.Info.BedrockPort)
+			}
+			log.Printf("[SmartSleep] [IPC] Server %s stopped. Port %d released.", runtime.Info.Name, runtime.Info.PrimaryPort)
 			return
 		}
 	}
