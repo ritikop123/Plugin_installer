@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -112,7 +113,10 @@ func main() {
 	// 3. Start Tracker
 	tracker.Start()
 
-	// 4. Handle graceful shutdown
+	// 4. Start local IPC HTTP Control Server for instantaneous panel power actions
+	go startControlServer(tracker, portManager)
+
+	// 5. Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -123,4 +127,52 @@ func main() {
 	portManager.UnbindAll()
 
 	log.Println("[SmartSleep] SmartSleep daemon stopped cleanly.")
+}
+
+func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManager) {
+	mux := http.NewServeMux()
+
+	// /wake?uuid=... (Called when panel Start/Restart is clicked)
+	mux.HandleFunc("/wake", func(w http.ResponseWriter, r *http.Request) {
+		uuid := r.URL.Query().Get("uuid")
+		if uuid == "" {
+			uuid = r.URL.Query().Get("id")
+		}
+		if uuid != "" {
+			log.Printf("[SmartSleep] [IPC] Received wake signal for server %s. Unbinding ports...", uuid)
+			tracker.UnbindAndWake(uuid)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"success":true,"action":"wake"}`)
+	})
+
+	// /unbind?uuid=... (Called when panel Stop/Kill is clicked)
+	mux.HandleFunc("/unbind", func(w http.ResponseWriter, r *http.Request) {
+		uuid := r.URL.Query().Get("uuid")
+		if uuid == "" {
+			uuid = r.URL.Query().Get("id")
+		}
+		if uuid != "" {
+			log.Printf("[SmartSleep] [IPC] Received unbind signal for server %s. Releasing ports...", uuid)
+			tracker.Unbind(uuid)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"success":true,"action":"unbind"}`)
+	})
+
+	// /status
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"active","version":"%s"}`, Version)
+	})
+
+	server := &http.Server{
+		Addr:    "0.0.0.0:8995",
+		Handler: mux,
+	}
+
+	log.Println("[SmartSleep] [IPC] Control server listening on :8995 for panel power hooks.")
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("[SmartSleep] [IPC] Control server error: %v", err)
+	}
 }

@@ -139,6 +139,20 @@ class SmartSleepController extends ClientApiController
         }
 
         try {
+            // Signal SmartSleep node daemon to unbind ports immediately
+            $hosts = ['127.0.0.1'];
+            if (!empty($server->node->fqdn) && !in_array($server->node->fqdn, ['localhost', '127.0.0.1'])) {
+                $hosts[] = $server->node->fqdn;
+            }
+            foreach ($hosts as $h) {
+                $ch = curl_init("http://{$h}:8995/wake?uuid=" . urlencode($server->uuid));
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 300);
+                curl_setopt($ch, CURLOPT_TIMEOUT_MS, 600);
+                curl_exec($ch);
+                curl_close($ch);
+            }
+
             $this->powerRepository->setServer($server)->send('start');
         } catch (Throwable $e) {
             return response()->json([

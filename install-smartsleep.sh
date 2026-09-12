@@ -323,25 +323,24 @@ EOF
         download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
     fi
 
-    # 3b. Install Console Hibernation Banner React Component
-    log_info "Installing SmartSleepConsoleBanner.tsx..."
-    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" ]; then
-        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
-    else
-        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
-    fi
+    # Clean up any previous console banner additions (keep console clean & stock)
+    log_info "Ensuring console page remains clean and stock (removing any banner additions)..."
+    rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
+    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
+    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
+
     chown -R www-data:www-data "${COMP_DIR}"
 
-    # 3c. Patch Console & Dashboard to display Hibernation status & live uptime
-    log_info "Injecting SmartSleep Hibernation Banner into Server Console..."
-    PATCH_BANNER_SCRIPT="/tmp/patch-console-banner.php"
-    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-banner.php" ]; then
-        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-banner.php" "${PATCH_BANNER_SCRIPT}"
+    # 3b. Patch PowerController.php to communicate with SmartSleep IPC daemon
+    log_info "Hooking native panel Start/Restart/Stop power buttons into SmartSleep..."
+    PATCH_POWER_SCRIPT="/tmp/patch-power-controller.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
     else
-        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-banner.php" "${PATCH_BANNER_SCRIPT}"
+        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
     fi
-    php "${PATCH_BANNER_SCRIPT}" || true
-    rm -f "${PATCH_BANNER_SCRIPT}"
+    php "${PATCH_POWER_SCRIPT}" || true
+    rm -f "${PATCH_POWER_SCRIPT}"
 
     # 4. Inject into ServerRouter.tsx
     ROUTER_FILE="${PTERO_DIR}/resources/scripts/routers/ServerRouter.tsx"
@@ -385,6 +384,41 @@ EOF
     log_success "SmartSleep Panel Addon successfully installed!"
 }
 
+patch_power_buttons() {
+    print_banner
+    echo -e "${C_BOLD}=== Patching Native Power Buttons (Start/Restart/Stop) ===${C_RESET}\n"
+    ensure_root
+
+    if [ ! -d "${PTERO_DIR}" ]; then
+        log_error "Pterodactyl installation directory not found at ${PTERO_DIR}."
+        exit 1
+    fi
+
+    log_info "Hooking native panel Start/Restart/Stop power buttons into SmartSleep..."
+    PATCH_POWER_SCRIPT="/tmp/patch-power-controller.php"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
+    fi
+    cd "${PTERO_DIR}"
+    php "${PATCH_POWER_SCRIPT}" || true
+    rm -f "${PATCH_POWER_SCRIPT}"
+
+    # Also clean any leftover console banner
+    log_info "Ensuring console page remains clean and stock..."
+    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
+    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
+    rm -f "${PTERO_DIR}/resources/scripts/components/server/smartsleep/SmartSleepConsoleBanner.tsx"
+
+    php artisan cache:clear || true
+    php artisan config:clear || true
+    chown -R www-data:www-data "${PTERO_DIR}"
+
+    log_success "PowerController successfully hooked! Start, Restart, and Stop buttons now work seamlessly."
+}
+
 uninstall() {
     print_banner
     echo -e "${C_BOLD}=== Uninstalling SmartSleep ===${C_RESET}\n"
@@ -407,7 +441,10 @@ uninstall() {
         rm -f "${PTERO_DIR}/app/Http/Controllers/Api/Client/Servers/SmartSleepController.php"
         rm -rf "${PTERO_DIR}/resources/scripts/components/server/smartsleep"
         sed -i '/\/\* >>> SMARTSLEEP START >>> \*\//,/\/\* <<< SMARTSLEEP END <<< \*\//d' "${PTERO_DIR}/routes/api-client.php" || true
-        log_success "Panel routes and files removed. Run yarn build:production if you wish to rebuild assets."
+        sed -i '/\/\* >>> SMARTSLEEP POWER HOOK START >>> \*\//,/\/\* <<< SMARTSLEEP POWER HOOK END <<< \*\//d' "${PTERO_DIR}/app/Http/Controllers/Api/Client/Servers/PowerController.php" || true
+        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
+        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
+        log_success "Panel routes, power hooks, and files removed."
     fi
 
     log_success "Uninstall completed."
@@ -515,6 +552,9 @@ case "$1" in
             set_global_timeout
         fi
         ;;
+    --patch-power)
+        patch_power_buttons
+        ;;
     --config)
         reconfigure_credentials
         ;;
@@ -535,10 +575,11 @@ case "$1" in
         echo "  [4] Toggle SmartSleep ON/OFF on this Node"
         echo "  [5] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
         echo "  [6] Reconfigure Panel URL & API Keys"
-        echo "  [7] Uninstall SmartSleep"
-        echo "  [8] Exit"
+        echo "  [7] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
+        echo "  [8] Uninstall SmartSleep"
+        echo "  [9] Exit"
         echo ""
-        read -rp "Enter choice [1-8]: " CHOICE
+        read -rp "Enter choice [1-9]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
@@ -546,7 +587,8 @@ case "$1" in
             4) toggle_node_smartsleep ;;
             5) set_global_timeout ;;
             6) reconfigure_credentials ;;
-            7) uninstall ;;
+            7) patch_power_buttons ;;
+            8) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;

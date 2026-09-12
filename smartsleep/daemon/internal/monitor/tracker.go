@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,11 +23,12 @@ const (
 )
 
 type ServerRuntime struct {
-	Info        *ptero.ServerInfo
-	State       ServerState
-	IdleSince   time.Time
-	LastStarted time.Time
+	Info            *ptero.ServerInfo
+	State           ServerState
+	IdleSince       time.Time
+	LastStarted     time.Time
 	LastPlayerCount int
+	ManuallyStopped bool
 }
 
 type Tracker struct {
@@ -101,8 +103,9 @@ func (t *Tracker) syncServers() {
 		runtime, exists := t.servers[s.Identifier]
 		if !exists {
 			runtime = &ServerRuntime{
-				Info:  s,
-				State: StateOffline,
+				Info:            s,
+				State:           StateOffline,
+				ManuallyStopped: false,
 			}
 			t.servers[s.Identifier] = runtime
 		} else {
@@ -128,7 +131,20 @@ func (t *Tracker) syncServers() {
 			runtime.LastStarted = time.Time{}
 			runtime.IdleSince = time.Time{}
 
-			// If server is offline, Gateway should hold the port to answer pings and wake on join
+			// If server is currently waking up, do NOT re-bind
+			if runtime.State == StateWaking {
+				continue
+			}
+
+			// If server was manually stopped by panel, keep it offline and unbind
+			if runtime.ManuallyStopped {
+				if t.portManager.IsBound(s.Identifier) {
+					t.portManager.UnbindServer(s.Identifier)
+				}
+				continue
+			}
+
+			// If server is sleeping/hibernating, Gateway should hold the port to answer pings and wake on join
 			if !t.portManager.IsBound(s.Identifier) {
 				motd := s.CustomMOTD
 				if motd == "" {
@@ -157,6 +173,7 @@ func (t *Tracker) syncServers() {
 			}
 
 		case "running":
+			runtime.ManuallyStopped = false
 			// If server is running, make sure Gateway is NOT holding the port
 			if t.portManager.IsBound(s.Identifier) {
 				t.portManager.UnbindServer(s.Identifier)
@@ -206,6 +223,7 @@ func (t *Tracker) syncServers() {
 
 		case "starting":
 			runtime.State = StateWaking
+			runtime.ManuallyStopped = false
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Now()
 			if t.portManager.IsBound(s.Identifier) {
@@ -213,7 +231,6 @@ func (t *Tracker) syncServers() {
 			}
 
 		case "stopping":
-			runtime.State = StateOffline
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Time{}
 		}
@@ -236,7 +253,8 @@ func (t *Tracker) hibernateServer(runtime *ServerRuntime) {
 	t.mu.Lock()
 	runtime.IdleSince = time.Time{}
 	runtime.LastStarted = time.Time{}
-	runtime.State = StateOffline
+	runtime.ManuallyStopped = false
+	runtime.State = StateSleeping
 	t.mu.Unlock()
 }
 
@@ -259,6 +277,13 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 
 	log.Printf("[SmartSleep] [Wake] Player detected on %s (%s). Starting server...", runtime.Info.Name, serverIdentifier)
 
+	t.mu.Lock()
+	runtime.ManuallyStopped = false
+	runtime.State = StateWaking
+	runtime.IdleSince = time.Time{}
+	runtime.LastStarted = time.Now()
+	t.mu.Unlock()
+
 	// 2. Unbind gateway listeners immediately so Docker can bind the port
 	t.portManager.UnbindServer(serverIdentifier)
 
@@ -271,10 +296,46 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 		return
 	}
 
-	t.mu.Lock()
-	runtime.State = StateWaking
-	runtime.IdleSince = time.Time{}
-	runtime.LastStarted = time.Now()
-	t.mu.Unlock()
 	log.Printf("[SmartSleep] [Wake] Server %s has been signaled to START successfully.", runtime.Info.Name)
 }
+
+// UnbindAndWake releases ports immediately when panel clicks Start/Restart
+func (t *Tracker) UnbindAndWake(serverIdentifier string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for id, runtime := range t.servers {
+		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
+			runtime.ManuallyStopped = false
+			runtime.State = StateWaking
+			runtime.IdleSince = time.Time{}
+			runtime.LastStarted = time.Now()
+			t.portManager.UnbindServer(id)
+			log.Printf("[SmartSleep] [IPC] Port released for server %s (%s). Ready for Docker start.", runtime.Info.Name, id)
+			return
+		}
+	}
+
+	t.portManager.UnbindServer(serverIdentifier)
+}
+
+// Unbind releases ports immediately when panel clicks Stop/Kill
+func (t *Tracker) Unbind(serverIdentifier string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for id, runtime := range t.servers {
+		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
+			runtime.ManuallyStopped = true
+			runtime.State = StateOffline
+			runtime.IdleSince = time.Time{}
+			runtime.LastStarted = time.Time{}
+			t.portManager.UnbindServer(id)
+			log.Printf("[SmartSleep] [IPC] Server %s stopped. Ports released.", runtime.Info.Name)
+			return
+		}
+	}
+
+	t.portManager.UnbindServer(serverIdentifier)
+}
+
