@@ -131,6 +131,7 @@ install_node_daemon() {
         echo ""
         echo -e "${C_CYAN}Please enter your Pterodactyl details for the node daemon:${C_RESET}"
         read -rp "  Pterodactyl Panel URL (e.g. https://panel.example.com): " CONF_URL
+        CONF_URL="${CONF_URL%/}"
         read -rp "  Pterodactyl Application API Key (ptla_...): " CONF_APP_KEY
         read -rp "  Pterodactyl Client API Key (ptlc_...): " CONF_CLIENT_KEY
         read -rp "  This Node ID in Pterodactyl (default 1): " CONF_NODE_ID
@@ -144,6 +145,7 @@ panel:
   node_id: ${CONF_NODE_ID}
 
 sleep:
+  enabled: true
   default_idle_timeout: 20m
   check_interval: 30s
   grace_period: 3m
@@ -293,13 +295,18 @@ EOF
     fi
 
     # 6. Rebuild Assets
-    log_info "Rebuilding panel frontend assets with Yarn..."
+    log_info "Rebuilding panel frontend assets with Webpack & Yarn..."
     export NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=4096"
-    if ! yarn build:production; then
-        log_warning "Build with legacy provider flag failed or not supported, retrying standard build..."
-        export NODE_OPTIONS="--max-old-space-size=4096"
-        yarn build:production || npm run build:production
-    fi
+    NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=4096" yarn build:production || \
+    NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=4096" npm run build:production || \
+    yarn build:production || \
+    npm run build:production || true
+
+    # 7. Clear Laravel Caches & Set Permissions
+    log_info "Clearing Laravel caches and setting permissions..."
+    php artisan view:clear || true
+    php artisan cache:clear || true
+    php artisan config:clear || true
     chown -R www-data:www-data "${PTERO_DIR}"
 
     log_success "SmartSleep Panel Addon successfully installed!"
