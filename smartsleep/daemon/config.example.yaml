@@ -1,0 +1,49 @@
+# ====================================================================
+# SmartSleep Gateway Configuration
+# Runs on each Pterodactyl node alongside Wings
+# ====================================================================
+
+panel:
+  # The external or internal URL of your Pterodactyl Panel
+  url: "https://panel.yourdomain.com"
+
+  # Pterodactyl Application API Key (requires Read permissions for Servers & Allocations)
+  api_key: "ptla_your_application_api_key_here"
+
+  # Pterodactyl Client API Key (requires Power & Command permissions)
+  client_api_key: "ptlc_your_client_api_key_here"
+
+  # The Node ID in Pterodactyl this daemon is running on (e.g. 1)
+  node_id: 1
+
+sleep:
+  # Default idle time before hibernating an empty server
+  default_idle_timeout: 20m
+
+  # How often to check player counts and server statuses
+  check_interval: 30s
+
+  # Grace period after server starts before idle tracking begins
+  grace_period: 3m
+
+  # Server List Ping MOTD shown to Java & Bedrock players when sleeping
+  # %s will be replaced with the server name
+  sleeping_motd: "§a%s §7[Sleeping]\n§eJoin server to wake it up!"
+
+  # Disconnect message sent to Java players when they join to wake the server
+  wake_message: "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
+
+  # Bedrock / Geyser support over UDP RakNet
+  bedrock_enabled: true
+  bedrock_wake_message: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin."
+
+security:
+  # Minimum seconds between wake attempts for a single server
+  wake_cooldown_seconds: 60
+
+  # Maximum wake attempts allowed within window_seconds
+  max_wakes_per_window: 3
+  window_seconds: 300
+
+  # If a server dies within this many seconds after start, flag it as crashed
+  crash_threshold_seconds: 45
