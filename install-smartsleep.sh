@@ -452,9 +452,14 @@ free_all_ports() {
     log_info "Restarting Wings daemon to clear Docker crash-loop locks..."
     systemctl restart wings || true
 
+    # Ensure SmartSleep is active and enabled for this node
+    if [ -f "${BINARY_PATH}" ]; then
+        ${BINARY_PATH} -enable 2>/dev/null || true
+    fi
+    systemctl restart smartsleep || true
+
     log_success "All hibernating ports are now completely free!"
-    echo -e "You can now click ${C_GREEN}Start${C_RESET} in your Pterodactyl panel or restart the servers normally."
-    echo -e "To resume SmartSleep hibernation later, run: ${C_CYAN}systemctl start smartsleep${C_RESET}"
+    echo -e "SmartSleep is active and will hibernate servers after their idle timeout (e.g. 2m/20m of 0 players)."
 }
 
 uninstall() {

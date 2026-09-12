@@ -27,22 +27,23 @@ $hook = <<<'EOD'
         /* >>> SMARTSLEEP POWER HOOK START >>> */
         try {
             $signal = $request->input('signal');
-            $action = in_array($signal, ['start', 'restart']) ? 'wake' : 'unbind';
-            $hosts = ['127.0.0.1'];
-            if (!empty($server->node->fqdn) && !in_array($server->node->fqdn, ['localhost', '127.0.0.1'])) {
-                $hosts[] = $server->node->fqdn;
-            }
-            $portParam = '';
-            if (!empty($server->allocation) && !empty($server->allocation->port)) {
-                $portParam = '&port=' . (int) $server->allocation->port;
-            }
-            foreach ($hosts as $host) {
-                $ch = curl_init("http://{$host}:8995/{$action}?uuid=" . urlencode($server->uuid) . $portParam);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 300);
-                curl_setopt($ch, CURLOPT_TIMEOUT_MS, 600);
-                curl_exec($ch);
-                curl_close($ch);
+            if (in_array($signal, ['start', 'restart'])) {
+                $hosts = ['127.0.0.1'];
+                if (!empty($server->node->fqdn) && !in_array($server->node->fqdn, ['localhost', '127.0.0.1'])) {
+                    $hosts[] = $server->node->fqdn;
+                }
+                $portParam = '';
+                if (!empty($server->allocation) && !empty($server->allocation->port)) {
+                    $portParam = '&port=' . (int) $server->allocation->port;
+                }
+                foreach ($hosts as $host) {
+                    $ch = curl_init("http://{$host}:8995/wake?uuid=" . urlencode($server->uuid) . $portParam);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 300);
+                    curl_setopt($ch, CURLOPT_TIMEOUT_MS, 600);
+                    curl_exec($ch);
+                    curl_close($ch);
+                }
             }
         } catch (\Throwable $e) {
             // Fail silently so standard Pterodactyl operations are never interrupted

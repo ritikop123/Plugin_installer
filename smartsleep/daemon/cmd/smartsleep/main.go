@@ -101,11 +101,7 @@ func main() {
 			}
 		}
 
-		// 2. Pause hibernation in config
-		cfg.Sleep.Enabled = false
-		_ = cfg.SaveConfig(targetConfig)
-
-		// 3. Connect to Pterodactyl and start all servers normally
+		// 2. Connect to Pterodactyl and start all servers normally
 		pteroClient := ptero.NewClient(cfg)
 		servers, err := pteroClient.GetNodeServers(cfg.Panel.NodeID)
 		if err == nil {

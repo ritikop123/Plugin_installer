@@ -28,7 +28,6 @@ type ServerRuntime struct {
 	IdleSince       time.Time
 	LastStarted     time.Time
 	LastPlayerCount int
-	ManuallyStopped bool
 }
 
 type Tracker struct {
@@ -103,9 +102,8 @@ func (t *Tracker) syncServers() {
 		runtime, exists := t.servers[s.Identifier]
 		if !exists {
 			runtime = &ServerRuntime{
-				Info:            s,
-				State:           StateOffline,
-				ManuallyStopped: false,
+				Info:  s,
+				State: StateOffline,
 			}
 			t.servers[s.Identifier] = runtime
 		} else {
@@ -116,6 +114,7 @@ func (t *Tracker) syncServers() {
 		if !s.Enabled {
 			if t.portManager.IsBound(s.Identifier) {
 				t.portManager.UnbindServer(s.Identifier)
+				t.portManager.UnbindPort(s.PrimaryPort)
 			}
 			continue
 		}
@@ -139,15 +138,6 @@ func (t *Tracker) syncServers() {
 
 			runtime.LastStarted = time.Time{}
 			runtime.IdleSince = time.Time{}
-
-			// If server was manually stopped by panel, keep it offline and unbind
-			if runtime.ManuallyStopped {
-				if t.portManager.IsBound(s.Identifier) {
-					t.portManager.UnbindServer(s.Identifier)
-					t.portManager.UnbindPort(s.PrimaryPort)
-				}
-				continue
-			}
 
 			// If server is sleeping/hibernating, Gateway should hold the port to answer pings and wake on join
 			if !t.portManager.IsBound(s.Identifier) {
@@ -178,7 +168,6 @@ func (t *Tracker) syncServers() {
 			}
 
 		case "running":
-			runtime.ManuallyStopped = false
 			// If server is running, make sure Gateway is NOT holding the port
 			t.portManager.UnbindServer(s.Identifier)
 			t.portManager.UnbindPort(s.PrimaryPort)
@@ -202,8 +191,11 @@ func (t *Tracker) syncServers() {
 				continue
 			}
 
-			// Check player count via Server List Ping to localhost
-			playerCount, err := gateway.QueryPlayerCount("127.0.0.1", s.PrimaryPort)
+			// Check player count via Server List Ping (try PrimaryIP first, fallback to 127.0.0.1)
+			playerCount, err := gateway.QueryPlayerCount(s.PrimaryIP, s.PrimaryPort)
+			if err != nil {
+				playerCount, err = gateway.QueryPlayerCount("127.0.0.1", s.PrimaryPort)
+			}
 			if err != nil {
 				// Server might still be in internal startup sequence
 				continue
@@ -230,7 +222,6 @@ func (t *Tracker) syncServers() {
 
 		case "starting":
 			runtime.State = StateWaking
-			runtime.ManuallyStopped = false
 			runtime.IdleSince = time.Time{}
 			if runtime.LastStarted.IsZero() {
 				runtime.LastStarted = time.Now()
@@ -264,7 +255,6 @@ func (t *Tracker) hibernateServer(runtime *ServerRuntime) {
 	t.mu.Lock()
 	runtime.IdleSince = time.Time{}
 	runtime.LastStarted = time.Time{}
-	runtime.ManuallyStopped = false
 	runtime.State = StateSleeping
 	t.mu.Unlock()
 }
@@ -303,7 +293,6 @@ func (t *Tracker) WakeServer(serverIdentifier string) {
 	log.Printf("[SmartSleep] [Wake] Player detected on %s (%s). Releasing port %d and starting server...", runtime.Info.Name, serverIdentifier, runtime.Info.PrimaryPort)
 
 	t.mu.Lock()
-	runtime.ManuallyStopped = false
 	runtime.State = StateWaking
 	runtime.IdleSince = time.Time{}
 	runtime.LastStarted = time.Now()
@@ -335,7 +324,6 @@ func (t *Tracker) UnbindAndWake(serverIdentifier string) {
 
 	for id, runtime := range t.servers {
 		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-			runtime.ManuallyStopped = false
 			runtime.State = StateWaking
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Now()
@@ -359,7 +347,6 @@ func (t *Tracker) Unbind(serverIdentifier string) {
 
 	for id, runtime := range t.servers {
 		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-			runtime.ManuallyStopped = true
 			runtime.State = StateOffline
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Time{}
