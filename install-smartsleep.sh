@@ -102,33 +102,50 @@ install_node_daemon() {
     install_go_if_missing
 
     mkdir -p "${SMARTSLEEP_DIR}"
-    BUILD_DIR="/tmp/smartsleep-build-$(date +%s)"
-    mkdir -p "${BUILD_DIR}"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+    CLEANUP_BUILD=0
 
-    log_info "Downloading SmartSleep daemon source..."
-    mkdir -p "${BUILD_DIR}/cmd/smartsleep"
-    mkdir -p "${BUILD_DIR}/internal/config"
-    mkdir -p "${BUILD_DIR}/internal/ptero"
-    mkdir -p "${BUILD_DIR}/internal/gateway"
-    mkdir -p "${BUILD_DIR}/internal/monitor"
-    mkdir -p "${BUILD_DIR}/internal/security"
+    if [ -n "$SCRIPT_DIR" ] && [ -d "${SCRIPT_DIR}/smartsleep/daemon" ]; then
+        log_info "Using local repository source files from ${SCRIPT_DIR}..."
+        SRC_DIR="${SCRIPT_DIR}/smartsleep/daemon"
+    elif command -v git &>/dev/null; then
+        log_info "Cloning latest SmartSleep source from GitHub..."
+        BUILD_DIR="/tmp/smartsleep-build-$(date +%s)"
+        rm -rf "${BUILD_DIR}"
+        git clone --depth=1 https://github.com/ritikop123/Plugin_installer.git "${BUILD_DIR}"
+        SRC_DIR="${BUILD_DIR}/smartsleep/daemon"
+        CLEANUP_BUILD=1
+    else
+        log_info "Downloading SmartSleep daemon source files..."
+        BUILD_DIR="/tmp/smartsleep-build-$(date +%s)"
+        mkdir -p "${BUILD_DIR}/cmd/smartsleep"
+        mkdir -p "${BUILD_DIR}/internal/config"
+        mkdir -p "${BUILD_DIR}/internal/ptero"
+        mkdir -p "${BUILD_DIR}/internal/gateway"
+        mkdir -p "${BUILD_DIR}/internal/monitor"
+        mkdir -p "${BUILD_DIR}/internal/security"
 
-    download_file "${REPO_BASE}/smartsleep/daemon/go.mod" "${BUILD_DIR}/go.mod"
-    download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
-    download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/go.mod" "${BUILD_DIR}/go.mod"
+        download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
+        SRC_DIR="${BUILD_DIR}"
+        CLEANUP_BUILD=1
+    fi
 
     log_info "Compiling SmartSleep binary..."
-    cd "${BUILD_DIR}"
+    cd "${SRC_DIR}"
     go mod tidy
     CGO_ENABLED=0 go build -ldflags="-s -w" -o "${BINARY_PATH}" cmd/smartsleep/main.go
     chmod +x "${BINARY_PATH}"
-    rm -rf "${BUILD_DIR}"
+    if [ "$CLEANUP_BUILD" -eq 1 ]; then
+        rm -rf "${BUILD_DIR}"
+    fi
     log_success "SmartSleep binary built at ${BINARY_PATH}"
 
     # Configure /etc/smartsleep/config.yaml
@@ -214,7 +231,11 @@ install_panel_addon() {
     log_info "Installing SmartSleepController.php..."
     CTRL_DIR="${PTERO_DIR}/app/Http/Controllers/Api/Client/Servers"
     mkdir -p "${CTRL_DIR}"
-    download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepController.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepController.php" "${CTRL_DIR}/SmartSleepController.php"
+    fi
     chown -R www-data:www-data "${CTRL_DIR}/SmartSleepController.php"
 
     # 2. Add Routes
@@ -273,7 +294,11 @@ EOF
     COMP_DIR="${PTERO_DIR}/resources/scripts/components/server/smartsleep"
     mkdir -p "${COMP_DIR}"
     log_info "Installing SmartSleepContainer.tsx..."
-    download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepContainer.tsx" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
+    fi
     chown -R www-data:www-data "${COMP_DIR}"
 
     # 4. Inject into ServerRouter.tsx
