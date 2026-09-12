@@ -234,6 +234,13 @@ EOF
     systemctl enable smartsleep
     systemctl restart smartsleep
     log_success "SmartSleep systemd service enabled and restarted!"
+
+    # If Pterodactyl panel is installed on this same machine, automatically hook power buttons!
+    if [ -d "${PTERO_DIR}" ]; then
+        log_info "Detected Pterodactyl web panel on this VPS. Automatically integrating Start/Restart/Stop buttons..."
+        patch_power_buttons
+    fi
+
     echo ""
     systemctl status smartsleep --no-pager --lines=8 || true
 }
@@ -419,6 +426,37 @@ patch_power_buttons() {
     log_success "PowerController successfully hooked! Start, Restart, and Stop buttons now work seamlessly."
 }
 
+free_all_ports() {
+    print_banner
+    echo -e "${C_BOLD}=== Freeing All Hibernating Ports & Starting Servers Normally ===${C_RESET}\n"
+    ensure_root
+
+    log_info "Signaling SmartSleep daemon to release all ports..."
+    curl -s --max-time 1 "http://127.0.0.1:8995/free" >/dev/null 2>&1 || true
+
+    if [ -f "${BINARY_PATH}" ]; then
+        ${BINARY_PATH} -free || true
+    fi
+
+    log_info "Stopping SmartSleep service temporarily..."
+    systemctl stop smartsleep 2>/dev/null || true
+
+    log_info "Terminating any lingering processes on allocation ports..."
+    fuser -k 25565/tcp 25581/tcp 25577/tcp 19132/udp 2>/dev/null || true
+
+    if [ -d "${PTERO_DIR}" ]; then
+        log_info "Ensuring PowerController power hook is active..."
+        patch_power_buttons
+    fi
+
+    log_info "Restarting Wings daemon to clear Docker crash-loop locks..."
+    systemctl restart wings || true
+
+    log_success "All hibernating ports are now completely free!"
+    echo -e "You can now click ${C_GREEN}Start${C_RESET} in your Pterodactyl panel or restart the servers normally."
+    echo -e "To resume SmartSleep hibernation later, run: ${C_CYAN}systemctl start smartsleep${C_RESET}"
+}
+
 uninstall() {
     print_banner
     echo -e "${C_BOLD}=== Uninstalling SmartSleep ===${C_RESET}\n"
@@ -545,6 +583,9 @@ case "$1" in
     --status-node)
         ${BINARY_PATH} -status
         ;;
+    --free|--free-ports|--wake-all)
+        free_all_ports
+        ;;
     --timeout)
         if [ -n "$2" ]; then
             ${BINARY_PATH} -timeout "$2" && systemctl restart smartsleep
@@ -572,23 +613,25 @@ case "$1" in
         echo "  [1] Install SmartSleep Node Daemon (Run on Wings node VPS)"
         echo "  [2] Install SmartSleep Panel UI Addon (Run on Pterodactyl web VPS)"
         echo "  [3] Install Both (If your Panel and Wings node share the same VPS)"
-        echo "  [4] Toggle SmartSleep ON/OFF on this Node"
-        echo "  [5] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
-        echo "  [6] Reconfigure Panel URL & API Keys"
-        echo "  [7] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
-        echo "  [8] Uninstall SmartSleep"
-        echo "  [9] Exit"
+        echo "  [4] Free All Ports & Start All Servers Normally (Emergency Unbind)"
+        echo "  [5] Toggle SmartSleep ON/OFF on this Node"
+        echo "  [6] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
+        echo "  [7] Reconfigure Panel URL & API Keys"
+        echo "  [8] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
+        echo "  [9] Uninstall SmartSleep"
+        echo "  [10] Exit"
         echo ""
-        read -rp "Enter choice [1-9]: " CHOICE
+        read -rp "Enter choice [1-10]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
             3) install_node_daemon; install_panel_addon ;;
-            4) toggle_node_smartsleep ;;
-            5) set_global_timeout ;;
-            6) reconfigure_credentials ;;
-            7) patch_power_buttons ;;
-            8) uninstall ;;
+            4) free_all_ports ;;
+            5) toggle_node_smartsleep ;;
+            6) set_global_timeout ;;
+            7) reconfigure_credentials ;;
+            8) patch_power_buttons ;;
+            9) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;

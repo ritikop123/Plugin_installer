@@ -32,8 +32,12 @@ $hook = <<<'EOD'
             if (!empty($server->node->fqdn) && !in_array($server->node->fqdn, ['localhost', '127.0.0.1'])) {
                 $hosts[] = $server->node->fqdn;
             }
+            $portParam = '';
+            if (!empty($server->allocation) && !empty($server->allocation->port)) {
+                $portParam = '&port=' . (int) $server->allocation->port;
+            }
             foreach ($hosts as $host) {
-                $ch = curl_init("http://{$host}:8995/{$action}?uuid=" . urlencode($server->uuid));
+                $ch = curl_init("http://{$host}:8995/{$action}?uuid=" . urlencode($server->uuid) . $portParam);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 300);
                 curl_setopt($ch, CURLOPT_TIMEOUT_MS, 600);

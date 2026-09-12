@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version information and exit")
 	enableNode := flag.Bool("enable", false, "Enable SmartSleep hibernation across this node")
 	disableNode := flag.Bool("disable", false, "Disable SmartSleep hibernation across this node")
+	freePorts := flag.Bool("free", false, "Release all hibernating ports and wake/start all servers normally")
 	statusNode := flag.Bool("status", false, "Display SmartSleep status for this node")
 	timeoutStr := flag.String("timeout", "", "Set global idle timeout (e.g. 2m, 5m, 20m)")
 	flag.Parse()
@@ -85,6 +87,38 @@ func main() {
 		os.Exit(0)
 	}
 
+	if *freePorts {
+		fmt.Println("[SmartSleep] Freeing all hibernating ports across this node...")
+
+		// 1. Send /free to running daemon if active
+		req, err := http.NewRequest("GET", "http://127.0.0.1:8995/free", nil)
+		if err == nil {
+			client := &http.Client{Timeout: 1 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				fmt.Println("[SmartSleep] Released all listening sockets in daemon via IPC.")
+			}
+		}
+
+		// 2. Pause hibernation in config
+		cfg.Sleep.Enabled = false
+		_ = cfg.SaveConfig(targetConfig)
+
+		// 3. Connect to Pterodactyl and start all servers normally
+		pteroClient := ptero.NewClient(cfg)
+		servers, err := pteroClient.GetNodeServers(cfg.Panel.NodeID)
+		if err == nil {
+			for _, s := range servers {
+				fmt.Printf("Signaling server %s (port %d) to start...\n", s.Name, s.PrimaryPort)
+				_ = pteroClient.SendPowerAction(s.Identifier, "start")
+			}
+		}
+
+		fmt.Println("[SUCCESS] All ports freed and servers signaled to start normally.")
+		os.Exit(0)
+	}
+
 	if *statusNode {
 		statusStr := "ENABLED (Active)"
 		if !cfg.Sleep.Enabled {
@@ -132,8 +166,23 @@ func main() {
 func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManager) {
 	mux := http.NewServeMux()
 
-	// /wake?uuid=... (Called when panel Start/Restart is clicked)
+	// /free (Release all ports across all servers immediately)
+	mux.HandleFunc("/free", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("[SmartSleep] [IPC] Received /free signal. Releasing ALL ports immediately...")
+		portManager.UnbindAll()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"success":true,"action":"free"}`)
+	})
+
+	// /wake?uuid=...&port=... (Called when panel Start/Restart is clicked)
 	mux.HandleFunc("/wake", func(w http.ResponseWriter, r *http.Request) {
+		portStr := r.URL.Query().Get("port")
+		if portStr != "" {
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
+				portManager.UnbindPort(p)
+			}
+		}
 		uuid := r.URL.Query().Get("uuid")
 		if uuid == "" {
 			uuid = r.URL.Query().Get("id")
@@ -146,8 +195,15 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 		fmt.Fprintf(w, `{"success":true,"action":"wake"}`)
 	})
 
-	// /unbind?uuid=... (Called when panel Stop/Kill is clicked)
+	// /unbind?uuid=...&port=... (Called when panel Stop/Kill is clicked)
 	mux.HandleFunc("/unbind", func(w http.ResponseWriter, r *http.Request) {
+		portStr := r.URL.Query().Get("port")
+		if portStr != "" {
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				log.Printf("[SmartSleep] [IPC] Direct unbind requested for port %d", p)
+				portManager.UnbindPort(p)
+			}
+		}
 		uuid := r.URL.Query().Get("uuid")
 		if uuid == "" {
 			uuid = r.URL.Query().Get("id")
