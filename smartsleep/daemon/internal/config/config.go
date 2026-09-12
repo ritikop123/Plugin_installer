@@ -23,6 +23,7 @@ type PanelConfig struct {
 }
 
 type SleepConfig struct {
+	Enabled            bool          `yaml:"enabled"`              // Master switch for this node (default: true)
 	DefaultIdleTimeout time.Duration `yaml:"default_idle_timeout"` // e.g. 20m
 	CheckInterval      time.Duration `yaml:"check_interval"`       // e.g. 30s
 	GracePeriod        time.Duration `yaml:"grace_period"`         // e.g. 3m (grace time after start before sleeping)
@@ -48,6 +49,7 @@ func DefaultConfig() *Config {
 			NodeID:       1,
 		},
 		Sleep: SleepConfig{
+			Enabled:            true,
 			DefaultIdleTimeout: 20 * time.Minute,
 			CheckInterval:      30 * time.Second,
 			GracePeriod:        3 * time.Minute,

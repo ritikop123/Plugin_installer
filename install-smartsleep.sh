@@ -296,6 +296,42 @@ uninstall() {
     log_success "Uninstall completed."
 }
 
+toggle_node_smartsleep() {
+    print_banner
+    echo -e "${C_BOLD}=== Toggle SmartSleep ON/OFF on this Node ===${C_RESET}\n"
+
+    ensure_root
+    if [ ! -f "${BINARY_PATH}" ] || [ ! -f "${SMARTSLEEP_DIR}/config.yaml" ]; then
+        log_error "SmartSleep is not installed on this node."
+        exit 1
+    fi
+
+    echo -e "Current status:"
+    ${BINARY_PATH} -status || true
+    echo ""
+    echo "  [1] ENABLE SmartSleep on this node"
+    echo "  [2] DISABLE SmartSleep on this node"
+    echo "  [3] Cancel"
+    echo ""
+    read -rp "Enter choice [1-3]: " TOGGLE_CHOICE
+
+    case "$TOGGLE_CHOICE" in
+        1)
+            ${BINARY_PATH} -enable
+            systemctl restart smartsleep || true
+            log_success "SmartSleep enabled on this node and daemon restarted."
+            ;;
+        2)
+            ${BINARY_PATH} -disable
+            systemctl restart smartsleep || true
+            log_success "SmartSleep disabled on this node and daemon restarted."
+            ;;
+        *)
+            echo "Cancelled."
+            ;;
+    esac
+}
+
 # Parse command line flags or interactive menu
 case "$1" in
     --node)
@@ -308,26 +344,42 @@ case "$1" in
         install_node_daemon
         install_panel_addon
         ;;
+    --enable-node)
+        ${BINARY_PATH} -enable && systemctl restart smartsleep
+        ;;
+    --disable-node)
+        ${BINARY_PATH} -disable && systemctl restart smartsleep
+        ;;
+    --status-node)
+        ${BINARY_PATH} -status
+        ;;
     --uninstall)
         uninstall
         ;;
     *)
         print_banner
-        echo "Please select an installation mode:"
+        echo "Where to install SmartSleep:"
+        echo -e "  ${C_CYAN}• Node VPS (Wings):${C_RESET} Runs the Go daemon to listen on sleeping ports & wake servers."
+        echo -e "  ${C_CYAN}• Panel VPS (Web):${C_RESET}  Provides the UI tab for customers to customize sleep timers."
         echo ""
-        echo "  [1] Install SmartSleep Node Daemon (Run on Wings node)"
-        echo "  [2] Install SmartSleep Panel UI Addon (Run on Pterodactyl web server)"
+        echo "Please select an option:"
+        echo ""
+        echo "  [1] Install SmartSleep Node Daemon (Run on Wings node VPS)"
+        echo "  [2] Install SmartSleep Panel UI Addon (Run on Pterodactyl web VPS)"
         echo "  [3] Install Both (If your Panel and Wings node share the same VPS)"
-        echo "  [4] Uninstall SmartSleep"
-        echo "  [5] Exit"
+        echo "  [4] Toggle SmartSleep ON/OFF on this Node"
+        echo "  [5] Uninstall SmartSleep"
+        echo "  [6] Exit"
         echo ""
-        read -rp "Enter choice [1-5]: " CHOICE
+        read -rp "Enter choice [1-6]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
             3) install_node_daemon; install_panel_addon ;;
-            4) uninstall ;;
+            4) toggle_node_smartsleep ;;
+            5) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;
 esac
+

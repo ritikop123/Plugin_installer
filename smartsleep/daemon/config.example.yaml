@@ -17,6 +17,9 @@ panel:
   node_id: 1
 
 sleep:
+  # Master toggle to enable or disable SmartSleep hibernation across this entire node
+  enabled: true
+
   # Default idle time before hibernating an empty server
   default_idle_timeout: 20m
 

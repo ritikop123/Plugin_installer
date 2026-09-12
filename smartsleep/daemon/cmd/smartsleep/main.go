@@ -23,6 +23,9 @@ var (
 func main() {
 	configPath := flag.String("config", "", "Path to config.yaml file")
 	showVersion := flag.Bool("version", false, "Print version information and exit")
+	enableNode := flag.Bool("enable", false, "Enable SmartSleep hibernation across this node")
+	disableNode := flag.Bool("disable", false, "Disable SmartSleep hibernation across this node")
+	statusNode := flag.Bool("status", false, "Display SmartSleep status for this node")
 	flag.Parse()
 
 	if *showVersion {
@@ -30,15 +33,50 @@ func main() {
 		os.Exit(0)
 	}
 
-	log.Println("==========================================================")
-	log.Printf(" SmartSleep Gateway v%s - Node Optimization Daemon", Version)
-	log.Println("==========================================================")
+	targetConfig := *configPath
+	if targetConfig == "" {
+		if _, err := os.Stat("/etc/smartsleep/config.yaml"); err == nil {
+			targetConfig = "/etc/smartsleep/config.yaml"
+		} else {
+			targetConfig = "config.yaml"
+		}
+	}
 
-	// 1. Load configuration
-	cfg, err := config.LoadConfig(*configPath)
+	cfg, err := config.LoadConfig(targetConfig)
 	if err != nil {
 		log.Fatalf("[SmartSleep] Configuration error: %v", err)
 	}
+
+	if *enableNode {
+		cfg.Sleep.Enabled = true
+		if err := cfg.SaveConfig(targetConfig); err != nil {
+			log.Fatalf("Failed to save config: %v", err)
+		}
+		fmt.Println("SmartSleep has been ENABLED for this node.")
+		os.Exit(0)
+	}
+
+	if *disableNode {
+		cfg.Sleep.Enabled = false
+		if err := cfg.SaveConfig(targetConfig); err != nil {
+			log.Fatalf("Failed to save config: %v", err)
+		}
+		fmt.Println("SmartSleep has been DISABLED for this node.")
+		os.Exit(0)
+	}
+
+	if *statusNode {
+		statusStr := "ENABLED (Active)"
+		if !cfg.Sleep.Enabled {
+			statusStr = "DISABLED (Suspended)"
+		}
+		fmt.Printf("Node ID: %d | SmartSleep: %s | Default Timeout: %v\n", cfg.Panel.NodeID, statusStr, cfg.Sleep.DefaultIdleTimeout)
+		os.Exit(0)
+	}
+
+	log.Println("==========================================================")
+	log.Printf(" SmartSleep Gateway v%s - Node Optimization Daemon", Version)
+	log.Println("==========================================================")
 
 	if cfg.Panel.APIKey == "" && cfg.Panel.ClientAPIKey == "" {
 		log.Printf("[SmartSleep] WARNING: No API key provided in config.yaml! Set panel.api_key or PANEL_API_KEY.")

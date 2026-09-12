@@ -80,6 +80,14 @@ func (t *Tracker) Stop() {
 }
 
 func (t *Tracker) syncServers() {
+	// 1. Check Node-level master switch
+	if !t.cfg.Sleep.Enabled {
+		t.mu.Lock()
+		t.portManager.UnbindAll()
+		t.mu.Unlock()
+		return
+	}
+
 	serverList, err := t.pteroClient.GetNodeServers(t.cfg.Panel.NodeID)
 	if err != nil {
 		log.Printf("[SmartSleep] Failed to fetch servers from Pterodactyl: %v", err)
