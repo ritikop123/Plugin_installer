@@ -94,6 +94,49 @@ download_file() {
     curl -sL -H 'Cache-Control: no-cache, no-store' "${url}?$(date +%s%N)" -o "${dest}"
 }
 
+prompt_config_credentials() {
+    local target_file="$1"
+    echo ""
+    echo -e "${C_CYAN}Please enter your Pterodactyl details for the node daemon:${C_RESET}"
+    echo -e "  ${C_YELLOW}Panel URL:${C_RESET} Base URL of your Pterodactyl panel (e.g. https://panel.igc.in.net)"
+    echo -e "  ${C_YELLOW}Application API Key (ptla_...):${C_RESET} Created at Admin -> Application API (/admin/api)."
+    echo -e "    ${C_GREEN}IMPORTANT:${C_RESET} Give ${C_BOLD}READ${C_RESET} permission to ${C_BOLD}Servers, Nodes, and Allocations${C_RESET}."
+    echo -e "  ${C_YELLOW}Client API Key (ptlc_...):${C_RESET} Created at Account -> API Credentials (/account/api)."
+    echo ""
+    read -rp "  Pterodactyl Panel URL (e.g. https://panel.example.com): " CONF_URL
+    CONF_URL="${CONF_URL%/}"
+    read -rp "  Pterodactyl Application API Key (ptla_...): " CONF_APP_KEY
+    read -rp "  Pterodactyl Client API Key (ptlc_...): " CONF_CLIENT_KEY
+    read -rp "  This Node ID in Pterodactyl (default 1): " CONF_NODE_ID
+    CONF_NODE_ID=${CONF_NODE_ID:-1}
+
+    mkdir -p "$(dirname "${target_file}")"
+    cat <<EOF > "${target_file}"
+panel:
+  url: "${CONF_URL}"
+  api_key: "${CONF_APP_KEY}"
+  client_api_key: "${CONF_CLIENT_KEY}"
+  node_id: ${CONF_NODE_ID}
+
+sleep:
+  enabled: true
+  default_idle_timeout: 20m
+  check_interval: 30s
+  grace_period: 3m
+  sleeping_motd: "§a%s §7[Sleeping]\n§eJoin server to wake it up!"
+  wake_message: "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
+  bedrock_enabled: true
+  bedrock_wake_message: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin."
+
+security:
+  wake_cooldown_seconds: 60
+  max_wakes_per_window: 3
+  window_seconds: 300
+  crash_threshold_seconds: 45
+EOF
+    log_success "Configuration saved at ${target_file}"
+}
+
 install_node_daemon() {
     print_banner
     echo -e "${C_BOLD}=== STEP 1: Installing SmartSleep Node Daemon ===${C_RESET}\n"
@@ -150,42 +193,21 @@ install_node_daemon() {
 
     # Configure /etc/smartsleep/config.yaml
     CONFIG_FILE="${SMARTSLEEP_DIR}/config.yaml"
-    if [ ! -f "${CONFIG_FILE}" ]; then
+    RECONFIGURE=0
+    if [ -f "${CONFIG_FILE}" ]; then
         echo ""
-        echo -e "${C_CYAN}Please enter your Pterodactyl details for the node daemon:${C_RESET}"
-        read -rp "  Pterodactyl Panel URL (e.g. https://panel.example.com): " CONF_URL
-        CONF_URL="${CONF_URL%/}"
-        read -rp "  Pterodactyl Application API Key (ptla_...): " CONF_APP_KEY
-        read -rp "  Pterodactyl Client API Key (ptlc_...): " CONF_CLIENT_KEY
-        read -rp "  This Node ID in Pterodactyl (default 1): " CONF_NODE_ID
-        CONF_NODE_ID=${CONF_NODE_ID:-1}
-
-        cat <<EOF > "${CONFIG_FILE}"
-panel:
-  url: "${CONF_URL}"
-  api_key: "${CONF_APP_KEY}"
-  client_api_key: "${CONF_CLIENT_KEY}"
-  node_id: ${CONF_NODE_ID}
-
-sleep:
-  enabled: true
-  default_idle_timeout: 20m
-  check_interval: 30s
-  grace_period: 3m
-  sleeping_motd: "§a%s §7[Sleeping]\n§eJoin server to wake it up!"
-  wake_message: "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
-  bedrock_enabled: true
-  bedrock_wake_message: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin."
-
-security:
-  wake_cooldown_seconds: 60
-  max_wakes_per_window: 3
-  window_seconds: 300
-  crash_threshold_seconds: 45
-EOF
-        log_success "Configuration created at ${CONFIG_FILE}"
+        read -rp "  Existing config found at ${CONFIG_FILE}. Keep existing settings? [Y/n]: " KEEP_CONF
+        if [[ "$KEEP_CONF" =~ ^[Nn] ]]; then
+            RECONFIGURE=1
+        fi
     else
-        log_info "Existing config found at ${CONFIG_FILE}. Preserving settings."
+        RECONFIGURE=1
+    fi
+
+    if [ "$RECONFIGURE" -eq 1 ]; then
+        prompt_config_credentials "${CONFIG_FILE}"
+    else
+        log_info "Preserving existing configuration at ${CONFIG_FILE}."
     fi
 
     # Create systemd service
@@ -209,10 +231,11 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now smartsleep
-    log_success "SmartSleep systemd service enabled and started!"
+    systemctl enable smartsleep
+    systemctl restart smartsleep
+    log_success "SmartSleep systemd service enabled and restarted!"
     echo ""
-    systemctl status smartsleep --no-pager --lines=5 || true
+    systemctl status smartsleep --no-pager --lines=8 || true
 }
 
 install_panel_addon() {
@@ -436,6 +459,15 @@ set_global_timeout() {
     fi
 }
 
+reconfigure_credentials() {
+    print_banner
+    echo -e "${C_BOLD}=== Reconfigure SmartSleep API Credentials ===${C_RESET}\n"
+    ensure_root
+    prompt_config_credentials "${SMARTSLEEP_DIR}/config.yaml"
+    systemctl restart smartsleep || true
+    log_success "Credentials updated and daemon restarted!"
+}
+
 # Parse command line flags or interactive menu
 case "$1" in
     --node)
@@ -464,6 +496,9 @@ case "$1" in
             set_global_timeout
         fi
         ;;
+    --config)
+        reconfigure_credentials
+        ;;
     --uninstall)
         uninstall
         ;;
@@ -480,17 +515,19 @@ case "$1" in
         echo "  [3] Install Both (If your Panel and Wings node share the same VPS)"
         echo "  [4] Toggle SmartSleep ON/OFF on this Node"
         echo "  [5] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
-        echo "  [6] Uninstall SmartSleep"
-        echo "  [7] Exit"
+        echo "  [6] Reconfigure Panel URL & API Keys"
+        echo "  [7] Uninstall SmartSleep"
+        echo "  [8] Exit"
         echo ""
-        read -rp "Enter choice [1-7]: " CHOICE
+        read -rp "Enter choice [1-8]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
             3) install_node_daemon; install_panel_addon ;;
             4) toggle_node_smartsleep ;;
             5) set_global_timeout ;;
-            6) uninstall ;;
+            6) reconfigure_credentials ;;
+            7) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;

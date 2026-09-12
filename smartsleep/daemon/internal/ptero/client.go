@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,6 +79,17 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 		return nil, fmt.Errorf("failed to contact Pterodactyl Application API: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == 403 || resp.StatusCode == 401 {
+		log.Printf("[SmartSleep] [WARN] Application API returned %d Unauthorized for %s", resp.StatusCode, endpoint)
+		log.Printf("[SmartSleep] [WARN] >> NOTE: If using ptla_ key, ensure it has 'Servers: Read' & 'Nodes: Read' & 'Allocations: Read' in /admin/api.")
+		if c.clientAPIKey != "" {
+			log.Printf("[SmartSleep] [INFO] Attempting fallback to Client API (/api/client) using client API key...")
+			return c.getClientServers(nodeID)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Pterodactyl Application API returned %d: %s", resp.StatusCode, string(body))
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
@@ -308,3 +320,107 @@ func (c *Client) SendCommand(serverIdentifier, command string) error {
 
 	return nil
 }
+
+// getClientServers fetches servers via the Client API (/api/client) as a fallback when ptla_ lacks permissions
+func (c *Client) getClientServers(nodeID int) ([]*ServerInfo, error) {
+	endpoint := fmt.Sprintf("%s/api/client", c.baseURL)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.clientAPIKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to contact Pterodactyl Client API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Client API fallback returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var raw struct {
+		Data []struct {
+			Attributes struct {
+				Identifier    string `json:"identifier"`
+				InternalID    int    `json:"internal_id"`
+				UUID          string `json:"uuid"`
+				Name          string `json:"name"`
+				Node          string `json:"node"`
+				Relationships struct {
+					Allocations struct {
+						Data []struct {
+							Attributes struct {
+								ID        int    `json:"id"`
+								IP        string `json:"ip"`
+								Port      int    `json:"port"`
+								IsDefault bool   `json:"is_default"`
+							} `json:"attributes"`
+						} `json:"data"`
+					} `json:"allocations"`
+				} `json:"relationships"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("failed to decode client servers json: %w", err)
+	}
+
+	defaultTimeout := 20 * time.Minute
+	if c.cfg != nil && c.cfg.Sleep.DefaultIdleTimeout > 0 {
+		defaultTimeout = c.cfg.Sleep.DefaultIdleTimeout
+	}
+
+	var result []*ServerInfo
+	for _, item := range raw.Data {
+		attr := item.Attributes
+		lowerName := strings.ToLower(attr.Name)
+
+		server := &ServerInfo{
+			ID:          attr.InternalID,
+			UUID:        attr.UUID,
+			Identifier:  attr.Identifier,
+			Name:        attr.Name,
+			NodeID:      nodeID,
+			Environment: make(map[string]string),
+			Enabled:     true,
+			IsProxy:     false,
+			IdleTimeout: defaultTimeout,
+		}
+
+		proxyKeywords := []string{"velocity", "bungee", "waterfall", "flamecord", "travertine", "gate-proxy", "bungeecord"}
+		for _, kw := range proxyKeywords {
+			if strings.Contains(lowerName, kw) {
+				server.IsProxy = true
+				server.Enabled = false
+				break
+			}
+		}
+
+		for _, alloc := range attr.Relationships.Allocations.Data {
+			a := alloc.Attributes
+			if a.IsDefault || server.PrimaryPort == 0 {
+				server.PrimaryIP = a.IP
+				server.PrimaryPort = a.Port
+			} else {
+				server.ExtraPorts = append(server.ExtraPorts, AllocationInfo{
+					IP:   a.IP,
+					Port: a.Port,
+				})
+			}
+		}
+
+		if server.PrimaryPort > 0 {
+			result = append(result, server)
+		}
+	}
+
+	log.Printf("[SmartSleep] Client API fallback successfully loaded %d servers for monitoring.", len(result))
+	return result, nil
+}
+
