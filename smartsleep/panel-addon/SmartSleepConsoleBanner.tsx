@@ -99,29 +99,6 @@ const SmartSleepConsoleBanner: React.FC = () => {
         return isOffline && enabled;
     }, [storeStatus, info]);
 
-    // DOM MutationObserver: transforms any "Offline" badge on the console page to "🌙 Hibernating"
-    useEffect(() => {
-        if (!isSleeping) return;
-
-        const updateBadges = () => {
-            document.querySelectorAll('span, div, p').forEach((el) => {
-                const text = el.textContent?.trim();
-                if (text === 'Offline' && el.children.length === 0 && (el.textContent?.length || 0) < 15) {
-                    el.textContent = '🌙 Hibernating';
-                    (el as HTMLElement).style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
-                    (el as HTMLElement).style.color = '#c4b5fd';
-                    (el as HTMLElement).style.borderColor = 'rgba(139, 92, 246, 0.4)';
-                }
-            });
-        };
-
-        updateBadges();
-        const observer = new MutationObserver(updateBadges);
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        return () => observer.disconnect();
-    }, [isSleeping]);
-
     const handleWake = () => {
         if (!uuid || waking) return;
         setWaking(true);
@@ -152,44 +129,23 @@ const SmartSleepConsoleBanner: React.FC = () => {
     }
 
     return (
-        <div
-            className="w-full mb-4 rounded-xl border p-4 shadow-xl transition-all duration-300"
-            style={{
-                background: 'linear-gradient(135deg, rgba(30, 27, 75, 0.7) 0%, rgba(15, 23, 42, 0.85) 50%, rgba(17, 24, 39, 0.9) 100%)',
-                borderColor: 'rgba(139, 92, 246, 0.35)',
-                backdropFilter: 'blur(12px)',
-                boxShadow: '0 8px 32px 0 rgba(139, 92, 246, 0.15)',
-            }}
-        >
+        <div className="w-full mb-4 rounded-lg bg-neutral-800/80 border border-neutral-700/80 p-4 shadow-md transition-all duration-200">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 {/* Left Side: Status & Explanation */}
                 <div className="flex items-center gap-3">
-                    <div
-                        className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg"
-                        style={{
-                            background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
-                            color: '#ffffff',
-                        }}
-                    >
-                        <FontAwesomeIcon icon={faMoon} className="text-xl animate-pulse" />
+                    <div className="w-10 h-10 rounded-lg bg-neutral-700/70 text-neutral-200 flex items-center justify-center flex-shrink-0">
+                        <FontAwesomeIcon icon={faMoon} className="text-lg" />
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <span
-                                className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border shadow-sm"
-                                style={{
-                                    background: 'rgba(139, 92, 246, 0.25)',
-                                    color: '#ddd6fe',
-                                    borderColor: 'rgba(167, 139, 250, 0.4)',
-                                }}
-                            >
-                                ● Hibernating
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-neutral-700 text-neutral-200 border border-neutral-600">
+                                Hibernating
                             </span>
                             <span className="text-xs text-neutral-400 font-medium">
-                                SmartSleep™ Resource Saver
+                                SmartSleep Resource Saver
                             </span>
                         </div>
-                        <p className="text-sm text-neutral-200 mt-1 font-medium leading-relaxed">
+                        <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
                             Server is in hibernation mode saving 100% RAM & CPU. Connect to Minecraft or click Wake below.
                         </p>
                     </div>
@@ -201,29 +157,21 @@ const SmartSleepConsoleBanner: React.FC = () => {
                         type="button"
                         onClick={handleWake}
                         disabled={waking}
-                        className="px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 shadow-lg flex items-center justify-center gap-2 w-full md:w-auto"
-                        style={{
-                            background: wakeSuccess
-                                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                                : 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-                            color: '#ffffff',
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            boxShadow: '0 4px 15px rgba(139, 92, 246, 0.35)',
-                        }}
+                        className="px-4 py-2 rounded font-medium text-sm transition-colors duration-150 flex items-center justify-center gap-2 w-full md:w-auto bg-neutral-700 hover:bg-neutral-600 active:bg-neutral-500 text-neutral-100 border border-neutral-600 cursor-pointer disabled:opacity-50"
                     >
                         {waking ? (
                             <>
-                                <FontAwesomeIcon icon={faSpinner} spin />
+                                <FontAwesomeIcon icon={faSpinner} spin className="text-neutral-300" />
                                 <span>Waking Server...</span>
                             </>
                         ) : wakeSuccess ? (
                             <>
-                                <FontAwesomeIcon icon={faCheckCircle} />
-                                <span>Signal Sent! Starting...</span>
+                                <FontAwesomeIcon icon={faCheckCircle} className="text-neutral-300" />
+                                <span>Starting...</span>
                             </>
                         ) : (
                             <>
-                                <FontAwesomeIcon icon={faPlay} className="text-xs" />
+                                <FontAwesomeIcon icon={faPlay} className="text-xs text-neutral-300" />
                                 <span>Wake Server Now</span>
                             </>
                         )}
@@ -232,59 +180,59 @@ const SmartSleepConsoleBanner: React.FC = () => {
             </div>
 
             {/* Metrics Row: Uptime, CPU (0%), RAM (0 MB) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-purple-500/20">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-neutral-700/60">
                 {/* Status Metric */}
-                <div className="bg-slate-900/40 rounded-lg p-2.5 border border-purple-500/15">
-                    <div className="text-xs text-purple-300/80 font-medium flex items-center gap-1.5">
-                        <FontAwesomeIcon icon={faInfoCircle} className="text-purple-400" />
-                        <span>System State</span>
+                <div className="bg-neutral-900/50 rounded p-2.5 border border-neutral-800">
+                    <div className="text-xs text-neutral-400 font-medium flex items-center gap-1.5">
+                        <FontAwesomeIcon icon={faInfoCircle} className="text-neutral-400" />
+                        <span>State</span>
                     </div>
-                    <div className="text-sm font-bold text-purple-200 mt-1">
+                    <div className="text-sm font-semibold text-neutral-200 mt-1">
                         Hibernating
                     </div>
-                    <div className="text-[11px] text-purple-300/60 mt-0.5">
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
                         Ready to join
                     </div>
                 </div>
 
                 {/* Uptime Metric */}
-                <div className="bg-slate-900/40 rounded-lg p-2.5 border border-purple-500/15">
-                    <div className="text-xs text-purple-300/80 font-medium flex items-center gap-1.5">
-                        <FontAwesomeIcon icon={faClock} className="text-cyan-400" />
+                <div className="bg-neutral-900/50 rounded p-2.5 border border-neutral-800">
+                    <div className="text-xs text-neutral-400 font-medium flex items-center gap-1.5">
+                        <FontAwesomeIcon icon={faClock} className="text-neutral-400" />
                         <span>Uptime</span>
                     </div>
-                    <div className="text-sm font-bold text-cyan-200 mt-1 font-mono">
+                    <div className="text-sm font-semibold text-neutral-200 mt-1 font-mono">
                         {formattedUptime}
                     </div>
-                    <div className="text-[11px] text-cyan-300/60 mt-0.5">
-                        Ticking continuous
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
+                        Continuous
                     </div>
                 </div>
 
                 {/* CPU Metric (0%) */}
-                <div className="bg-slate-900/40 rounded-lg p-2.5 border border-purple-500/15">
-                    <div className="text-xs text-purple-300/80 font-medium flex items-center gap-1.5">
-                        <FontAwesomeIcon icon={faMicrochip} className="text-emerald-400" />
+                <div className="bg-neutral-900/50 rounded p-2.5 border border-neutral-800">
+                    <div className="text-xs text-neutral-400 font-medium flex items-center gap-1.5">
+                        <FontAwesomeIcon icon={faMicrochip} className="text-neutral-400" />
                         <span>CPU Usage</span>
                     </div>
-                    <div className="text-sm font-bold text-emerald-300 mt-1">
+                    <div className="text-sm font-semibold text-neutral-200 mt-1">
                         0%
                     </div>
-                    <div className="text-[11px] text-emerald-300/60 mt-0.5">
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
                         {cpuLimit > 0 ? `0% / ${cpuLimit}% (Idle)` : '0% (Idle)'}
                     </div>
                 </div>
 
                 {/* RAM Metric (0 MB) */}
-                <div className="bg-slate-900/40 rounded-lg p-2.5 border border-purple-500/15">
-                    <div className="text-xs text-purple-300/80 font-medium flex items-center gap-1.5">
-                        <FontAwesomeIcon icon={faMemory} className="text-blue-400" />
+                <div className="bg-neutral-900/50 rounded p-2.5 border border-neutral-800">
+                    <div className="text-xs text-neutral-400 font-medium flex items-center gap-1.5">
+                        <FontAwesomeIcon icon={faMemory} className="text-neutral-400" />
                         <span>Memory Usage</span>
                     </div>
-                    <div className="text-sm font-bold text-blue-300 mt-1">
+                    <div className="text-sm font-semibold text-neutral-200 mt-1">
                         0 MB
                     </div>
-                    <div className="text-[11px] text-blue-300/60 mt-0.5">
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
                         {memoryLimit > 0 ? `0 / ${memoryLimit} MB (Freed)` : '0 MB (Freed)'}
                     </div>
                 </div>
