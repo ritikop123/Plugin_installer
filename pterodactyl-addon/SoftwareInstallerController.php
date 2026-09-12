@@ -3,6 +3,7 @@
 namespace Pterodactyl\Http\Controllers\Api\Client\Servers;
 
 use Exception;
+use Throwable;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Http\Request;
@@ -172,7 +173,11 @@ class SoftwareInstallerController extends ClientApiController
     }
 
     /**
-     * Install software jar onto server, with optional server file wipe.
+     * Install software jar/archive onto server, with optional server file wipe.
+     * Supports standalone JARs (Paper, Purpur, Fabric, Vanilla, etc.) and
+     * multi-file/ZIP server packages (Forge, NeoForge, etc.) with automatic
+     * library management and guaranteed server.jar naming.
+     *
      * POST /api/client/servers/{server}/software/install
      */
     public function install(Request $request, Server $server): JsonResponse
@@ -181,28 +186,64 @@ class SoftwareInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+        config(['pterodactyl.guzzle.timeout' => 300]);
+        config(['pterodactyl.guzzle.connect_timeout' => 30]);
+
         $url = (string) $request->input('url', '');
+        $jarUrl = (string) $request->input('jarUrl', '');
+        $zipUrl = (string) $request->input('zipUrl', '');
+        $software = strtoupper(trim((string) $request->input('software', '')));
+        $version = trim((string) $request->input('version', ''));
+        $installation = $request->input('installation', []);
         $wipe = (bool) $request->input('wipe', false);
         $filename = (string) $request->input('filename', 'server.jar');
 
-        // 1. Validate URL: require HTTPS
-        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
-            return response()->json(['error' => 'Invalid jar download URL.'], 400);
-        }
-
-        $parsedUrl = parse_url($url);
-        if (($parsedUrl['scheme'] ?? '') !== 'https') {
-            return response()->json(['error' => 'Only HTTPS download URLs are permitted.'], 400);
-        }
-
-        // 2. Validate Target Filename
+        // Target executable jar name (always sanitized to a .jar filename)
         $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', $filename));
         if (empty($cleanFilename) || !preg_match('/^[a-zA-Z0-9_\-\.]+\.jar$/i', $cleanFilename)) {
             $cleanFilename = 'server.jar';
         }
 
+        // Determine if this is a ZIP-based installation (e.g. Forge, NeoForge, or server.jar.zip)
+        $isZip = false;
+        $targetZipUrl = '';
+
+        if (!empty($zipUrl) && filter_var($zipUrl, FILTER_VALIDATE_URL) && str_starts_with($zipUrl, 'https://')) {
+            $isZip = true;
+            $targetZipUrl = $zipUrl;
+        } elseif (!empty($url) && preg_match('/\.zip(\?.*)?$/i', $url) && filter_var($url, FILTER_VALIDATE_URL) && str_starts_with($url, 'https://')) {
+            $isZip = true;
+            $targetZipUrl = $url;
+        } elseif (in_array($software, ['FORGE', 'NEOFORGE'], true)) {
+            $isZip = true;
+            if (!empty($zipUrl)) {
+                $targetZipUrl = $zipUrl;
+            } elseif (!empty($url)) {
+                $targetZipUrl = $url;
+            } elseif (is_array($installation)) {
+                foreach ($installation as $batch) {
+                    if (is_array($batch)) {
+                        foreach ($batch as $step) {
+                            if (($step['type'] ?? '') === 'download' && preg_match('/\.zip(\?.*)?$/i', $step['url'] ?? '')) {
+                                $targetZipUrl = $step['url'];
+                                break 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate primary download target
+        $targetDownloadUrl = $isZip ? $targetZipUrl : ($jarUrl ?: $url);
+        if (empty($targetDownloadUrl) || !filter_var($targetDownloadUrl, FILTER_VALIDATE_URL) || !str_starts_with($targetDownloadUrl, 'https://')) {
+            return response()->json(['error' => 'Valid HTTPS software download URL is required.'], 400);
+        }
+
         try {
-            // 3. Perform Wipe if requested
+            // 1. Perform Wipe if requested
             if ($wipe) {
                 if (!$request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {
                     return response()->json(['error' => 'You do not have permission to delete server files.'], 403);
@@ -222,31 +263,170 @@ class SoftwareInstallerController extends ClientApiController
                             $this->fileRepository->setServer($server)->deleteFiles('/', $filesToDelete);
                         }
                     }
-                } catch (Exception $e) {
+                } catch (Throwable $e) {
                     // If directory listing fails, proceed with installation
                 }
             }
 
-            // 4. Command Wings Daemon to pull the jar directly into root
-            $this->fileRepository->setServer($server)->pull(
-                $url,
-                '/',
-                [
-                    'filename' => $cleanFilename,
-                    'use_header' => true,
-                    'foreground' => true,
-                ]
-            );
+            if ($isZip) {
+                // ============================================================
+                // ZIP-BASED INSTALLATION (Forge, NeoForge, etc.)
+                // ============================================================
 
+                // A. Execute any prerequisite standalone downloads specified by MCJars installation steps
+                // E.g. For Forge 1.12.2: downloads vanilla minecraft_server.1.12.2.jar
+                if (is_array($installation)) {
+                    foreach ($installation as $batch) {
+                        if (is_array($batch)) {
+                            foreach ($batch as $step) {
+                                $stepType = $step['type'] ?? '';
+                                $stepUrl = $step['url'] ?? '';
+                                $stepFile = $step['file'] ?? '';
+
+                                if (
+                                    $stepType === 'download' &&
+                                    !empty($stepUrl) &&
+                                    !empty($stepFile) &&
+                                    !preg_match('/\.zip(\?.*)?$/i', $stepFile) &&
+                                    filter_var($stepUrl, FILTER_VALIDATE_URL) &&
+                                    str_starts_with($stepUrl, 'https://')
+                                ) {
+                                    $cleanStepFile = basename(str_replace(['\\', '/', "\0"], '', $stepFile));
+                                    try {
+                                        $this->fileRepository->setServer($server)->pull(
+                                            $stepUrl,
+                                            '/',
+                                            [
+                                                'filename' => $cleanStepFile,
+                                                'use_header' => false,
+                                                'foreground' => true,
+                                            ]
+                                        );
+                                    } catch (Throwable $e) {
+                                        // Non-fatal if secondary file fails
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // B. Remove existing libraries directory to avoid old classpath conflicts (if server wasn't already wiped)
+                if (!$wipe) {
+                    try {
+                        $this->fileRepository->setServer($server)->deleteFiles('/', ['libraries']);
+                    } catch (Throwable $e) {}
+                }
+
+                // C. Pull the zip package to root using a temporary archive filename
+                $tempZip = '.software_install_' . time() . '.zip';
+                $this->fileRepository->setServer($server)->pull(
+                    $targetZipUrl,
+                    '/',
+                    [
+                        'filename' => $tempZip,
+                        'use_header' => false,
+                        'foreground' => true,
+                    ]
+                );
+
+                // D. Decompress the archive directly into server root (extracts server.jar and libraries/)
+                $this->fileRepository->setServer($server)->decompressFile('/', $tempZip);
+
+                // E. Clean up the temporary zip archive (and any leftover mcvapi.server.jar.zip)
+                try {
+                    $this->fileRepository->setServer($server)->deleteFiles('/', [$tempZip, 'mcvapi.server.jar.zip']);
+                } catch (Throwable $e) {}
+
+                // F. Verify that the primary executable is properly named server.jar (or $cleanFilename)
+                try {
+                    $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+                    if (is_array($rootItems)) {
+                        $hasCleanJar = false;
+                        $candidateJars = [];
+                        foreach ($rootItems as $item) {
+                            $name = $item['name'] ?? '';
+                            if ($name === $cleanFilename) {
+                                $hasCleanJar = true;
+                                break;
+                            }
+                            // Detect candidate jars in root (exclude secondary vanilla backend jar like minecraft_server.1.12.2.jar)
+                            if (
+                                str_ends_with(strtolower($name), '.jar') &&
+                                !str_starts_with(strtolower($name), 'minecraft_server') &&
+                                $name !== '.' && $name !== '..'
+                            ) {
+                                $candidateJars[] = $name;
+                            }
+                        }
+
+                        // If server.jar does not exist, rename candidate forge jar to server.jar
+                        if (!$hasCleanJar && !empty($candidateJars)) {
+                            $this->fileRepository->setServer($server)->renameFiles('/', [
+                                ['from' => $candidateJars[0], 'to' => $cleanFilename],
+                            ]);
+                        }
+                    }
+                } catch (Throwable $e) {}
+
+            } else {
+                // ============================================================
+                // STANDALONE JAR INSTALLATION (Paper, Purpur, Fabric, etc.)
+                // ============================================================
+
+                // Command Wings Daemon to pull the jar directly into root.
+                // CRITICAL: use_header => false ensures Wings strictly writes to $cleanFilename ('server.jar')
+                // instead of using Content-Disposition header (e.g. 'paper-1.20.4-330.jar').
+                $this->fileRepository->setServer($server)->pull(
+                    $targetDownloadUrl,
+                    '/',
+                    [
+                        'filename' => $cleanFilename,
+                        'use_header' => false,
+                        'foreground' => true,
+                    ]
+                );
+
+                // Post-verification: ensure server.jar exists; if Wings saved under URL filename, rename it
+                try {
+                    $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+                    if (is_array($rootItems)) {
+                        $hasCleanJar = false;
+                        $urlBasename = basename(parse_url($targetDownloadUrl, PHP_URL_PATH) ?? '');
+                        $foundAlternate = null;
+
+                        foreach ($rootItems as $item) {
+                            $name = $item['name'] ?? '';
+                            if ($name === $cleanFilename) {
+                                $hasCleanJar = true;
+                                break;
+                            }
+                            if (!empty($urlBasename) && $name === $urlBasename) {
+                                $foundAlternate = $name;
+                            }
+                        }
+
+                        if (!$hasCleanJar && !empty($foundAlternate)) {
+                            $this->fileRepository->setServer($server)->renameFiles('/', [
+                                ['from' => $foundAlternate, 'to' => $cleanFilename],
+                            ]);
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            $displayName = !empty($software) ? $software : 'Minecraft server software';
             return response()->json([
                 'success' => true,
-                'message' => "Successfully installed {$cleanFilename} on your server.",
+                'message' => "Successfully installed {$displayName} as {$cleanFilename} on your server.",
                 'filename' => $cleanFilename,
+                'software' => $software,
+                'version' => $version,
                 'wiped' => $wipe,
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
-                'error' => 'Failed to install software jar on server.',
+                'error' => 'Failed to install software on server.',
                 'message' => $e->getMessage(),
             ], 500);
         }

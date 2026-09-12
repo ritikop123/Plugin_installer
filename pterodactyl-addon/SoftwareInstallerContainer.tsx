@@ -44,21 +44,35 @@ interface SoftwareVersionItem {
     id?: number;
     name?: string;
     buildNumber?: number;
-    jarUrl?: string;
-    jarSize?: number;
+    jarUrl?: string | null;
+    jarSize?: number | null;
+    zipUrl?: string | null;
+    zipSize?: number | null;
+    installation?: any;
     experimental?: boolean;
   } | null;
 }
 
 interface SoftwareBuildItem {
   id: number;
-  name: string;
+  name?: string;
   buildNumber: number;
-  jarUrl: string;
-  jarSize?: number;
+  jarUrl?: string | null;
+  jarSize?: number | null;
+  zipUrl?: string | null;
+  zipSize?: number | null;
+  installation?: any;
   experimental?: boolean;
-  created?: string;
+  created?: string | null;
 }
+
+const formatBytes = (bytes?: number | null): string => {
+  if (!bytes || bytes <= 0) return '';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+};
 
 export default function SoftwareInstallerContainer() {
   const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
@@ -155,13 +169,17 @@ export default function SoftwareInstallerContainer() {
         if (res.data && Array.isArray(res.data.builds) && res.data.builds.length > 0) {
           setBuilds(res.data.builds);
           setSelectedBuild(res.data.builds[0]);
-        } else if (ver.latest?.jarUrl) {
+        } else if (ver.latest?.jarUrl || ver.latest?.zipUrl || ver.latest?.installation) {
           // Fallback to latest build summary if list is empty
           const fallback: SoftwareBuildItem = {
             id: ver.latest.id || 1,
             name: ver.latest.name || `#${ver.latest.buildNumber || 1}`,
             buildNumber: ver.latest.buildNumber || 1,
             jarUrl: ver.latest.jarUrl,
+            jarSize: ver.latest.jarSize,
+            zipUrl: ver.latest.zipUrl,
+            zipSize: ver.latest.zipSize,
+            installation: ver.latest.installation,
             experimental: ver.latest.experimental,
           };
           setBuilds([fallback]);
@@ -169,12 +187,16 @@ export default function SoftwareInstallerContainer() {
         }
       })
       .catch(() => {
-        if (ver.latest?.jarUrl) {
+        if (ver.latest?.jarUrl || ver.latest?.zipUrl || ver.latest?.installation) {
           const fallback: SoftwareBuildItem = {
             id: ver.latest.id || 1,
             name: ver.latest.name || `#${ver.latest.buildNumber || 1}`,
             buildNumber: ver.latest.buildNumber || 1,
             jarUrl: ver.latest.jarUrl,
+            jarSize: ver.latest.jarSize,
+            zipUrl: ver.latest.zipUrl,
+            zipSize: ver.latest.zipSize,
+            installation: ver.latest.installation,
             experimental: ver.latest.experimental,
           };
           setBuilds([fallback]);
@@ -188,7 +210,12 @@ export default function SoftwareInstallerContainer() {
 
   // 4. Handle Server Software Installation
   const handleInstall = async () => {
-    if (!selectedBuild?.jarUrl || !selectedSoftware) return;
+    const hasDownload = Boolean(
+      selectedBuild?.jarUrl ||
+      selectedBuild?.zipUrl ||
+      (selectedBuild?.installation && selectedBuild.installation.length > 0)
+    );
+    if (!hasDownload || !selectedSoftware) return;
 
     if (wipeFiles) {
       const confirmed = window.confirm(
@@ -201,10 +228,16 @@ export default function SoftwareInstallerContainer() {
     setInstallNotice(null);
 
     try {
+      const primaryUrl = selectedBuild.zipUrl || selectedBuild.jarUrl || '';
       const response = await http.post<{ success: boolean; message: string }>(
         `/api/client/servers/${uuid}/software/install`,
         {
-          url: selectedBuild.jarUrl,
+          url: primaryUrl,
+          jarUrl: selectedBuild.jarUrl,
+          zipUrl: selectedBuild.zipUrl,
+          software: selectedSoftware.id,
+          version: selectedVersion?.version,
+          installation: selectedBuild.installation,
           wipe: wipeFiles,
           filename: 'server.jar',
         }
@@ -471,21 +504,45 @@ export default function SoftwareInstallerContainer() {
                     <span>Loading builds...</span>
                   </div>
                 ) : (
-                  <select
-                    value={selectedBuild?.buildNumber || ''}
-                    onChange={(e) => {
-                      const num = Number(e.target.value);
-                      const found = builds.find((b) => b.buildNumber === num);
-                      if (found) setSelectedBuild(found);
-                    }}
-                    className="w-full px-3 py-2.5 bg-slate-950/70 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-xl text-xs text-white focus:outline-none transition-colors"
-                  >
-                    {builds.map((b) => (
-                      <option key={b.buildNumber} value={b.buildNumber}>
-                        Build {b.buildNumber} {b.experimental ? '[beta]' : '[release]'}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-2">
+                    <select
+                      value={selectedBuild?.id ?? ''}
+                      onChange={(e) => {
+                        const id = Number(e.target.value);
+                        const found = builds.find((b) => b.id === id);
+                        if (found) setSelectedBuild(found);
+                      }}
+                      className="w-full px-3 py-2.5 bg-slate-950/70 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-xl text-xs text-white focus:outline-none transition-colors"
+                    >
+                      {builds.map((b) => {
+                        const label = b.name
+                          ? (b.name.startsWith('#') ? `Build ${b.name}` : `Version ${b.name}`)
+                          : `Build #${b.buildNumber}`;
+                        return (
+                          <option key={b.id} value={b.id}>
+                            {label} {b.experimental ? '[beta]' : '[release]'}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {selectedBuild && (
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                        <span>
+                          {(selectedBuild.jarSize || selectedBuild.zipSize) ? (
+                            <>Package size: <strong className="text-slate-200">{formatBytes(selectedBuild.jarSize || selectedBuild.zipSize)}</strong></>
+                          ) : (
+                            <span className="text-slate-500">Ready to install</span>
+                          )}
+                        </span>
+                        {selectedBuild.name && (
+                          <span className="truncate max-w-[200px]">
+                            Build: <strong className="text-slate-200">{selectedBuild.name}</strong>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -537,7 +594,10 @@ export default function SoftwareInstallerContainer() {
               {/* Install Action Button (Matching Screenshot 3) */}
               <button
                 onClick={handleInstall}
-                disabled={installing || !selectedBuild?.jarUrl}
+                disabled={
+                  installing ||
+                  (!selectedBuild?.jarUrl && !selectedBuild?.zipUrl && (!selectedBuild?.installation || selectedBuild.installation.length === 0))
+                }
                 className="w-full py-2.5 bg-blue-600/90 hover:bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-xs transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
               >
                 {installing ? (
@@ -548,7 +608,7 @@ export default function SoftwareInstallerContainer() {
                 ) : (
                   <>
                     <FontAwesomeIcon icon={faDownload} className="text-sm" />
-                    <span>Install</span>
+                    <span>Install {selectedSoftware.name}</span>
                   </>
                 )}
               </button>
