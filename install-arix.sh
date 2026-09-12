@@ -425,6 +425,7 @@ if ($enableSoftware) {
     $append .= "\n/* >>> ARIX SOFTWARE INSTALLER START >>> */\n";
     $append .= "Route::group(['prefix' => '/servers/{server}/software'], function () {\n";
     $append .= "    Route::get('/', [Client\\Servers\\SoftwareInstallerController::class, 'index']);\n";
+    $append .= "    Route::get('/current', [Client\\Servers\\SoftwareInstallerController::class, 'current']);\n";
     $append .= "    Route::get('/versions', [Client\\Servers\\SoftwareInstallerController::class, 'versions']);\n";
     $append .= "    Route::get('/builds', [Client\\Servers\\SoftwareInstallerController::class, 'builds']);\n";
     $append .= "    Route::post('/install', [Client\\Servers\\SoftwareInstallerController::class, 'install']);\n";

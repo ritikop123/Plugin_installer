@@ -16,6 +16,7 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 
 class SoftwareInstallerController extends ClientApiController
 {
+    public const MANIFEST_FILE = '/.pterodactyl-software.json';
     private const MCJARS_API = 'https://mcjars.app/api/v2/';
     private const USER_AGENT = 'Arix-Software-Installer/1.0.0 (https://github.com/ritikop123/Plugin_installer)';
 
@@ -38,7 +39,7 @@ class SoftwareInstallerController extends ClientApiController
     }
 
     /**
-     * Get all Minecraft server software types.
+     * Get all Minecraft server software types and detect current software.
      * GET /api/client/servers/{server}/software
      */
     public function index(Request $request, Server $server): JsonResponse
@@ -68,6 +69,7 @@ class SoftwareInstallerController extends ClientApiController
             return response()->json([
                 'success' => true,
                 'software' => $softwareList,
+                'current' => $this->detectCurrentSoftware($server),
             ]);
         } catch (GuzzleException $e) {
             return response()->json([
@@ -75,6 +77,22 @@ class SoftwareInstallerController extends ClientApiController
                 'message' => $e->getMessage(),
             ], 502);
         }
+    }
+
+    /**
+     * Get currently installed software information on the server.
+     * GET /api/client/servers/{server}/software/current
+     */
+    public function current(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_READ, $server)) {
+            throw new AuthorizationException();
+        }
+
+        return response()->json([
+            'success' => true,
+            'current' => $this->detectCurrentSoftware($server),
+        ]);
     }
 
     /**
@@ -416,6 +434,24 @@ class SoftwareInstallerController extends ClientApiController
             }
 
             $displayName = !empty($software) ? $software : 'Minecraft server software';
+
+            // Record manifest file for current software tracking
+            $manifestData = [
+                'software' => $displayName,
+                'software_id' => $software ?: 'CUSTOM',
+                'version' => $version ?: null,
+                'build' => (string) ($request->input('build', '') ?: $request->input('buildNumber', '') ?: null),
+                'filename' => $cleanFilename,
+                'installed_at' => date('c'),
+                'source' => 'installer',
+            ];
+            try {
+                $this->fileRepository->setServer($server)->putContent(
+                    self::MANIFEST_FILE,
+                    json_encode($manifestData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                );
+            } catch (Throwable $e) {}
+
             return response()->json([
                 'success' => true,
                 'message' => "Successfully installed {$displayName} as {$cleanFilename} on your server.",
@@ -423,6 +459,7 @@ class SoftwareInstallerController extends ClientApiController
                 'software' => $software,
                 'version' => $version,
                 'wiped' => $wipe,
+                'current' => $manifestData,
             ]);
         } catch (Throwable $e) {
             return response()->json([
@@ -430,5 +467,176 @@ class SoftwareInstallerController extends ClientApiController
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Detect the currently installed Minecraft server software and version.
+     */
+    protected function detectCurrentSoftware(Server $server): ?array
+    {
+        // 1. Check native manifest file written by software installer
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
+            $manifest = json_decode($content, true);
+            if (is_array($manifest) && (!empty($manifest['software']) || !empty($manifest['version']))) {
+                return $manifest;
+            }
+        } catch (Throwable $e) {}
+
+        // 2. Check Paper/Purpur/Folia version_history.json
+        try {
+            $vhContent = $this->fileRepository->setServer($server)->getContent('/version_history.json');
+            $vh = json_decode($vhContent, true);
+            if (is_array($vh) && !empty($vh['currentVersion'])) {
+                $raw = (string) $vh['currentVersion'];
+                $softName = 'Paper';
+                $mcVer = null;
+                $build = null;
+
+                if (preg_match('/git-([A-Za-z]+)-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
+                    $softName = $m[1];
+                    $build = '#' . $m[2];
+                    $mcVer = $m[3];
+                } elseif (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
+                    $mcVer = $m[1];
+                }
+
+                return [
+                    'software' => $softName,
+                    'software_id' => strtoupper($softName),
+                    'version' => $mcVer,
+                    'build' => $build,
+                    'filename' => 'server.jar',
+                    'source' => 'version_history.json',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 3. Check Forge / NeoForge / Fabric in libraries directory
+        try {
+            $forgeItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/minecraftforge/forge');
+            if (is_array($forgeItems)) {
+                foreach ($forgeItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        $parts = explode('-', $n, 2);
+                        return [
+                            'software' => 'Forge',
+                            'software_id' => 'FORGE',
+                            'version' => $parts[0] ?? $n,
+                            'build' => $parts[1] ?? $n,
+                            'filename' => 'server.jar',
+                            'source' => 'libraries',
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        try {
+            $neoItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/neoforged/neoforge');
+            if (is_array($neoItems)) {
+                foreach ($neoItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        return [
+                            'software' => 'NeoForge',
+                            'software_id' => 'NEOFORGE',
+                            'version' => null,
+                            'build' => $n,
+                            'filename' => 'server.jar',
+                            'source' => 'libraries',
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        try {
+            $fabricItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/fabricmc/fabric-loader');
+            if (is_array($fabricItems)) {
+                foreach ($fabricItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        return [
+                            'software' => 'Fabric',
+                            'software_id' => 'FABRIC',
+                            'version' => null,
+                            'build' => $n,
+                            'filename' => 'server.jar',
+                            'source' => 'libraries',
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        // 4. Check startup logs in logs/latest.log
+        try {
+            $logContent = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
+            if (!empty($logContent)) {
+                $sample = substr($logContent, 0, 8192);
+                $lines = explode("\n", $sample);
+                $detectedSoft = null;
+                $detectedVer = null;
+                $detectedBuild = null;
+
+                foreach ($lines as $line) {
+                    if (preg_match('/This server is running ([A-Za-z]+) version git-\1-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $line, $m)) {
+                        $detectedSoft = $m[1];
+                        $detectedBuild = '#' . $m[2];
+                        $detectedVer = $m[3];
+                        break;
+                    }
+                    if (preg_match('/Loading Minecraft ([0-9\.]+) with Fabric Loader ([0-9\.]+)/i', $line, $m)) {
+                        $detectedSoft = 'Fabric';
+                        $detectedVer = $m[1];
+                        $detectedBuild = $m[2];
+                        break;
+                    }
+                    if (preg_match('/MinecraftForge v([0-9\.]+) Initialized/i', $line, $m)) {
+                        $detectedSoft = 'Forge';
+                        $detectedBuild = $m[1];
+                        break;
+                    }
+                    if (preg_match('/Starting minecraft server version ([0-9\.]+)/i', $line, $m)) {
+                        if (!$detectedVer) $detectedVer = $m[1];
+                    }
+                }
+
+                if ($detectedSoft || $detectedVer) {
+                    return [
+                        'software' => $detectedSoft ?: 'Minecraft Server',
+                        'software_id' => $detectedSoft ? strtoupper($detectedSoft) : 'VANILLA',
+                        'version' => $detectedVer,
+                        'build' => $detectedBuild,
+                        'filename' => 'server.jar',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+            }
+        } catch (Throwable $e) {}
+
+        // 5. Fallback: check if server.jar exists in root
+        try {
+            $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+            if (is_array($rootItems)) {
+                foreach ($rootItems as $item) {
+                    $n = strtolower($item['name'] ?? '');
+                    if ($n === 'server.jar') {
+                        return [
+                            'software' => 'Custom Server',
+                            'software_id' => 'CUSTOM',
+                            'version' => null,
+                            'build' => null,
+                            'filename' => 'server.jar',
+                            'source' => 'server.jar',
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        return null;
     }
 }
