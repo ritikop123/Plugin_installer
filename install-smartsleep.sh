@@ -496,6 +496,36 @@ update_daemon() {
     chmod +x "${BINARY_PATH}"
     rm -rf "${BUILD_DIR}"
 
+    CONFIG_FILE="${SMARTSLEEP_DIR}/config.yaml"
+    if [ ! -f "${CONFIG_FILE}" ]; then
+        log_info "No configuration found at ${CONFIG_FILE}. Please enter your Pterodactyl details:"
+        prompt_config_credentials "${CONFIG_FILE}"
+    fi
+
+    if [ ! -f "/etc/systemd/system/smartsleep.service" ]; then
+        log_info "Creating systemd service..."
+        cat <<EOF > /etc/systemd/system/smartsleep.service
+[Unit]
+Description=SmartSleep Gateway Daemon
+After=network.target wings.service
+Wants=wings.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=${BINARY_PATH} -config ${CONFIG_FILE}
+Restart=always
+RestartSec=5s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable smartsleep
+    fi
+
+    systemctl daemon-reload
     systemctl restart smartsleep
     log_success "SmartSleep daemon updated and restarted successfully!"
 
