@@ -72,6 +72,9 @@ $hook = <<<'EOD'
                         break;
                     }
                 }
+
+                // Small 50ms pause to ensure OS kernel socket release before Wings starts Docker
+                usleep(50000);
             }
         } catch (\Throwable $e) {
             // Fail silently so standard Pterodactyl operations are never interrupted

@@ -190,6 +190,7 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 			log.Printf("[SmartSleep] [IPC] Received wake signal for server %s. Unbinding ports...", uuid)
 			tracker.UnbindAndWake(uuid)
 		}
+		time.Sleep(50 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"success":true,"action":"wake"}`)
 	})
@@ -213,6 +214,7 @@ func startControlServer(tracker *monitor.Tracker, portManager *gateway.PortManag
 			log.Printf("[SmartSleep] [IPC] Received unbind signal for server %s. Releasing ports...", uuid)
 			tracker.Unbind(uuid)
 		}
+		time.Sleep(50 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"success":true,"action":"unbind"}`)
 	})

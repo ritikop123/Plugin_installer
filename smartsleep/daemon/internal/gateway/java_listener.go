@@ -159,9 +159,6 @@ func (l *JavaListener) Stop() {
 		l.listener = nil
 	}
 	for c := range l.activeConns {
-		if tcpConn, ok := c.(*net.TCPConn); ok {
-			_ = tcpConn.SetLinger(0)
-		}
 		_ = c.Close()
 		delete(l.activeConns, c)
 	}
@@ -189,9 +186,6 @@ func (l *JavaListener) acceptLoop() {
 
 func (l *JavaListener) handleConn(conn net.Conn) {
 	defer func() {
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetLinger(0)
-		}
 		_ = conn.Close()
 		l.removeConn(conn)
 	}()
@@ -338,17 +332,19 @@ func (l *JavaListener) handleLogin(conn net.Conn) {
 	// Send disconnect notice to player
 	_, _ = conn.Write(fullBuf.Bytes())
 
-	// Force-close connection immediately with zero linger so TCP port is freed right now
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		_ = tcpConn.SetLinger(0)
-	}
-	_ = conn.Close()
+	// Remove from active connections so concurrent Stop() doesn't abort it with RST
 	l.removeConn(conn)
 
-	// Small pause to allow kernel socket state to clear
-	time.Sleep(50 * time.Millisecond)
+	// Half-close write side gracefully (sends TCP FIN to client)
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.CloseWrite()
+	}
 
-	// 2. Fire Wake Server event callback AFTER socket is completely released
+	// Give the Minecraft client 200ms to receive and render the wake-up disconnect screen
+	time.Sleep(200 * time.Millisecond)
+	_ = conn.Close()
+
+	// 2. Fire Wake Server event callback AFTER the client has received the wake message
 	if l.onWake != nil {
 		go l.onWake(l.serverID)
 	}
