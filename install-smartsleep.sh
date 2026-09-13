@@ -330,29 +330,18 @@ EOF
         download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepContainer.tsx" "${COMP_DIR}/SmartSleepContainer.tsx"
     fi
 
-    log_info "Installing SmartSleepStatus.tsx (Theme-adaptive console status)..."
-    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" ]; then
-        cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+    # Clean up all console additions to keep console 100% stock & native
+    log_info "Ensuring console page remains 100% clean and stock (no custom banner or cards)..."
+    rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+    CLEAN_SCRIPT="/tmp/clean-console.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/clean-console.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/clean-console.php" "${CLEAN_SCRIPT}"
     else
-        download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+        download_file "${REPO_BASE}/smartsleep/panel-addon/clean-console.php" "${CLEAN_SCRIPT}"
     fi
-
-    # Clean up any old banner additions
-    log_info "Cleaning up old banner artifacts..."
-    rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
-    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
-    find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
-
-    # Inject SmartSleepStatus into console container and Arix dashboard
-    log_info "Injecting SmartSleepStatus into console page and dashboard..."
-    PATCH_STATUS_SCRIPT="/tmp/patch-console-status.php"
-    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" ]; then
-        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
-    else
-        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
-    fi
-    php "${PATCH_STATUS_SCRIPT}" || true
-    rm -f "${PATCH_STATUS_SCRIPT}"
+    cd "${PTERO_DIR}"
+    php "${CLEAN_SCRIPT}" || true
+    rm -f "${CLEAN_SCRIPT}"
 
     chown -R www-data:www-data "${COMP_DIR}"
 
@@ -445,29 +434,20 @@ patch_power_buttons() {
     php "${PATCH_POWER_SCRIPT}" || true
     rm -f "${PATCH_POWER_SCRIPT}"
 
-    # 3. Clean old banner artifacts & install SmartSleepStatus.tsx
+    # 3. Clean all console banner/status additions to keep console 100% stock & native
     COMP_DIR="${PTERO_DIR}/resources/scripts/components/server/smartsleep"
+    rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
+    log_info "Ensuring console page remains 100% clean and stock (no custom banner or cards)..."
+    CLEAN_SCRIPT="/tmp/clean-console.php"
+    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/clean-console.php" ]; then
+        cp "${SCRIPT_DIR}/smartsleep/panel-addon/clean-console.php" "${CLEAN_SCRIPT}"
+    else
+        download_file "${REPO_BASE}/smartsleep/panel-addon/clean-console.php" "${CLEAN_SCRIPT}"
+    fi
+    cd "${PTERO_DIR}"
+    php "${CLEAN_SCRIPT}" || true
+    rm -f "${CLEAN_SCRIPT}"
     if [ -d "${COMP_DIR}" ]; then
-        log_info "Updating SmartSleepStatus.tsx..."
-        if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" ]; then
-            cp "${SCRIPT_DIR}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
-        else
-            download_file "${REPO_BASE}/smartsleep/panel-addon/SmartSleepStatus.tsx" "${COMP_DIR}/SmartSleepStatus.tsx"
-        fi
-
-        rm -f "${COMP_DIR}/SmartSleepConsoleBanner.tsx"
-        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/\/\* >>> SMARTSLEEP BANNER START >>> \*\//,/\/\* <<< SMARTSLEEP BANNER END <<< \*\//d' {} + 2>/dev/null || true
-        find "${PTERO_DIR}/resources/scripts/components/server" -type f \( -name "*.tsx" -o -name "*.ts" \) -exec sed -i '/import SmartSleepConsoleBanner/d' {} + 2>/dev/null || true
-
-        # Inject SmartSleepStatus
-        PATCH_STATUS_SCRIPT="/tmp/patch-console-status.php"
-        if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" ]; then
-            cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
-        else
-            download_file "${REPO_BASE}/smartsleep/panel-addon/patch-console-status.php" "${PATCH_STATUS_SCRIPT}"
-        fi
-        php "${PATCH_STATUS_SCRIPT}" || true
-        rm -f "${PATCH_STATUS_SCRIPT}"
         chown -R www-data:www-data "${COMP_DIR}"
     fi
 
@@ -476,7 +456,7 @@ patch_power_buttons() {
     php artisan view:clear || true
     chown -R www-data:www-data "${PTERO_DIR}"
 
-    log_success "Power buttons and SmartSleep status successfully patched!"
+    log_success "PowerController successfully hooked! Start, Restart, and Stop buttons now work seamlessly."
 }
 
 update_daemon() {
@@ -723,7 +703,7 @@ case "$1" in
         echo "  [5] Toggle SmartSleep ON/OFF on this Node"
         echo "  [6] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
         echo "  [7] Reconfigure Panel URL & API Keys"
-        echo "  [8] Patch Panel Power Buttons & Console Status (Enables Start, Restart, Stop & Hibernating status)"
+        echo "  [8] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
         echo "  [9] Update SmartSleep Daemon (Quick recompile & restart)"
         echo "  [10] Uninstall SmartSleep"
         echo "  [11] Exit"
