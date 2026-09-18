@@ -66,20 +66,24 @@ HAS_EXISTING_SOFTWARE=false
 HAS_EXISTING_OPTIONS=false
 [ -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" ] && HAS_EXISTING_OPTIONS=true
 
+HAS_EXISTING_PLAYERS=false
+[ -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" ] && HAS_EXISTING_PLAYERS=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
   if [ -t 0 ]; then
     echo -e "\n${BOLD}Select an installation option:${NC}"
-    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options${NC} ${GREEN}(Recommended)${NC}"
+    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options + Players${NC} ${GREEN}(Recommended)${NC}"
     echo -e "  ${CYAN}2)${NC} Plugin Installer only (/plugins)"
     echo -e "  ${CYAN}3)${NC} Mods Installer only (/mods)"
     echo -e "  ${CYAN}4)${NC} Modpacks Installer only (/modpacks)"
     echo -e "  ${CYAN}5)${NC} Software Installer only (/software)"
     echo -e "  ${CYAN}6)${NC} Server Options & Properties only (/options)"
-    echo -e "  ${CYAN}7)${NC} Uninstall All"
-    read -r -p "Enter choice [1-7] (Default: 1): " USER_INPUT
+    echo -e "  ${CYAN}7)${NC} Player Manager only (/players)"
+    echo -e "  ${CYAN}8)${NC} Uninstall All"
+    read -r -p "Enter choice [1-8] (Default: 1): " USER_INPUT
     USER_INPUT="${USER_INPUT:-1}"
     case "$USER_INPUT" in
       1) CHOICE="all" ;;
@@ -88,7 +92,8 @@ if [ -z "$CHOICE" ]; then
       4) CHOICE="modpacks" ;;
       5) CHOICE="software" ;;
       6) CHOICE="options" ;;
-      7) CHOICE="uninstall" ;;
+      7) CHOICE="players" ;;
+      8) CHOICE="uninstall" ;;
       *) CHOICE="all" ;;
     esac
   else
@@ -104,7 +109,8 @@ case "$CHOICE" in
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=true
-    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options)...${NC}"
+    INSTALL_PLAYERS=true
+    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options + Players)...${NC}"
     ;;
   plugins|plugin)
     INSTALL_PLUGINS=true
@@ -112,6 +118,7 @@ case "$CHOICE" in
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
     echo -e "${GREEN}[*] Selected mode: Installing Plugin Installer only...${NC}"
     ;;
   mods|mod)
@@ -120,6 +127,7 @@ case "$CHOICE" in
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
     echo -e "${GREEN}[*] Selected mode: Installing Mods Installer only...${NC}"
     ;;
   modpacks|modpack)
@@ -128,6 +136,7 @@ case "$CHOICE" in
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
     echo -e "${GREEN}[*] Selected mode: Installing Modpacks Installer only...${NC}"
     ;;
   software)
@@ -136,6 +145,7 @@ case "$CHOICE" in
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
     echo -e "${GREEN}[*] Selected mode: Installing Software Installer only...${NC}"
     ;;
   options|option|properties)
@@ -144,7 +154,17 @@ case "$CHOICE" in
     INSTALL_MODPACKS=false
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=true
+    INSTALL_PLAYERS=false
     echo -e "${GREEN}[*] Selected mode: Installing Server Options & Properties only...${NC}"
+    ;;
+  players|player)
+    INSTALL_PLUGINS=false
+    INSTALL_MODS=false
+    INSTALL_MODPACKS=false
+    INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=true
+    echo -e "${GREEN}[*] Selected mode: Installing Player Manager only...${NC}"
     ;;
   uninstall)
     echo -e "${YELLOW}[*] Selected mode: Uninstalling addons...${NC}"
@@ -157,6 +177,7 @@ case "$CHOICE" in
     INSTALL_MODPACKS=true
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=true
+    INSTALL_PLAYERS=true
     echo -e "${GREEN}[*] Defaulting to: Installing ALL addons...${NC}"
     ;;
 esac
@@ -185,6 +206,11 @@ fi
 ENABLE_OPTIONS=false
 if [ "$INSTALL_OPTIONS" = true ] || [ "$HAS_EXISTING_OPTIONS" = true ]; then
   ENABLE_OPTIONS=true
+fi
+
+ENABLE_PLAYERS=false
+if [ "$INSTALL_PLAYERS" = true ] || [ "$HAS_EXISTING_PLAYERS" = true ]; then
+  ENABLE_PLAYERS=true
 fi
 
 # 5. Create Safe Backup
@@ -257,16 +283,23 @@ if [ "$INSTALL_OPTIONS" = true ]; then
   rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/null || true
 fi
 
+if [ "$INSTALL_PLAYERS" = true ]; then
+  rm -rf "resources/scripts/components/server/player-manager" 2>/dev/null || true
+  rm -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" 2>/dev/null || true
+fi
+
 sed -i '/PluginInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModpackInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/OptionsContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/PlayerManagerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/plugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mods#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/options#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/players#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 
 rm -f "resources/scripts/routers/ServerRouter.tsx.bak" 2>/dev/null || true
@@ -346,6 +379,18 @@ if [ "$INSTALL_OPTIONS" = true ]; then
   chown -R www-data:www-data "public/resourcepacks" 2>/dev/null || chown -R nginx:nginx "public/resourcepacks" 2>/dev/null || true
 fi
 
+# 12. Download Player Manager (if installing players)
+if [ "$INSTALL_PLAYERS" = true ]; then
+  echo -e "${CYAN}[*] Downloading Player Manager files...${NC}"
+  mkdir -p "app/Http/Controllers/Api/Client/Servers"
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PlayerManagerController.php?t=${CACHE_BUST}" \
+    -o "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php"
+
+  mkdir -p "resources/scripts/components/server/player-manager"
+  curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/PlayerManagerContainer.tsx?t=${CACHE_BUST}" \
+    -o "resources/scripts/components/server/player-manager/PlayerManagerContainer.tsx"
+fi
+
 # 11. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
 
@@ -357,6 +402,7 @@ $enableMods = ($argv[3] === 'true');
 $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
 $enableOptions = (isset($argv[6]) && $argv[6] === 'true');
+$enablePlayers = (isset($argv[7]) && $argv[7] === 'true');
 
 if (!file_exists($file)) {
     exit(0);
@@ -370,11 +416,13 @@ $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*
 $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX PLAYER MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLAYER MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
 // Ensure Pterodactyl\Http\Controllers\Api\Client namespace is imported
 if (strpos($c, 'use Pterodactyl\Http\Controllers\Api\Client;') === false) {
@@ -444,11 +492,20 @@ if ($enableOptions) {
     $append .= "});\n/* <<< ARIX OPTIONS MANAGER END <<< */\n";
 }
 
+if ($enablePlayers) {
+    $append .= "\n/* >>> ARIX PLAYER MANAGER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/players'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\PlayerManagerController::class, 'index']);\n";
+    $append .= "    Route::get('/detail', [Client\\Servers\\PlayerManagerController::class, 'detail']);\n";
+    $append .= "    Route::post('/action', [Client\\Servers\\PlayerManagerController::class, 'action']);\n";
+    $append .= "});\n/* <<< ARIX PLAYER MANAGER END <<< */\n";
+}
+
 $c = rtrim($c) . "\n" . $append;
 file_put_contents($file, $c);
 PHP_REG_API_EOF
 
-php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS"
+php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS"
 rm -f /tmp/ptero_reg_api.php
 
 # Verify PHP syntax of routes/api-client.php
@@ -468,6 +525,7 @@ $enableMods = ($argv[3] === 'true');
 $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
 $enableOptions = (isset($argv[6]) && $argv[6] === 'true');
+$enablePlayers = (isset($argv[7]) && $argv[7] === 'true');
 
 $c = file_get_contents($routesTs);
 
@@ -477,16 +535,19 @@ $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
 
 $imports = '';
 $routes = '';
@@ -516,6 +577,11 @@ if ($enableOptions) {
     $routes .= "\n        { path: '/options', permission: 'file.*', name: undefined, component: OptionsContainer, exact: true },";
 }
 
+if ($enablePlayers) {
+    $imports .= "import PlayerManagerContainer from '@/components/server/player-manager/PlayerManagerContainer';\n";
+    $routes .= "\n        { path: '/players', permission: 'file.*', name: undefined, component: PlayerManagerContainer, exact: true },";
+}
+
 $c = $imports . $c;
 $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
 
@@ -523,7 +589,7 @@ file_put_contents($routesTs, $c);
 echo "Registered routes successfully in routes.ts\n";
 PHP_REG_EOF
 
-php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS"
+php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS"
 rm -f /tmp/ptero_reg_routes.php
 
 # Verify registrations
@@ -558,6 +624,13 @@ fi
 if [ "$ENABLE_OPTIONS" = true ]; then
   if ! grep -q "/options" "$ROUTES_TS" || ! grep -q "OptionsContainer" "$ROUTES_TS"; then
     echo -e "${RED}[✗] Failed to verify /options in routes.ts.${NC}"
+    false
+  fi
+fi
+
+if [ "$ENABLE_PLAYERS" = true ]; then
+  if ! grep -q "/players" "$ROUTES_TS" || ! grep -q "PlayerManagerContainer" "$ROUTES_TS"; then
+    echo -e "${RED}[✗] Failed to verify /players in routes.ts.${NC}"
     false
   fi
 fi
@@ -762,6 +835,11 @@ fi
 if [ "$ENABLE_OPTIONS" = true ]; then
   echo -e "• ${CYAN}Server Options${NC}: Accessible at ${BOLD}/server/<server-id>/options${NC}"
   echo -e "  Arix Server Tools Link: URL=${CYAN}/options${NC}, Name=${CYAN}Server Options${NC}, Icon=${CYAN}HiOutlineAdjustments${NC}"
+fi
+
+if [ "$ENABLE_PLAYERS" = true ]; then
+  echo -e "• ${CYAN}Player Manager${NC}: Accessible at ${BOLD}/server/<server-id>/players${NC}"
+  echo -e "  Arix Server Tools Link: URL=${CYAN}/players${NC}, Name=${CYAN}Player Manager${NC}, Icon=${CYAN}HiOutlineUsers${NC}"
 fi
 
 echo -e "• ${CYAN}Auto Suspension & Expiry System${NC}: Active via scheduled command (${BOLD}ptero:auto-suspend${NC})"

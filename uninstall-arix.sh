@@ -47,11 +47,13 @@ rm -rf "resources/scripts/components/server/mod-installer" 2>/dev/null || true
 rm -rf "resources/scripts/components/server/modpack-installer" 2>/dev/null || true
 rm -rf "resources/scripts/components/server/software-installer" 2>/dev/null || true
 rm -rf "resources/scripts/components/server/options" 2>/dev/null || true
+rm -rf "resources/scripts/components/server/player-manager" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/ModInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/ModpackInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/null || true
+rm -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" 2>/dev/null || true
 rm -f "app/Console/Commands/AutoSuspendServersCommand.php" 2>/dev/null || true
 rm -f "app/Notifications/ServerSuspensionWarningNotification.php" 2>/dev/null || true
 rm -f "resources/scripts/components/server/ServerExpiryCard.tsx" 2>/dev/null || true
@@ -69,10 +71,13 @@ if (file_exists($file)) {
     $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLAYER MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLAYER MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     file_put_contents($file, $c);
 }
 PHP_CLEAN_EOF
@@ -92,16 +97,19 @@ $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
 
 file_put_contents($routesTs, $c);
 PHP_REG_EOF
@@ -115,11 +123,13 @@ sed -i '/ModInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/ModpackInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/SoftwareInstallerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '/OptionsContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '/PlayerManagerContainer/d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/plugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mods#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/modpacks#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/software#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/options#d' "$SERVER_ROUTER" 2>/dev/null || true
+sed -i '\#/players#d' "$SERVER_ROUTER" 2>/dev/null || true
 sed -i '\#/mcplugins#d' "$SERVER_ROUTER" 2>/dev/null || true
 
 
