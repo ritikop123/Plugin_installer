@@ -129,7 +129,9 @@ export default function PlayerManagerContainer() {
   // Core list states
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'online' | 'all' | 'banned'>('online');
+  const [syncing, setSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'players' | 'banned'>('players');
+  const [playerFilter, setPlayerFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -220,6 +222,32 @@ export default function PlayerManagerContainer() {
     },
     [uuid]
   );
+
+  // Synchronize live online players via server console /list command
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await http.post<PlayersApiResponse>(`/api/client/servers/${uuid}/players/action`, {
+        action: 'sync',
+      });
+      if (res.data.success) {
+        setServerOnline(res.data.server_online);
+        setOnlineCount(res.data.online_count);
+        setMaxPlayers(res.data.max_players || 20);
+        setOnlineMode(res.data.online_mode);
+        setHasSkinsRestorer(res.data.has_skinsrestorer);
+        setOnlinePlayers(res.data.online_players || []);
+        setBannedPlayers(res.data.banned_players || []);
+        setAllPlayers(res.data.all_players || []);
+        showToast('success', 'Player list synchronized with server console.');
+      }
+    } catch (err) {
+      console.error(err);
+      await loadPlayers(true);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     loadPlayers();
@@ -393,15 +421,60 @@ export default function PlayerManagerContainer() {
     setTimeout(() => setCopiedUuid(false), 2000);
   };
 
-  // Filter players by search query
+  // Combined players map (ensuring online players are always present and flagged is_online)
+  const combinedPlayersList = useMemo(() => {
+    const map = new Map<string, PlayerSummary>();
+    for (const p of allPlayers) {
+      map.set(p.name.toLowerCase(), { ...p });
+    }
+    for (const op of onlinePlayers) {
+      const existing = map.get(op.name.toLowerCase());
+      if (existing) {
+        existing.is_online = true;
+        map.set(op.name.toLowerCase(), existing);
+      } else {
+        map.set(op.name.toLowerCase(), { ...op, is_online: true });
+      }
+    }
+    const list = Array.from(map.values());
+    // Sort: Online players first, then alphabetically
+    list.sort((a, b) => {
+      if (a.is_online !== b.is_online) {
+        return a.is_online ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+    return list;
+  }, [allPlayers, onlinePlayers]);
+
+  const onlinePlayersCount = useMemo(() => {
+    return combinedPlayersList.filter((p) => p.is_online).length;
+  }, [combinedPlayersList]);
+
+  const offlinePlayersCount = useMemo(() => {
+    return combinedPlayersList.filter((p) => !p.is_online).length;
+  }, [combinedPlayersList]);
+
+  // Filter players by active tab, sub-filter, and search query
   const filteredPlayers = useMemo(() => {
-    const list =
-      activeTab === 'online' ? onlinePlayers : activeTab === 'banned' ? bannedPlayers : allPlayers;
+    let list: PlayerSummary[] = [];
+
+    if (activeTab === 'banned') {
+      list = [...bannedPlayers];
+    } else {
+      if (playerFilter === 'online') {
+        list = combinedPlayersList.filter((p) => p.is_online);
+      } else if (playerFilter === 'offline') {
+        list = combinedPlayersList.filter((p) => !p.is_online);
+      } else {
+        list = [...combinedPlayersList];
+      }
+    }
 
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
     return list.filter((p) => p.name.toLowerCase().includes(q) || p.uuid.toLowerCase().includes(q));
-  }, [activeTab, onlinePlayers, bannedPlayers, allPlayers, searchQuery]);
+  }, [activeTab, playerFilter, combinedPlayersList, bannedPlayers, searchQuery]);
 
   // Helper to get item by slot number
   const getItemAtSlot = (items: InventoryItem[], slot: number): InventoryItem | undefined => {
@@ -507,8 +580,18 @@ export default function PlayerManagerContainer() {
             </div>
 
             <button
+              onClick={handleSync}
+              disabled={syncing || refreshing}
+              title="Synchronize live players directly from Minecraft console (/list)"
+              className="px-4 py-2.5 rounded-xl bg-primary-600/20 hover:bg-primary-600/30 text-primary-400 text-sm font-semibold border border-primary-500/40 transition-colors flex items-center gap-2 whitespace-nowrap active:scale-95 shadow-sm"
+            >
+              <FontAwesomeIcon icon={faSyncAlt} className={`${syncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Sync Online</span>
+            </button>
+
+            <button
               onClick={() => loadPlayers(true)}
-              disabled={refreshing}
+              disabled={refreshing || syncing}
               title="Refresh player list"
               className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-medium border border-neutral-700 transition-colors flex items-center gap-2 whitespace-nowrap active:scale-95"
             >
@@ -538,48 +621,47 @@ export default function PlayerManagerContainer() {
         </div>
       </div>
 
-      {/* Tabs: Online Players | All Players | Banned Players */}
-      <div className="flex items-center justify-between border-b border-neutral-800 mb-6 pb-2">
+      {/* Notice banner if server reports online players but list is syncing */}
+      {serverOnline && onlineCount > 0 && onlinePlayersCount === 0 && (
+        <div className="bg-primary-950/40 border border-primary-800/50 rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-primary-200 shadow-md">
+          <div className="flex items-center gap-3">
+            <FontAwesomeIcon icon={faInfoCircle} className="text-primary-400 text-lg flex-shrink-0" />
+            <span>
+              Server reports <strong>{onlineCount}</strong> player(s) online. If names haven't refreshed yet, click <strong>Sync Online</strong>.
+            </span>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="px-3 py-1.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap self-start sm:self-auto"
+          >
+            <FontAwesomeIcon icon={faSyncAlt} className={syncing ? 'animate-spin' : ''} />
+            <span>Sync Now</span>
+          </button>
+        </div>
+      )}
+
+      {/* Primary Tabs: Players | Banned Players */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 mb-6 pb-3">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setActiveTab('online')}
+            onClick={() => setActiveTab('players')}
             className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'online'
+              activeTab === 'players'
                 ? 'bg-primary-600/20 text-primary-400 border border-primary-500/40'
                 : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
             }`}
           >
-            <FontAwesomeIcon icon={faUserCheck} />
+            <FontAwesomeIcon icon={faUsers} />
             <span>Players</span>
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${
-                activeTab === 'online'
+                activeTab === 'players'
                   ? 'bg-primary-500/30 text-primary-300'
                   : 'bg-neutral-800 text-neutral-400'
               }`}
             >
-              {onlinePlayers.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'all'
-                ? 'bg-primary-600/20 text-primary-400 border border-primary-500/40'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
-            }`}
-          >
-            <FontAwesomeIcon icon={faUserFriends} />
-            <span>All Recorded</span>
-            <span
-              className={`text-xs px-2 py-0.5 rounded-full ${
-                activeTab === 'all'
-                  ? 'bg-primary-500/30 text-primary-300'
-                  : 'bg-neutral-800 text-neutral-400'
-              }`}
-            >
-              {allPlayers.length}
+              {combinedPlayersList.length}
             </span>
           </button>
 
@@ -605,9 +687,42 @@ export default function PlayerManagerContainer() {
           </button>
         </div>
 
-        <div className="text-xs text-neutral-500 hidden md:block">
-          Showing {filteredPlayers.length} {activeTab} {filteredPlayers.length === 1 ? 'player' : 'players'}
-        </div>
+        {/* Sub-filters for Players Tab: All | Online | Offline */}
+        {activeTab === 'players' && (
+          <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800 self-start sm:self-auto">
+            <button
+              onClick={() => setPlayerFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                playerFilter === 'all'
+                  ? 'bg-neutral-800 text-white shadow-sm font-semibold'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              All ({combinedPlayersList.length})
+            </button>
+            <button
+              onClick={() => setPlayerFilter('online')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                playerFilter === 'online'
+                  ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/40 shadow-sm font-semibold'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Online ({onlinePlayersCount})
+            </button>
+            <button
+              onClick={() => setPlayerFilter('offline')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                playerFilter === 'offline'
+                  ? 'bg-neutral-800 text-neutral-200 shadow-sm font-semibold'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              Offline ({offlinePlayersCount})
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Players Cards Grid */}
@@ -624,23 +739,23 @@ export default function PlayerManagerContainer() {
           <h3 className="text-lg font-bold text-white mb-1">
             {activeTab === 'banned'
               ? 'No Banned Players Found'
-              : activeTab === 'online'
+              : playerFilter === 'online'
               ? 'No Players Currently Online'
-              : 'No Recorded Players'}
+              : 'No Players Found'}
           </h3>
           <p className="text-sm text-neutral-400 max-w-md mx-auto">
-            {activeTab === 'online'
-              ? 'Join your Minecraft server allocation address to see your player profile and 3D model appear here.'
-              : activeTab === 'banned'
+            {activeTab === 'banned'
               ? 'Clean record! There are no banned players in banned-players.json.'
-              : 'No players have connected to this server instance yet.'}
+              : playerFilter === 'online'
+              ? 'None of the server players are currently connected. Join your Minecraft server address to appear online.'
+              : 'No players have joined this Minecraft server yet. Connect to the server to generate player data and inventories.'}
           </p>
-          {activeTab === 'online' && allPlayers.length > 0 && (
+          {activeTab === 'players' && playerFilter === 'online' && combinedPlayersList.length > 0 && (
             <button
-              onClick={() => setActiveTab('all')}
+              onClick={() => setPlayerFilter('all')}
               className="mt-4 px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors"
             >
-              View All {allPlayers.length} Recorded Players
+              View All {combinedPlayersList.length} Server Players
             </button>
           )}
         </div>

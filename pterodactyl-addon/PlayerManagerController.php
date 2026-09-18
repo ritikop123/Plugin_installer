@@ -46,19 +46,36 @@ class PlayerManagerController extends ClientApiController
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
         $levelName = $properties['level-name'] ?? 'world';
 
-        // 2. Resolve Server Allocation Host and Port
-        $host = '127.0.0.1';
+        // 2. Resolve Server Allocation Host and Port across multiple candidates
         $port = 25565;
+        $candidateHosts = ['127.0.0.1'];
         $allocation = $server->allocation;
         if ($allocation) {
             $port = (int) $allocation->port;
-            $host = !empty($allocation->alias) ? $allocation->alias : $allocation->ip;
+            if (!empty($allocation->alias)) {
+                $candidateHosts[] = $allocation->alias;
+            }
+            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
+                $candidateHosts[] = $allocation->ip;
+            }
         }
+        try {
+            if ($server->node) {
+                if (!empty($server->node->fqdn)) {
+                    $candidateHosts[] = $server->node->fqdn;
+                }
+                if (!empty($server->node->daemonListen) && $server->node->daemonListen !== '0.0.0.0') {
+                    $candidateHosts[] = $server->node->daemonListen;
+                }
+            }
+        } catch (Exception $e) {}
+
+        $candidateHosts = array_values(array_unique(array_filter($candidateHosts)));
 
         // 3. Check if SkinsRestorer plugin is installed
         $hasSkinsRestorer = $this->checkSkinsRestorerInstalled($server);
 
-        // 4. Read usercache.json (All known players)
+        // 4. Read usercache.json
         $userCache = $this->readUserCache($server);
 
         // 5. Read ops.json
@@ -68,10 +85,13 @@ class PlayerManagerController extends ClientApiController
         $bannedPlayersRaw = $this->readBannedPlayers($server);
         $bannedIps = $this->readBannedIps($server);
 
-        // 7. Perform Server List Ping (SLP) for real-time online players
-        $slpResult = $this->pingMinecraftServer('127.0.0.1', $port, 1.2);
-        if (!$slpResult && $host !== '127.0.0.1') {
-            $slpResult = $this->pingMinecraftServer($host, $port, 1.2);
+        // 7. Perform Server List Ping (SLP) for real-time online count & sample
+        $slpResult = null;
+        foreach ($candidateHosts as $host) {
+            $slpResult = $this->pingMinecraftServer($host, $port, 0.8);
+            if ($slpResult !== null) {
+                break;
+            }
         }
 
         $serverOnline = ($slpResult !== null);
@@ -95,7 +115,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 8. Supplement online players from latest.log if sample is incomplete
+        // 8. Supplement online players from latest.log (clean ANSI + 5000 lines)
         $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
         $mergedOnlineNames = [];
 
@@ -106,11 +126,27 @@ class PlayerManagerController extends ClientApiController
             $mergedOnlineNames[strtolower($lp)] = $lp;
         }
 
-        // If server is reported offline and no log players, count is 0
-        if (!$serverOnline && empty($mergedOnlineNames)) {
+        // 9. If SLP reports players online (> 0) but names were not in sample or recent log,
+        // trigger a console /list to flush online players to latest.log
+        if ($onlineCount > 0 && empty($mergedOnlineNames)) {
+            try {
+                $this->sendCommand($server, 'list');
+                usleep(150000); // 150ms
+                $refreshedLog = $this->getOnlinePlayersFromLog($server);
+                foreach ($refreshedLog as $lp) {
+                    $mergedOnlineNames[strtolower($lp)] = $lp;
+                }
+            } catch (Exception $e) {}
+        }
+
+        // If log or SLP confirmed online players, mark server online
+        if (!empty($mergedOnlineNames)) {
+            $serverOnline = true;
+            if ($onlineCount < count($mergedOnlineNames)) {
+                $onlineCount = count($mergedOnlineNames);
+            }
+        } elseif (!$serverOnline && empty($mergedOnlineNames)) {
             $onlineCount = 0;
-        } elseif ($onlineCount === 0 && !empty($mergedOnlineNames)) {
-            $onlineCount = count($mergedOnlineNames);
         }
 
         // Map online players to detailed card objects
@@ -137,9 +173,13 @@ class PlayerManagerController extends ClientApiController
 
         // Map banned players
         $bannedPlayers = [];
+        $bannedNameMap = [];
         foreach ($bannedPlayersRaw as $bp) {
             $bpName = $bp['name'] ?? 'Unknown';
             $bpUuid = $bp['uuid'] ?? '';
+            if (!empty($bpName)) {
+                $bannedNameMap[strtolower($bpName)] = true;
+            }
             $skinInfo = $this->resolvePlayerSkin($bpName, $bpUuid, $onlineMode, $hasSkinsRestorer, $server);
             $isOp = $this->isPlayerOp($bpName, $bpUuid, $opsList);
 
@@ -162,19 +202,14 @@ class PlayerManagerController extends ClientApiController
             ];
         }
 
-        // Map all recorded players from usercache
+        // Map all recorded players by merging usercache, ops, whitelist, banned, online, and world/playerdata
+        $rawAll = $this->getAllKnownPlayers($server, $levelName, $userCache, $opsList, $bannedPlayersRaw, $mergedOnlineNames);
         $allPlayers = [];
-        $bannedNameMap = [];
-        foreach ($bannedPlayersRaw as $b) {
-            if (!empty($b['name'])) {
-                $bannedNameMap[strtolower($b['name'])] = true;
-            }
-        }
 
-        foreach ($userCache as $uc) {
+        foreach ($rawAll as $uc) {
             $uName = $uc['name'] ?? '';
             if (empty($uName)) continue;
-            $uUuid = $uc['uuid'] ?? '';
+            $uUuid = !empty($uc['uuid']) ? $uc['uuid'] : $this->resolvePlayerUuid($uName, $userCache, $slpOnlinePlayers);
             $isOnline = isset($mergedOnlineNames[strtolower($uName)]);
             $isBanned = isset($bannedNameMap[strtolower($uName)]);
             $isOp = $this->isPlayerOp($uName, $uUuid, $opsList);
@@ -195,6 +230,14 @@ class PlayerManagerController extends ClientApiController
                 'is_cracked' => $skinInfo['is_cracked'],
             ];
         }
+
+        // Sort all players: Online players first, then alphabetically
+        usort($allPlayers, function ($a, $b) {
+            if ($a['is_online'] !== $b['is_online']) {
+                return $a['is_online'] ? -1 : 1;
+            }
+            return strcasecmp($a['name'], $b['name']);
+        });
 
         return response()->json([
             'success' => true,
@@ -314,6 +357,15 @@ class PlayerManagerController extends ClientApiController
         $gamemode = strtolower(trim((string) $request->input('gamemode', 'survival')));
         $message = trim((string) $request->input('message', ''));
         $banIp = (bool) $request->input('ban_ip', false);
+
+        // Instant real-time player synchronization via console /list
+        if ($action === 'sync' || $action === 'refresh') {
+            try {
+                $this->sendCommand($server, 'list');
+                usleep(300000); // 300ms
+            } catch (Exception $e) {}
+            return $this->index($request, $server);
+        }
 
         if (empty($player) && empty($uuid)) {
             return response()->json(['error' => 'Player username or UUID is required.'], 400);
@@ -751,7 +803,7 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Inspect latest.log to track currently joined players.
+     * Inspect latest.log to track currently joined players with ANSI stripping and /list support.
      */
     private function getOnlinePlayersFromLog(Server $server): array
     {
@@ -760,25 +812,172 @@ class PlayerManagerController extends ClientApiController
             $raw = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
             if (empty($raw)) return [];
 
-            $lines = explode("\n", str_replace("\r\n", "\n", $raw));
-            $tail = array_slice($lines, -300);
+            // Strip ANSI escape codes and Minecraft section symbol formatting (§x)
+            $cleanLog = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|§[0-9a-fk-or]/i', '', $raw);
+            $lines = explode("\n", str_replace("\r\n", "\n", $cleanLog));
+            $tail = count($lines) > 5000 ? array_slice($lines, -5000) : $lines;
 
             foreach ($tail as $line) {
-                if (preg_match('/:\s+([a-zA-Z0-9_]{2,16})\[.*?\]\s+logged in/i', $line, $m)) {
-                    $online[strtolower($m[1])] = $m[1];
-                } elseif (preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+joined the game/i', $line, $m)) {
-                    $online[strtolower($m[1])] = $m[1];
+                $line = trim($line);
+                if (empty($line)) continue;
+
+                // 1. Check for /list command output
+                if (preg_match('/(?:There are \d+(?:\/\d+| of a max of \d+) players online:|Connected players:)\s*(.*)/i', $line, $listMatch)) {
+                    $playerListStr = trim($listMatch[1]);
+                    $online = []; // Authoritative snapshot
+                    if (!empty($playerListStr)) {
+                        $names = explode(',', $playerListStr);
+                        foreach ($names as $n) {
+                            $cleanName = trim($n);
+                            if (preg_match('/^[a-zA-Z0-9_]{2,16}$/', $cleanName)) {
+                                $online[strtolower($cleanName)] = $cleanName;
+                            }
+                        }
+                    }
+                    continue;
                 }
 
-                if (preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+lost connection/i', $line, $m)) {
-                    unset($online[strtolower($m[1])]);
-                } elseif (preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+left the game/i', $line, $m)) {
-                    unset($online[strtolower($m[1])]);
+                // 2. Join / Login patterns
+                if (
+                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\[.*?\]\s+logged in/i', $line, $m) ||
+                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+joined the game/i', $line, $m) ||
+                    preg_match('/UUID of player\s+([a-zA-Z0-9_]{2,16})\s+is/i', $line, $m)
+                ) {
+                    $p = $m[1];
+                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                        $online[strtolower($p)] = $p;
+                    }
+                }
+
+                // 3. Disconnect / Leave patterns
+                if (
+                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+(?:lost connection|left the game)/i', $line, $m) ||
+                    preg_match('/Disconnecting\s+([a-zA-Z0-9_]{2,16}):/i', $line, $m) ||
+                    preg_match('/Kicking\s+([a-zA-Z0-9_]{2,16})/i', $line, $m)
+                ) {
+                    $p = $m[1];
+                    unset($online[strtolower($p)]);
                 }
             }
         } catch (Exception $e) {}
 
         return array_values($online);
+    }
+
+    /**
+     * Merge all player sources: usercache.json, ops.json, whitelist.json, banned-players.json,
+     * world/playerdata/*.dat files, and currently online players so no player is ever missed.
+     */
+    private function getAllKnownPlayers(
+        Server $server,
+        string $levelName,
+        array $userCache,
+        array $opsList,
+        array $bannedPlayersRaw,
+        array $onlineNames
+    ): array {
+        $playersMap = [];
+
+        // 1. From usercache.json
+        foreach ($userCache as $uc) {
+            $name = trim($uc['name'] ?? '');
+            if (!empty($name)) {
+                $playersMap[strtolower($name)] = [
+                    'name' => $name,
+                    'uuid' => $uc['uuid'] ?? '',
+                    'expiresOn' => $uc['expiresOn'] ?? '',
+                ];
+            }
+        }
+
+        // 2. From ops.json
+        foreach ($opsList as $op) {
+            $name = trim($op['name'] ?? '');
+            if (!empty($name) && !isset($playersMap[strtolower($name)])) {
+                $playersMap[strtolower($name)] = [
+                    'name' => $name,
+                    'uuid' => $op['uuid'] ?? '',
+                    'expiresOn' => '',
+                ];
+            }
+        }
+
+        // 3. From banned-players.json
+        foreach ($bannedPlayersRaw as $bp) {
+            $name = trim($bp['name'] ?? '');
+            if (!empty($name) && !isset($playersMap[strtolower($name)])) {
+                $playersMap[strtolower($name)] = [
+                    'name' => $name,
+                    'uuid' => $bp['uuid'] ?? '',
+                    'expiresOn' => '',
+                ];
+            }
+        }
+
+        // 4. From whitelist.json
+        try {
+            $rawWhitelist = $this->fileRepository->setServer($server)->getContent('/whitelist.json');
+            $whitelist = json_decode($rawWhitelist, true);
+            if (is_array($whitelist)) {
+                foreach ($whitelist as $wl) {
+                    $name = trim($wl['name'] ?? '');
+                    if (!empty($name) && !isset($playersMap[strtolower($name)])) {
+                        $playersMap[strtolower($name)] = [
+                            'name' => $name,
+                            'uuid' => $wl['uuid'] ?? '',
+                            'expiresOn' => '',
+                        ];
+                    }
+                }
+            }
+        } catch (Exception $e) {}
+
+        // 5. From currently online players
+        foreach ($onlineNames as $onName) {
+            if (!isset($playersMap[strtolower($onName)])) {
+                $playersMap[strtolower($onName)] = [
+                    'name' => $onName,
+                    'uuid' => '',
+                    'expiresOn' => '',
+                ];
+            }
+        }
+
+        // 6. Scan world/playerdata directory for any additional players
+        $playerdataDirs = ["/{$levelName}/playerdata", "/world/playerdata"];
+        foreach ($playerdataDirs as $dir) {
+            try {
+                $files = $this->fileRepository->setServer($server)->getDirectory($dir);
+                if (is_array($files)) {
+                    foreach ($files as $f) {
+                        $fname = $f['name'] ?? '';
+                        if (str_ends_with(strtolower($fname), '.dat') && !str_ends_with(strtolower($fname), '_old.dat')) {
+                            $uuid = substr($fname, 0, -4);
+                            $found = false;
+                            foreach ($playersMap as $p) {
+                                if (!empty($p['uuid']) && strcasecmp($p['uuid'], $uuid) === 0) {
+                                    $found = true;
+                                    break;
+                                }
+                            }
+                            if (!$found) {
+                                $nbt = $this->readPlayerNbtData($server, $uuid, '', $levelName);
+                                $playerName = $nbt['last_known_name'] ?? null;
+                                if (!empty($playerName)) {
+                                    $playersMap[strtolower($playerName)] = [
+                                        'name' => $playerName,
+                                        'uuid' => $uuid,
+                                        'expiresOn' => '',
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+
+        return array_values($playersMap);
     }
 
     /**
@@ -797,17 +996,15 @@ class PlayerManagerController extends ClientApiController
             'dimension' => 'minecraft:overworld',
             'pos' => [0, 64, 0],
             'last_modified' => null,
+            'last_known_name' => null,
         ];
 
-        if (empty($playerUuid)) {
-            return $result;
+        $possiblePaths = [];
+        if (!empty($playerUuid)) {
+            $possiblePaths[] = "/{$levelName}/playerdata/{$playerUuid}.dat";
+            $possiblePaths[] = "/world/playerdata/{$playerUuid}.dat";
+            $possiblePaths[] = "/world_nether/playerdata/{$playerUuid}.dat";
         }
-
-        $possiblePaths = [
-            "/{$levelName}/playerdata/{$playerUuid}.dat",
-            "/world/playerdata/{$playerUuid}.dat",
-            "/world_nether/playerdata/{$playerUuid}.dat",
-        ];
 
         $rawBytes = null;
         foreach ($possiblePaths as $path) {
@@ -818,6 +1015,36 @@ class PlayerManagerController extends ClientApiController
                     break;
                 }
             } catch (Exception $e) {}
+        }
+
+        // If not found by UUID and player name is known, check playerdata directory for matching username
+        if (empty($rawBytes) && !empty($playerName)) {
+            $scanDirs = ["/{$levelName}/playerdata", "/world/playerdata"];
+            foreach ($scanDirs as $sDir) {
+                try {
+                    $files = $this->fileRepository->setServer($server)->getDirectory($sDir);
+                    if (is_array($files)) {
+                        foreach ($files as $f) {
+                            $fname = $f['name'] ?? '';
+                            if (str_ends_with(strtolower($fname), '.dat') && !str_ends_with(strtolower($fname), '_old.dat')) {
+                                $candidateContent = $this->fileRepository->setServer($server)->getContent("{$sDir}/{$fname}");
+                                if (!empty($candidateContent)) {
+                                    $candidateDecompressed = @gzdecode($candidateContent);
+                                    if ($candidateDecompressed === false) $candidateDecompressed = $candidateContent;
+                                    $candNbt = $this->parseNbt($candidateDecompressed);
+                                    if (
+                                        !empty($candNbt['payload']['bukkit']['lastKnownName']) &&
+                                        strcasecmp($candNbt['payload']['bukkit']['lastKnownName'], $playerName) === 0
+                                    ) {
+                                        $rawBytes = $candidateContent;
+                                        break 2;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception $e) {}
+            }
         }
 
         if (empty($rawBytes)) {
@@ -833,6 +1060,10 @@ class PlayerManagerController extends ClientApiController
             $parsedNbt = $this->parseNbt($decompressed);
             if (!empty($parsedNbt['payload']) && is_array($parsedNbt['payload'])) {
                 $root = $parsedNbt['payload'];
+
+                if (!empty($root['bukkit']['lastKnownName'])) {
+                    $result['last_known_name'] = (string) $root['bukkit']['lastKnownName'];
+                }
 
                 if (isset($root['Health'])) {
                     $result['health'] = round((float) $root['Health'], 1);
