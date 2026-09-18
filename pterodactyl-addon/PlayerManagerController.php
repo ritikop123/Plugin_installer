@@ -44,54 +44,23 @@ class PlayerManagerController extends ClientApiController
         $properties = $this->readServerProperties($server);
         $maxPlayers = isset($properties['max-players']) ? (int) $properties['max-players'] : 20;
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
-        $levelName = $properties['level-name'] ?? 'world';
 
-        // 2. Resolve Server Allocation Host and Port across multiple candidates
-        $port = 25565;
-        $candidateHosts = ['127.0.0.1'];
-        $allocation = $server->allocation;
-        if ($allocation) {
-            $port = (int) $allocation->port;
-            if (!empty($allocation->alias)) {
-                $candidateHosts[] = $allocation->alias;
-            }
-            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
-                $candidateHosts[] = $allocation->ip;
-            }
-        }
-        try {
-            if ($server->node) {
-                if (!empty($server->node->fqdn)) {
-                    $candidateHosts[] = $server->node->fqdn;
-                }
-                if (!empty($server->node->daemonListen) && $server->node->daemonListen !== '0.0.0.0') {
-                    $candidateHosts[] = $server->node->daemonListen;
-                }
-            }
-        } catch (Exception $e) {}
-
-        $candidateHosts = array_values(array_unique(array_filter($candidateHosts)));
-
-        // 3. Check if SkinsRestorer plugin is installed
-        $hasSkinsRestorer = $this->checkSkinsRestorerInstalled($server);
-
-        // 4. Read usercache.json
+        // 2. Read player caches and configs (FAST direct file reads)
         $userCache = $this->readUserCache($server);
-
-        // 5. Read ops.json
         $opsList = $this->readOpsList($server);
-
-        // 6. Read banned-players.json and banned-ips.json
         $bannedPlayersRaw = $this->readBannedPlayers($server);
         $bannedIps = $this->readBannedIps($server);
 
-        // 7. Perform Server List Ping (SLP) for real-time online count & sample
-        $slpResult = null;
-        foreach ($candidateHosts as $host) {
-            $slpResult = $this->pingMinecraftServer($host, $port, 0.8);
-            if ($slpResult !== null) {
-                break;
-            }
+        // 3. Quick TCP Ping to check online count (fast 0.2s timeout)
+        $port = 25565;
+        $allocation = $server->allocation;
+        if ($allocation) {
+            $port = (int) $allocation->port;
+        }
+
+        $slpResult = $this->pingMinecraftServer('127.0.0.1', $port, 0.2);
+        if (!$slpResult && $allocation && !empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
+            $slpResult = $this->pingMinecraftServer($allocation->ip, $port, 0.2);
         }
 
         $serverOnline = ($slpResult !== null);
@@ -115,7 +84,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 8. Supplement online players from latest.log (clean ANSI + 5000 lines)
+        // 4. Online players from latest.log (clean ANSI)
         $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
         $mergedOnlineNames = [];
 
@@ -126,20 +95,6 @@ class PlayerManagerController extends ClientApiController
             $mergedOnlineNames[strtolower($lp)] = $lp;
         }
 
-        // 9. If SLP reports players online (> 0) but names were not in sample or recent log,
-        // trigger a console /list to flush online players to latest.log
-        if ($onlineCount > 0 && empty($mergedOnlineNames)) {
-            try {
-                $this->sendCommand($server, 'list');
-                usleep(150000); // 150ms
-                $refreshedLog = $this->getOnlinePlayersFromLog($server);
-                foreach ($refreshedLog as $lp) {
-                    $mergedOnlineNames[strtolower($lp)] = $lp;
-                }
-            } catch (Exception $e) {}
-        }
-
-        // If log or SLP confirmed online players, mark server online
         if (!empty($mergedOnlineNames)) {
             $serverOnline = true;
             if ($onlineCount < count($mergedOnlineNames)) {
@@ -149,11 +104,11 @@ class PlayerManagerController extends ClientApiController
             $onlineCount = 0;
         }
 
-        // Map online players to detailed card objects
+        // 5. Map online players (instant in-memory skin URLs)
         $onlinePlayers = [];
         foreach ($mergedOnlineNames as $pName) {
             $uuid = $this->resolvePlayerUuid($pName, $userCache, $slpOnlinePlayers);
-            $skinInfo = $this->resolvePlayerSkin($pName, $uuid, $onlineMode, $hasSkinsRestorer, $server);
+            $skinInfo = $this->resolvePlayerSkin($pName, $uuid, $onlineMode);
             $isOp = $this->isPlayerOp($pName, $uuid, $opsList);
 
             $onlinePlayers[] = [
@@ -171,7 +126,7 @@ class PlayerManagerController extends ClientApiController
             ];
         }
 
-        // Map banned players
+        // 6. Map banned players
         $bannedPlayers = [];
         $bannedNameMap = [];
         foreach ($bannedPlayersRaw as $bp) {
@@ -180,7 +135,7 @@ class PlayerManagerController extends ClientApiController
             if (!empty($bpName)) {
                 $bannedNameMap[strtolower($bpName)] = true;
             }
-            $skinInfo = $this->resolvePlayerSkin($bpName, $bpUuid, $onlineMode, $hasSkinsRestorer, $server);
+            $skinInfo = $this->resolvePlayerSkin($bpName, $bpUuid, $onlineMode);
             $isOp = $this->isPlayerOp($bpName, $bpUuid, $opsList);
 
             $bannedPlayers[] = [
@@ -202,8 +157,8 @@ class PlayerManagerController extends ClientApiController
             ];
         }
 
-        // Map all recorded players by merging usercache, ops, whitelist, banned, online, and world/playerdata
-        $rawAll = $this->getAllKnownPlayers($server, $levelName, $userCache, $opsList, $bannedPlayersRaw, $mergedOnlineNames);
+        // 7. Map all recorded players from usercache + ops + whitelist + online (in-memory)
+        $rawAll = $this->getAllKnownPlayers($server, $userCache, $opsList, $bannedPlayersRaw, $mergedOnlineNames);
         $allPlayers = [];
 
         foreach ($rawAll as $uc) {
@@ -213,7 +168,7 @@ class PlayerManagerController extends ClientApiController
             $isOnline = isset($mergedOnlineNames[strtolower($uName)]);
             $isBanned = isset($bannedNameMap[strtolower($uName)]);
             $isOp = $this->isPlayerOp($uName, $uUuid, $opsList);
-            $skinInfo = $this->resolvePlayerSkin($uName, $uUuid, $onlineMode, $hasSkinsRestorer, $server);
+            $skinInfo = $this->resolvePlayerSkin($uName, $uUuid, $onlineMode);
 
             $allPlayers[] = [
                 'name' => $uName,
@@ -245,7 +200,6 @@ class PlayerManagerController extends ClientApiController
             'online_count' => $onlineCount,
             'max_players' => $maxPlayers,
             'online_mode' => $onlineMode,
-            'has_skinsrestorer' => $hasSkinsRestorer,
             'online_players' => $onlinePlayers,
             'banned_players' => $bannedPlayers,
             'banned_ips' => $bannedIps,
@@ -269,7 +223,6 @@ class PlayerManagerController extends ClientApiController
         $properties = $this->readServerProperties($server);
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
         $levelName = $properties['level-name'] ?? 'world';
-        $hasSkinsRestorer = $this->checkSkinsRestorerInstalled($server);
 
         $userCache = $this->readUserCache($server);
         if (empty($playerUuid) && !empty($playerName)) {
@@ -306,10 +259,10 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        $skinInfo = $this->resolvePlayerSkin($playerName, $playerUuid, $onlineMode, $hasSkinsRestorer, $server);
+        $skinInfo = $this->resolvePlayerSkin($playerName, $playerUuid, $onlineMode);
 
-        // Read playerdata NBT file
-        $nbtData = $this->readPlayerNbtData($server, $playerUuid, $playerName, $levelName);
+        // Read single playerdata NBT file
+        $nbtData = $this->readPlayerNbtData($server, $playerUuid, $levelName);
 
         return response()->json([
             'success' => true,
@@ -324,7 +277,6 @@ class PlayerManagerController extends ClientApiController
             'skin_type' => $skinInfo['skin_type'],
             'skin_name' => $skinInfo['skin_name'],
             'is_cracked' => $skinInfo['is_cracked'],
-            'has_skinsrestorer' => $hasSkinsRestorer,
             'inventory' => $nbtData['inventory'] ?? [],
             'ender_chest' => $nbtData['ender_chest'] ?? [],
             'stats' => [
@@ -550,33 +502,6 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Check if SkinsRestorer plugin is installed on the server.
-     */
-    private function checkSkinsRestorerInstalled(Server $server): bool
-    {
-        try {
-            $srDir = $this->fileRepository->setServer($server)->getDirectory('/plugins/SkinsRestorer');
-            if (!empty($srDir)) {
-                return true;
-            }
-        } catch (Exception $e) {}
-
-        try {
-            $plugins = $this->fileRepository->setServer($server)->getDirectory('/plugins');
-            if (is_array($plugins)) {
-                foreach ($plugins as $p) {
-                    $name = strtolower($p['name'] ?? '');
-                    if (str_contains($name, 'skinsrestorer')) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception $e) {}
-
-        return false;
-    }
-
-    /**
      * Read usercache.json
      */
     private function readUserCache(Server $server): array
@@ -683,97 +608,31 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Resolve skin, avatar, and 3D render preview based on:
-     * - SkinsRestorer assigned skin
-     * - Cracked account without skin -> Classic Steve
-     * - Premium account -> Official Mojang Skin
+     * Resolve skin, avatar, and 3D render preview based on player name (instant in-memory URL resolution).
      */
-    private function resolvePlayerSkin(
-        string $playerName,
-        string $playerUuid,
-        bool $onlineMode,
-        bool $hasSkinsRestorer,
-        Server $server
-    ): array {
-        $skinRestorerSkin = null;
-
-        if ($hasSkinsRestorer) {
-            $skinRestorerSkin = $this->getSkinsRestorerSkinName($server, $playerName, $playerUuid);
-        }
-
-        if (!empty($skinRestorerSkin)) {
-            $encodedSkin = urlencode($skinRestorerSkin);
-            return [
-                'skin_type' => 'skinsrestorer',
-                'skin_name' => $skinRestorerSkin,
-                'is_cracked' => !$onlineMode,
-                'skin_url' => "https://mc-heads.net/skin/{$encodedSkin}",
-                'avatar_url' => "https://mc-heads.net/avatar/{$encodedSkin}/64",
-                'render_3d_url' => "https://visage.surgeplay.com/full/512/{$encodedSkin}",
-            ];
-        }
-
-        $isCracked = !$onlineMode;
-
-        if ($isCracked) {
+    private function resolvePlayerSkin(string $playerName, string $playerUuid, bool $onlineMode): array
+    {
+        $cleanName = trim($playerName);
+        if (empty($cleanName)) {
             return [
                 'skin_type' => 'steve',
                 'skin_name' => 'Steve',
-                'is_cracked' => true,
+                'is_cracked' => !$onlineMode,
                 'skin_url' => self::STEVE_SKIN_URL,
                 'avatar_url' => self::STEVE_AVATAR_URL,
                 'render_3d_url' => "https://visage.surgeplay.com/full/512/MHF_Steve",
             ];
         }
 
-        $encodedName = urlencode($playerName);
+        $encodedName = urlencode($cleanName);
         return [
-            'skin_type' => 'premium',
-            'skin_name' => $playerName,
-            'is_cracked' => false,
+            'skin_type' => $onlineMode ? 'premium' : 'standard',
+            'skin_name' => $cleanName,
+            'is_cracked' => !$onlineMode,
             'skin_url' => "https://mc-heads.net/skin/{$encodedName}",
             'avatar_url' => "https://mc-heads.net/avatar/{$encodedName}/64",
             'render_3d_url' => "https://visage.surgeplay.com/full/512/{$encodedName}",
         ];
-    }
-
-    /**
-     * Inspect SkinsRestorer player cache files to get assigned skin name.
-     */
-    private function getSkinsRestorerSkinName(Server $server, string $playerName, string $playerUuid): ?string
-    {
-        $possiblePaths = [
-            "/plugins/SkinsRestorer/players/" . strtolower($playerName) . ".player",
-            "/plugins/SkinsRestorer/players/" . $playerName . ".player",
-            "/plugins/SkinsRestorer/Players/" . strtolower($playerName) . ".player",
-            "/plugins/SkinsRestorer/Players/" . $playerName . ".player",
-            "/plugins/SkinsRestorer/players/" . $playerUuid . ".player",
-            "/plugins/SkinsRestorer/Players/" . $playerUuid . ".player",
-            "/plugins/SkinsRestorer/players/" . strtolower($playerName) . ".json",
-        ];
-
-        foreach ($possiblePaths as $path) {
-            try {
-                $data = $this->fileRepository->setServer($server)->getContent($path);
-                if (!empty($data)) {
-                    $trimmed = trim($data);
-                    if (preg_match('/^[a-zA-Z0-9_]{2,16}$/', $trimmed)) {
-                        return $trimmed;
-                    }
-                    $json = json_decode($trimmed, true);
-                    if (is_array($json)) {
-                        if (!empty($json['skinName'])) {
-                            return (string) $json['skinName'];
-                        }
-                        if (!empty($json['profileName'])) {
-                            return (string) $json['profileName'];
-                        }
-                    }
-                }
-            } catch (Exception $e) {}
-        }
-
-        return null;
     }
 
     /**
@@ -815,7 +674,7 @@ class PlayerManagerController extends ClientApiController
             // Strip ANSI escape codes and Minecraft section symbol formatting (§x)
             $cleanLog = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|§[0-9a-fk-or]/i', '', $raw);
             $lines = explode("\n", str_replace("\r\n", "\n", $cleanLog));
-            $tail = count($lines) > 5000 ? array_slice($lines, -5000) : $lines;
+            $tail = count($lines) > 1000 ? array_slice($lines, -1000) : $lines;
 
             foreach ($tail as $line) {
                 $line = trim($line);
@@ -865,12 +724,11 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Merge all player sources: usercache.json, ops.json, whitelist.json, banned-players.json,
-     * world/playerdata/*.dat files, and currently online players so no player is ever missed.
+     * Merge player records: usercache.json, ops.json, whitelist.json, banned-players.json,
+     * and currently online players in memory with zero directory overhead.
      */
     private function getAllKnownPlayers(
         Server $server,
-        string $levelName,
         array $userCache,
         array $opsList,
         array $bannedPlayersRaw,
@@ -943,47 +801,13 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 6. Scan world/playerdata directory for any additional players
-        $playerdataDirs = ["/{$levelName}/playerdata", "/world/playerdata"];
-        foreach ($playerdataDirs as $dir) {
-            try {
-                $files = $this->fileRepository->setServer($server)->getDirectory($dir);
-                if (is_array($files)) {
-                    foreach ($files as $f) {
-                        $fname = $f['name'] ?? '';
-                        if (str_ends_with(strtolower($fname), '.dat') && !str_ends_with(strtolower($fname), '_old.dat')) {
-                            $uuid = substr($fname, 0, -4);
-                            $found = false;
-                            foreach ($playersMap as $p) {
-                                if (!empty($p['uuid']) && strcasecmp($p['uuid'], $uuid) === 0) {
-                                    $found = true;
-                                    break;
-                                }
-                            }
-                            if (!$found) {
-                                $nbt = $this->readPlayerNbtData($server, $uuid, '', $levelName);
-                                $playerName = $nbt['last_known_name'] ?? null;
-                                if (!empty($playerName)) {
-                                    $playersMap[strtolower($playerName)] = [
-                                        'name' => $playerName,
-                                        'uuid' => $uuid,
-                                        'expiresOn' => '',
-                                    ];
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (Exception $e) {}
-        }
-
         return array_values($playersMap);
     }
 
     /**
      * Read playerdata/<uuid>.dat and extract inventory and player stats using pure PHP NBT parser.
      */
-    private function readPlayerNbtData(Server $server, string $playerUuid, string $playerName, string $levelName = 'world'): array
+    private function readPlayerNbtData(Server $server, string $playerUuid, string $levelName = 'world'): array
     {
         $result = [
             'inventory' => [],
@@ -999,12 +823,15 @@ class PlayerManagerController extends ClientApiController
             'last_known_name' => null,
         ];
 
-        $possiblePaths = [];
-        if (!empty($playerUuid)) {
-            $possiblePaths[] = "/{$levelName}/playerdata/{$playerUuid}.dat";
-            $possiblePaths[] = "/world/playerdata/{$playerUuid}.dat";
-            $possiblePaths[] = "/world_nether/playerdata/{$playerUuid}.dat";
+        if (empty($playerUuid)) {
+            return $result;
         }
+
+        $possiblePaths = [
+            "/{$levelName}/playerdata/{$playerUuid}.dat",
+            "/world/playerdata/{$playerUuid}.dat",
+            "/world_nether/playerdata/{$playerUuid}.dat",
+        ];
 
         $rawBytes = null;
         foreach ($possiblePaths as $path) {
@@ -1015,36 +842,6 @@ class PlayerManagerController extends ClientApiController
                     break;
                 }
             } catch (Exception $e) {}
-        }
-
-        // If not found by UUID and player name is known, check playerdata directory for matching username
-        if (empty($rawBytes) && !empty($playerName)) {
-            $scanDirs = ["/{$levelName}/playerdata", "/world/playerdata"];
-            foreach ($scanDirs as $sDir) {
-                try {
-                    $files = $this->fileRepository->setServer($server)->getDirectory($sDir);
-                    if (is_array($files)) {
-                        foreach ($files as $f) {
-                            $fname = $f['name'] ?? '';
-                            if (str_ends_with(strtolower($fname), '.dat') && !str_ends_with(strtolower($fname), '_old.dat')) {
-                                $candidateContent = $this->fileRepository->setServer($server)->getContent("{$sDir}/{$fname}");
-                                if (!empty($candidateContent)) {
-                                    $candidateDecompressed = @gzdecode($candidateContent);
-                                    if ($candidateDecompressed === false) $candidateDecompressed = $candidateContent;
-                                    $candNbt = $this->parseNbt($candidateDecompressed);
-                                    if (
-                                        !empty($candNbt['payload']['bukkit']['lastKnownName']) &&
-                                        strcasecmp($candNbt['payload']['bukkit']['lastKnownName'], $playerName) === 0
-                                    ) {
-                                        $rawBytes = $candidateContent;
-                                        break 2;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception $e) {}
-            }
         }
 
         if (empty($rawBytes)) {

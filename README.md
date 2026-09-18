@@ -1,7 +1,7 @@
 # Arix Theme Addon Suite for Pterodactyl Panel
 
 A native, secure suite of Minecraft server management addons built specifically for Pterodactyl Panel with the **Arix Theme**:
-- 👥 **Player Manager**: Real-time player monitoring (current / max players), interactive 3D player models with SkinsRestorer / Cracked (Steve) / Premium skin detection, authentic in-game inventory inspector with Ender Chest, one-click player management (OP/De-OP, Kick, Ban, Unban, Heal, Feed, Clear Inventory, Gamemode), and dedicated Banned Players manager.
+- 👥 **Player Manager**: Real-time player monitoring (current / max players), interactive 3D player models with Cracked (Steve) / Premium skin rendering, authentic in-game inventory inspector with Ender Chest, one-click player management (OP/De-OP, Kick, Ban, Unban, Heal, Feed, Clear Inventory, Gamemode), and dedicated Banned Players manager.
 - 🔌 **Plugin Installer**: Discover and install server plugins for Paper, Purpur, Spigot, Folia, Velocity, BungeeCord, Waterfall, and Bukkit directly to `/plugins`.
 - 📦 **Mods Installer**: Browse and install Forge, Fabric, NeoForge, and Quilt mods directly to `/mods`.
 - 🗃️ **Modpacks Installer**: One-click install complete Modrinth modpacks with configs, overrides, and live batch progress tracking.
@@ -66,7 +66,6 @@ In your Pterodactyl panel:
 - **Interactive 3D Player Models**:
   - WebGL 3D player model powered by `skinview3d` with smooth walking, running, or idle animations.
   - Interactive 360° mouse drag rotation, zoom, and auto-rotate toggle.
-  - **SkinsRestorer Integration**: Automatically inspects SkinsRestorer player cache; if a cracked player has an assigned skin, displays that custom skin seamlessly.
   - **Cracked / Offline Mode Detection**: Unskinned cracked accounts render with the classic **Steve** 3D model and skin.
   - **Premium Accounts**: Fetches official Mojang skins with 64×64 pixelated head avatars.
 - **In-Game Inventory & Equipment Viewer**:

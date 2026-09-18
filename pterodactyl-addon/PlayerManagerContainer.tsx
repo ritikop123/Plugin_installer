@@ -39,7 +39,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 
 interface PlayerSkinInfo {
-  skin_type: 'premium' | 'skinsrestorer' | 'steve';
+  skin_type: 'premium' | 'standard' | 'steve';
   skin_name: string;
   skin_url: string;
   avatar_url: string;
@@ -86,10 +86,9 @@ interface PlayerDetailResponse {
   skin_url: string;
   avatar_url: string;
   render_3d_url: string;
-  skin_type: 'premium' | 'skinsrestorer' | 'steve';
+  skin_type: 'premium' | 'standard' | 'steve';
   skin_name: string;
   is_cracked: boolean;
-  has_skinsrestorer: boolean;
   inventory: InventoryItem[];
   ender_chest: InventoryItem[];
   stats: {
@@ -110,7 +109,6 @@ interface PlayersApiResponse {
   online_count: number;
   max_players: number;
   online_mode: boolean;
-  has_skinsrestorer: boolean;
   online_players: PlayerSummary[];
   banned_players: PlayerSummary[];
   all_players: PlayerSummary[];
@@ -140,7 +138,6 @@ export default function PlayerManagerContainer() {
   const [onlineCount, setOnlineCount] = useState(0);
   const [maxPlayers, setMaxPlayers] = useState(20);
   const [onlineMode, setOnlineMode] = useState(true);
-  const [hasSkinsRestorer, setHasSkinsRestorer] = useState(false);
 
   // Lists
   const [onlinePlayers, setOnlinePlayers] = useState<PlayerSummary[]>([]);
@@ -207,7 +204,6 @@ export default function PlayerManagerContainer() {
           setOnlineCount(res.data.online_count);
           setMaxPlayers(res.data.max_players || 20);
           setOnlineMode(res.data.online_mode);
-          setHasSkinsRestorer(res.data.has_skinsrestorer);
           setOnlinePlayers(res.data.online_players || []);
           setBannedPlayers(res.data.banned_players || []);
           setAllPlayers(res.data.all_players || []);
@@ -235,7 +231,6 @@ export default function PlayerManagerContainer() {
         setOnlineCount(res.data.online_count);
         setMaxPlayers(res.data.max_players || 20);
         setOnlineMode(res.data.online_mode);
-        setHasSkinsRestorer(res.data.has_skinsrestorer);
         setOnlinePlayers(res.data.online_players || []);
         setBannedPlayers(res.data.banned_players || []);
         setAllPlayers(res.data.all_players || []);
@@ -533,11 +528,6 @@ export default function PlayerManagerContainer() {
                   />
                   {serverOnline ? 'Server Active' : 'Server Standby'}
                 </span>
-                {hasSkinsRestorer && (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full border bg-indigo-950/70 text-indigo-300 border-indigo-700/50 font-medium">
-                    SkinsRestorer Active
-                  </span>
-                )}
                 {!onlineMode && (
                   <span className="text-xs px-2.5 py-0.5 rounded-full border bg-amber-950/60 text-amber-300 border-amber-700/50 font-medium">
                     Cracked Mode
@@ -822,26 +812,26 @@ export default function PlayerManagerContainer() {
                       </span>
                     )}
 
-                    {player.skin_type === 'skinsrestorer' ? (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 text-[10px]"
-                        title={`SkinsRestorer skin: ${player.skin_name}`}
-                      >
-                        SR Skin
-                      </span>
-                    ) : player.skin_type === 'steve' ? (
+                    {player.skin_type === 'steve' ? (
                       <span
                         className="px-1.5 py-0.5 rounded-md bg-amber-950/50 text-amber-300 border border-amber-800/40 text-[10px]"
                         title="Cracked account default Steve"
                       >
                         Steve
                       </span>
-                    ) : (
+                    ) : player.skin_type === 'premium' ? (
                       <span
                         className="px-1.5 py-0.5 rounded-md bg-cyan-950/50 text-cyan-300 border border-cyan-800/40 text-[10px]"
                         title="Official Mojang premium skin"
                       >
                         Premium
+                      </span>
+                    ) : (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md bg-indigo-950/50 text-indigo-300 border border-indigo-800/40 text-[10px]"
+                        title="Player skin"
+                      >
+                        Skin
                       </span>
                     )}
                   </div>
@@ -957,18 +947,18 @@ export default function PlayerManagerContainer() {
                   <div className="absolute top-3 left-3 z-10">
                     <span
                       className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${
-                        selectedPlayer.skin_type === 'skinsrestorer'
-                          ? 'bg-indigo-950/80 text-indigo-300 border-indigo-700/50'
-                          : selectedPlayer.skin_type === 'steve'
+                        selectedPlayer.skin_type === 'steve'
                           ? 'bg-amber-950/80 text-amber-300 border-amber-700/50'
-                          : 'bg-cyan-950/80 text-cyan-300 border-cyan-700/50'
+                          : selectedPlayer.skin_type === 'premium'
+                          ? 'bg-cyan-950/80 text-cyan-300 border-cyan-700/50'
+                          : 'bg-indigo-950/80 text-indigo-300 border-indigo-700/50'
                       }`}
                     >
-                      {selectedPlayer.skin_type === 'skinsrestorer'
-                        ? `SkinsRestorer: ${selectedPlayer.skin_name}`
-                        : selectedPlayer.skin_type === 'steve'
+                      {selectedPlayer.skin_type === 'steve'
                         ? 'Cracked (Steve Skin)'
-                        : 'Official Premium Skin'}
+                        : selectedPlayer.skin_type === 'premium'
+                        ? 'Official Premium Skin'
+                        : 'Player Skin'}
                     </span>
                   </div>
 
