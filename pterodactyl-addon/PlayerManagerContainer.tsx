@@ -247,12 +247,19 @@ export default function PlayerManagerContainer() {
     }, 4500);
   };
 
+  const isFetchingRef = useRef(false);
+  const isDetailFetchingRef = useRef(false);
+
   // Fetch all players data from backend
   const loadPlayers = useCallback(
     async (isManualRefresh = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
       if (isManualRefresh) setRefreshing(true);
       try {
-        const res = await http.get<PlayersApiResponse>(`/api/client/servers/${uuid}/players`);
+        const res = await http.get<PlayersApiResponse>(`/api/client/servers/${uuid}/players`, {
+          timeout: 10000,
+        });
         if (res.data.success) {
           if (res.data.software) setSoftware(res.data.software);
           setServerOnline(res.data.server_online);
@@ -265,8 +272,11 @@ export default function PlayerManagerContainer() {
         }
       } catch (err) {
         console.error(err);
-        showToast('error', httpErrorToHuman(err));
+        if (isManualRefresh) {
+          showToast('error', httpErrorToHuman(err));
+        }
       } finally {
+        isFetchingRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
@@ -300,10 +310,11 @@ export default function PlayerManagerContainer() {
     }
   };
 
-  // Auto-refresh every 5 seconds seamlessly
+  // Auto-refresh every 5 seconds seamlessly (only when page is active and not already fetching)
   useEffect(() => {
     loadPlayers();
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       loadPlayers();
     }, 5000);
     return () => clearInterval(interval);
@@ -312,6 +323,8 @@ export default function PlayerManagerContainer() {
   // Load single player details, stats and live inventory
   const loadPlayerDetails = useCallback(
     async (player: PlayerSummary, forceLoadingState = false, fresh = false) => {
+      if (isDetailFetchingRef.current) return;
+      isDetailFetchingRef.current = true;
       if (fresh) {
         setDetailSyncing(true);
       } else if (forceLoadingState || !player.inventory) {
@@ -324,6 +337,7 @@ export default function PlayerManagerContainer() {
             uuid: player.uuid,
             fresh: fresh ? 1 : 0,
           },
+          timeout: 10000,
         });
         if (res.data.success) {
           setPlayerDetail(res.data);
@@ -335,6 +349,7 @@ export default function PlayerManagerContainer() {
         console.error(err);
         showToast('error', `Failed to load details for ${player.name}: ${httpErrorToHuman(err)}`);
       } finally {
+        isDetailFetchingRef.current = false;
         setLoadingDetail(false);
         setDetailSyncing(false);
       }
@@ -1476,7 +1491,7 @@ export default function PlayerManagerContainer() {
                                   className="w-4 h-4 object-contain flex-shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src =
-                                      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${b.clean_id}.png`;
+                                      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/blocks/${b.clean_id}.png`;
                                   }}
                                 />
                                 <span className="truncate text-[11px]">{b.name}</span>
@@ -1536,7 +1551,7 @@ export default function PlayerManagerContainer() {
                                   className="w-4 h-4 object-contain flex-shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src =
-                                      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${item.clean_id}.png`;
+                                      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/items/${item.clean_id}.png`;
                                   }}
                                 />
                                 <span className="truncate text-[11px]">{item.name}</span>
@@ -1953,16 +1968,23 @@ function InventorySlot({
   const [hovered, setHovered] = useState(false);
   const [fallbackIndex, setFallbackIndex] = useState(0);
 
-  // Available fallback texture sources
+  // Reset fallback index whenever the item changes so new items don't inherit old fallbacks
+  useEffect(() => {
+    setFallbackIndex(0);
+  }, [item?.clean_id]);
+
+  // Available fallback texture sources (handles items, blocks, and slabs)
   const textureSources = useMemo(() => {
     if (!item) return [];
+    const id = item.clean_id;
     return [
-      `https://api.minecraftitems.xyz/api/item/${item.clean_id}`,
-      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/items/${item.clean_id}.png`,
-      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${item.clean_id}.png`,
-      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${item.clean_id}.png`,
+      `https://api.minecraftitems.xyz/api/item/${id}`,
+      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/items/${id}.png`,
+      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/blocks/${id}.png`,
+      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${id}.png`,
+      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${id}.png`,
     ];
-  }, [item]);
+  }, [item?.clean_id]);
 
   const currentImgSrc = textureSources[fallbackIndex] || '';
 
