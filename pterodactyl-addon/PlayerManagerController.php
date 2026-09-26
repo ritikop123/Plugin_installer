@@ -15,11 +15,12 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 
 class PlayerManagerController extends ClientApiController
 {
-    protected DaemonFileRepository $fileRepository;
-    protected DaemonCommandRepository $commandRepository;
-
+    public const MANIFEST_FILE = '/.pterodactyl-software.json';
     public const STEVE_SKIN_URL = 'https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/entity/player/wide/steve.png';
     public const STEVE_AVATAR_URL = 'https://mc-heads.net/avatar/MHF_Steve/64';
+
+    protected DaemonFileRepository $fileRepository;
+    protected DaemonCommandRepository $commandRepository;
 
     public function __construct(
         DaemonFileRepository $fileRepository,
@@ -40,40 +41,41 @@ class PlayerManagerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        // 1. Read server.properties
-        $properties = $this->readServerProperties($server);
+        // 1. Detect server software & category (java, bedrock, proxy)
+        $software = $this->detectServerSoftware($server);
+        $category = $software['category'] ?? 'java';
+
+        // 2. Read server properties / config
+        $properties = $this->readServerProperties($server, $category);
         $maxPlayers = isset($properties['max-players']) ? (int) $properties['max-players'] : 20;
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
 
-        // 2. Read player caches and configs (FAST direct file reads)
+        // 3. Read player caches across all software (ops.json / permissions.json / ops.txt, banned-players, etc.)
         $userCache = $this->readUserCache($server);
-        $opsList = $this->readOpsList($server);
+        $opsList = $this->readOpsList($server, $category);
         $bannedPlayersRaw = $this->readBannedPlayers($server);
         $bannedIps = $this->readBannedIps($server);
 
-        // 3. Quick TCP Ping to check online count (fast 0.2s timeout)
-        $port = 25565;
+        // 4. Resolve Port
+        $port = ($category === 'bedrock') ? 19132 : 25565;
         $allocation = $server->allocation;
         if ($allocation) {
             $port = (int) $allocation->port;
         }
 
-        $slpResult = $this->pingMinecraftServer('127.0.0.1', $port, 0.2);
-        if (!$slpResult && $allocation && !empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
-            $slpResult = $this->pingMinecraftServer($allocation->ip, $port, 0.2);
-        }
-
-        $serverOnline = ($slpResult !== null);
+        // 5. Query server status & online count (UDP RakNet for Bedrock, TCP SLP for Java/Proxy)
+        $pingResult = $this->queryServerStatus($server, $port, $category);
+        $serverOnline = ($pingResult !== null);
         $onlineCount = 0;
         $slpOnlinePlayers = [];
 
-        if ($slpResult) {
-            $onlineCount = (int) ($slpResult['players']['online'] ?? 0);
-            if (isset($slpResult['players']['max'])) {
-                $maxPlayers = (int) $slpResult['players']['max'];
+        if ($pingResult) {
+            $onlineCount = (int) ($pingResult['players']['online'] ?? 0);
+            if (isset($pingResult['players']['max'])) {
+                $maxPlayers = (int) $pingResult['players']['max'];
             }
-            if (!empty($slpResult['players']['sample']) && is_array($slpResult['players']['sample'])) {
-                foreach ($slpResult['players']['sample'] as $s) {
+            if (!empty($pingResult['players']['sample']) && is_array($pingResult['players']['sample'])) {
+                foreach ($pingResult['players']['sample'] as $s) {
                     if (!empty($s['name']) && $s['name'] !== 'Anonymous Player') {
                         $slpOnlinePlayers[] = [
                             'name' => $s['name'],
@@ -84,7 +86,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 4. Online players from latest.log (clean ANSI)
+        // 6. Online players from latest.log
         $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
         $mergedOnlineNames = [];
 
@@ -104,7 +106,7 @@ class PlayerManagerController extends ClientApiController
             $onlineCount = 0;
         }
 
-        // 5. Map online players (instant in-memory skin URLs)
+        // 7. Map online players
         $onlinePlayers = [];
         foreach ($mergedOnlineNames as $pName) {
             $uuid = $this->resolvePlayerUuid($pName, $userCache, $slpOnlinePlayers);
@@ -126,7 +128,7 @@ class PlayerManagerController extends ClientApiController
             ];
         }
 
-        // 6. Map banned players
+        // 8. Map banned players
         $bannedPlayers = [];
         $bannedNameMap = [];
         foreach ($bannedPlayersRaw as $bp) {
@@ -157,7 +159,7 @@ class PlayerManagerController extends ClientApiController
             ];
         }
 
-        // 7. Map all recorded players from usercache + ops + whitelist + online (in-memory)
+        // 9. Map all recorded players from usercache + ops + whitelist/allowlist + online
         $rawAll = $this->getAllKnownPlayers($server, $userCache, $opsList, $bannedPlayersRaw, $mergedOnlineNames);
         $allPlayers = [];
 
@@ -196,6 +198,7 @@ class PlayerManagerController extends ClientApiController
 
         return response()->json([
             'success' => true,
+            'software' => $software,
             'server_online' => $serverOnline,
             'online_count' => $onlineCount,
             'max_players' => $maxPlayers,
@@ -217,10 +220,13 @@ class PlayerManagerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        $software = $this->detectServerSoftware($server);
+        $category = $software['category'] ?? 'java';
+
         $playerName = trim((string) $request->query('player', ''));
         $playerUuid = trim((string) $request->query('uuid', ''));
 
-        $properties = $this->readServerProperties($server);
+        $properties = $this->readServerProperties($server, $category);
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
         $levelName = $properties['level-name'] ?? 'world';
 
@@ -237,7 +243,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        $opsList = $this->readOpsList($server);
+        $opsList = $this->readOpsList($server, $category);
         $isOp = $this->isPlayerOp($playerName, $playerUuid, $opsList);
 
         $bannedPlayersRaw = $this->readBannedPlayers($server);
@@ -261,11 +267,23 @@ class PlayerManagerController extends ClientApiController
 
         $skinInfo = $this->resolvePlayerSkin($playerName, $playerUuid, $onlineMode);
 
-        // Read single playerdata NBT file
-        $nbtData = $this->readPlayerNbtData($server, $playerUuid, $levelName);
+        // Read single playerdata NBT file (if Java)
+        $nbtData = ($category === 'java') ? $this->readPlayerNbtData($server, $playerUuid, $levelName) : [
+            'inventory' => [],
+            'ender_chest' => [],
+            'health' => 20.0,
+            'food_level' => 20,
+            'level' => 0,
+            'exp' => 0.0,
+            'game_mode' => 0,
+            'dimension' => 'minecraft:overworld',
+            'pos' => [0, 64, 0],
+            'last_modified' => null,
+        ];
 
         return response()->json([
             'success' => true,
+            'software' => $software,
             'name' => $playerName,
             'uuid' => $playerUuid,
             'is_op' => $isOp,
@@ -302,6 +320,9 @@ class PlayerManagerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        $software = $this->detectServerSoftware($server);
+        $category = $software['category'] ?? 'java';
+
         $action = strtolower(trim((string) $request->input('action', '')));
         $player = trim((string) $request->input('player', ''));
         $uuid = trim((string) $request->input('uuid', ''));
@@ -310,11 +331,12 @@ class PlayerManagerController extends ClientApiController
         $message = trim((string) $request->input('message', ''));
         $banIp = (bool) $request->input('ban_ip', false);
 
-        // Instant real-time player synchronization via console /list
+        // Instant real-time player synchronization via console /list or /glist
         if ($action === 'sync' || $action === 'refresh') {
             try {
-                $this->sendCommand($server, 'list');
-                usleep(300000); // 300ms
+                $syncCmd = ($category === 'proxy') ? 'glist' : 'list';
+                $this->sendCommand($server, $syncCmd);
+                usleep(350000); // 350ms
             } catch (Exception $e) {}
             return $this->index($request, $server);
         }
@@ -323,34 +345,52 @@ class PlayerManagerController extends ClientApiController
             return response()->json(['error' => 'Player username or UUID is required.'], 400);
         }
 
-        // Clean player name to prevent command injection
-        $cleanPlayer = preg_replace('/[^a-zA-Z0-9_]/', '', $player);
+        // Clean player name to prevent command injection, preserving valid characters for Bedrock / Geyser
+        $cleanPlayer = trim(preg_replace('/[^a-zA-Z0-9_.* -]/', '', $player));
         if (empty($cleanPlayer)) {
             $cleanPlayer = $player;
         }
 
+        // Quote player name if it contains spaces (Bedrock Gamertag or Floodgate)
+        $cmdTarget = str_contains($cleanPlayer, ' ') ? "\"{$cleanPlayer}\"" : $cleanPlayer;
         $cleanReason = preg_replace('/[\r\n"]/', ' ', $reason);
         $executedCommands = [];
 
         try {
             switch ($action) {
                 case 'op':
-                    $cmd = "op {$cleanPlayer}";
-                    $this->sendCommand($server, $cmd);
+                    if ($category === 'bedrock') {
+                        try {
+                            $this->sendCommand($server, "permission set {$cmdTarget} operator");
+                        } catch (Exception $ex) {}
+                        $cmd = "op {$cmdTarget}";
+                        $this->sendCommand($server, $cmd);
+                    } else {
+                        $cmd = "op {$cmdTarget}";
+                        $this->sendCommand($server, $cmd);
+                    }
                     $executedCommands[] = $cmd;
                     $msg = "Player {$cleanPlayer} has been granted Operator status.";
                     break;
 
                 case 'deop':
-                    $cmd = "deop {$cleanPlayer}";
-                    $this->sendCommand($server, $cmd);
+                    if ($category === 'bedrock') {
+                        try {
+                            $this->sendCommand($server, "permission set {$cmdTarget} member");
+                        } catch (Exception $ex) {}
+                        $cmd = "deop {$cmdTarget}";
+                        $this->sendCommand($server, $cmd);
+                    } else {
+                        $cmd = "deop {$cmdTarget}";
+                        $this->sendCommand($server, $cmd);
+                    }
                     $executedCommands[] = $cmd;
                     $msg = "Operator status revoked for {$cleanPlayer}.";
                     break;
 
                 case 'kick':
                     $kickReason = !empty($cleanReason) ? $cleanReason : 'Kicked by server administrator.';
-                    $cmd = "kick {$cleanPlayer} {$kickReason}";
+                    $cmd = "kick {$cmdTarget} {$kickReason}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Player {$cleanPlayer} was kicked from the server.";
@@ -358,12 +398,12 @@ class PlayerManagerController extends ClientApiController
 
                 case 'ban':
                     $banReason = !empty($cleanReason) ? $cleanReason : 'Banned by server administrator.';
-                    $cmd = "ban {$cleanPlayer} {$banReason}";
+                    $cmd = "ban {$cmdTarget} {$banReason}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
 
                     if ($banIp) {
-                        $cmdIp = "ban-ip {$cleanPlayer} {$banReason}";
+                        $cmdIp = "ban-ip {$cmdTarget} {$banReason}";
                         try {
                             $this->sendCommand($server, $cmdIp);
                             $executedCommands[] = $cmdIp;
@@ -374,18 +414,18 @@ class PlayerManagerController extends ClientApiController
 
                 case 'unban':
                 case 'pardon':
-                    $cmd = "pardon {$cleanPlayer}";
+                    $cmd = "pardon {$cmdTarget}";
                     try {
                         $this->sendCommand($server, $cmd);
                         $executedCommands[] = $cmd;
                     } catch (Exception $e) {}
 
-                    // Also remove directly from banned-players.json to guarantee unban even if server is offline
+                    // Also remove directly from banned-players.json / banned-players.txt to guarantee unban even if server is offline
                     $this->removeBannedPlayerRecord($server, $cleanPlayer, $uuid);
 
                     if ($banIp) {
                         try {
-                            $cmdIp = "pardon-ip {$cleanPlayer}";
+                            $cmdIp = "pardon-ip {$cmdTarget}";
                             $this->sendCommand($server, $cmdIp);
                             $executedCommands[] = $cmdIp;
                         } catch (Exception $ex) {}
@@ -394,38 +434,53 @@ class PlayerManagerController extends ClientApiController
                     break;
 
                 case 'heal':
-                    // Instant health fills hearts to max instantly in vanilla Minecraft
-                    $cmdHealth = "effect give {$cleanPlayer} minecraft:instant_health 1 255";
-                    $cmdSat = "effect give {$cleanPlayer} minecraft:saturation 1 255";
-                    $this->sendCommand($server, $cmdHealth);
-                    $this->sendCommand($server, $cmdSat);
-                    $executedCommands[] = $cmdHealth;
-                    $executedCommands[] = $cmdSat;
-                    try {
-                        $this->sendCommand($server, "heal {$cleanPlayer}");
-                    } catch (Exception $ex) {}
+                    if ($category === 'bedrock') {
+                        $cmdHealth = "effect {$cmdTarget} instant_health 1 255";
+                        $cmdSat = "effect {$cmdTarget} saturation 1 255";
+                        try { $this->sendCommand($server, $cmdHealth); } catch (Exception $e) {}
+                        try { $this->sendCommand($server, $cmdSat); } catch (Exception $e) {}
+                        try { $this->sendCommand($server, "effect give {$cmdTarget} instant_health 1 255"); } catch (Exception $e) {}
+                        $executedCommands[] = $cmdHealth;
+                    } else {
+                        $cmdHealth = "effect give {$cmdTarget} minecraft:instant_health 1 255";
+                        $cmdSat = "effect give {$cmdTarget} minecraft:saturation 1 255";
+                        $this->sendCommand($server, $cmdHealth);
+                        $this->sendCommand($server, $cmdSat);
+                        $executedCommands[] = $cmdHealth;
+                        $executedCommands[] = $cmdSat;
+                        try {
+                            $this->sendCommand($server, "heal {$cmdTarget}");
+                        } catch (Exception $ex) {}
+                    }
                     $msg = "Player {$cleanPlayer} has been fully healed and fed.";
                     break;
 
                 case 'feed':
-                    $cmdSat = "effect give {$cleanPlayer} minecraft:saturation 1 255";
-                    $this->sendCommand($server, $cmdSat);
-                    $executedCommands[] = $cmdSat;
-                    try {
-                        $this->sendCommand($server, "feed {$cleanPlayer}");
-                    } catch (Exception $ex) {}
+                    if ($category === 'bedrock') {
+                        $cmdSat = "effect {$cmdTarget} saturation 1 255";
+                        try { $this->sendCommand($server, $cmdSat); } catch (Exception $e) {}
+                        try { $this->sendCommand($server, "effect give {$cmdTarget} saturation 1 255"); } catch (Exception $e) {}
+                        $executedCommands[] = $cmdSat;
+                    } else {
+                        $cmdSat = "effect give {$cmdTarget} minecraft:saturation 1 255";
+                        $this->sendCommand($server, $cmdSat);
+                        $executedCommands[] = $cmdSat;
+                        try {
+                            $this->sendCommand($server, "feed {$cmdTarget}");
+                        } catch (Exception $ex) {}
+                    }
                     $msg = "Player {$cleanPlayer} has been fully fed.";
                     break;
 
                 case 'clear':
-                    $cmd = "clear {$cleanPlayer}";
+                    $cmd = "clear {$cmdTarget}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Player {$cleanPlayer}'s inventory was cleared.";
                     break;
 
                 case 'kill':
-                    $cmd = "kill {$cleanPlayer}";
+                    $cmd = "kill {$cmdTarget}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Player {$cleanPlayer} was killed.";
@@ -436,7 +491,7 @@ class PlayerManagerController extends ClientApiController
                     if (!in_array($gamemode, $allowedModes)) {
                         $gamemode = 'survival';
                     }
-                    $cmd = "gamemode {$gamemode} {$cleanPlayer}";
+                    $cmd = "gamemode {$gamemode} {$cmdTarget}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Gamemode for {$cleanPlayer} changed to " . ucfirst($gamemode) . ".";
@@ -446,7 +501,7 @@ class PlayerManagerController extends ClientApiController
                 case 'whisper':
                 case 'tell':
                     $cleanMsg = preg_replace('/[\r\n"]/', ' ', $message);
-                    $cmd = "tell {$cleanPlayer} {$cleanMsg}";
+                    $cmd = "tell {$cmdTarget} {$cleanMsg}";
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Message sent to {$cleanPlayer}.";
@@ -479,25 +534,50 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Helper to read server.properties.
+     * Helper to read server.properties or proxy config.
      */
-    private function readServerProperties(Server $server): array
+    private function readServerProperties(Server $server, string $category = 'java'): array
     {
         $properties = [];
-        try {
-            $raw = $this->fileRepository->setServer($server)->getContent('/server.properties');
-            $lines = explode("\n", str_replace("\r\n", "\n", $raw));
-            foreach ($lines as $line) {
-                $trimmed = trim($line);
-                if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) {
-                    continue;
+        $filesToTry = ['/server.properties'];
+        if ($category === 'bedrock') {
+            $filesToTry = ['/server.properties', '/pocketmine.yml'];
+        } elseif ($category === 'proxy') {
+            $filesToTry = ['/config.yml', '/velocity.toml', '/server.properties'];
+        }
+
+        foreach ($filesToTry as $file) {
+            try {
+                $raw = $this->fileRepository->setServer($server)->getContent($file);
+                if (empty($raw)) continue;
+
+                $lines = explode("\n", str_replace("\r\n", "\n", $raw));
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) {
+                        continue;
+                    }
+                    if (str_contains($line, '=')) {
+                        $parts = explode('=', $line, 2);
+                        $properties[trim($parts[0])] = trim($parts[1]);
+                    } elseif (str_contains($line, ':')) {
+                        $parts = explode(':', $line, 2);
+                        $properties[trim($parts[0])] = trim(trim($parts[1]), '"\'');
+                    }
                 }
-                $parts = explode('=', $line, 2);
-                if (count($parts) === 2) {
-                    $properties[trim($parts[0])] = trim($parts[1]);
+                if (!empty($properties)) {
+                    break;
                 }
+            } catch (Exception $e) {}
+        }
+
+        // Bedrock BDS mapping
+        if ($category === 'bedrock') {
+            if (!empty($properties['server-name']) && empty($properties['motd'])) {
+                $properties['motd'] = $properties['server-name'];
             }
-        } catch (Exception $e) {}
+        }
+
         return $properties;
     }
 
@@ -516,49 +596,138 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Read ops.json
+     * Read ops.json / permissions.json (Bedrock) / ops.txt
      */
-    private function readOpsList(Server $server): array
+    private function readOpsList(Server $server, string $category = 'java'): array
     {
+        $ops = [];
+
+        // 1. Standard Java ops.json
         try {
             $content = $this->fileRepository->setServer($server)->getContent('/ops.json');
             $decoded = json_decode($content, true);
-            return is_array($decoded) ? $decoded : [];
-        } catch (Exception $e) {
-            return [];
-        }
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (Exception $e) {}
+
+        // 2. Bedrock BDS permissions.json
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/permissions.json');
+            $decoded = json_decode($content, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $p) {
+                    if (is_array($p) && strtolower($p['permission'] ?? '') === 'operator') {
+                        $ops[] = [
+                            'name' => $p['name'] ?? '',
+                            'uuid' => $p['xuid'] ?? ($p['uuid'] ?? ''),
+                            'level' => 4,
+                        ];
+                    }
+                }
+                if (!empty($ops)) return $ops;
+            }
+        } catch (Exception $e) {}
+
+        // 3. PocketMine / Nukkit / Older Forge ops.txt
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/ops.txt');
+            if (!empty($content)) {
+                $lines = explode("\n", str_replace("\r\n", "\n", $content));
+                foreach ($lines as $line) {
+                    $name = trim($line);
+                    if (!empty($name) && !str_starts_with($name, '#')) {
+                        $ops[] = [
+                            'name' => $name,
+                            'uuid' => '',
+                            'level' => 4,
+                        ];
+                    }
+                }
+            }
+        } catch (Exception $e) {}
+
+        return $ops;
     }
 
     /**
-     * Read banned-players.json
+     * Read banned-players.json / banned-players.txt
      */
     private function readBannedPlayers(Server $server): array
     {
+        // 1. banned-players.json
         try {
             $content = $this->fileRepository->setServer($server)->getContent('/banned-players.json');
             $decoded = json_decode($content, true);
-            return is_array($decoded) ? $decoded : [];
-        } catch (Exception $e) {
-            return [];
-        }
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (Exception $e) {}
+
+        // 2. banned-players.txt (PocketMine / Older servers)
+        $banned = [];
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/banned-players.txt');
+            if (!empty($content)) {
+                $lines = explode("\n", str_replace("\r\n", "\n", $content));
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if (empty($trimmed) || str_starts_with($trimmed, '#')) continue;
+                    $parts = explode('|', $trimmed);
+                    $banned[] = [
+                        'name' => trim($parts[0] ?? $trimmed),
+                        'uuid' => '',
+                        'created' => $parts[1] ?? '',
+                        'source' => $parts[2] ?? 'Server',
+                        'expires' => $parts[3] ?? 'forever',
+                        'reason' => $parts[4] ?? 'Banned by an operator.',
+                    ];
+                }
+            }
+        } catch (Exception $e) {}
+
+        return $banned;
     }
 
     /**
-     * Read banned-ips.json
+     * Read banned-ips.json / banned-ips.txt
      */
     private function readBannedIps(Server $server): array
     {
         try {
             $content = $this->fileRepository->setServer($server)->getContent('/banned-ips.json');
             $decoded = json_decode($content, true);
-            return is_array($decoded) ? $decoded : [];
-        } catch (Exception $e) {
-            return [];
-        }
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (Exception $e) {}
+
+        $bannedIps = [];
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/banned-ips.txt');
+            if (!empty($content)) {
+                $lines = explode("\n", str_replace("\r\n", "\n", $content));
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if (!empty($trimmed) && !str_starts_with($trimmed, '#')) {
+                        $parts = explode('|', $trimmed);
+                        $bannedIps[] = [
+                            'ip' => trim($parts[0] ?? $trimmed),
+                            'created' => $parts[1] ?? '',
+                            'source' => $parts[2] ?? 'Server',
+                            'expires' => $parts[3] ?? 'forever',
+                            'reason' => $parts[4] ?? 'Banned by an operator.',
+                        ];
+                    }
+                }
+            }
+        } catch (Exception $e) {}
+
+        return $bannedIps;
     }
 
     /**
-     * Check if a player is in ops.json
+     * Check if a player is in ops list
      */
     private function isPlayerOp(string $name, ?string $uuid, array $opsList): bool
     {
@@ -608,7 +777,7 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Resolve skin, avatar, and 3D render preview based on player name (instant in-memory URL resolution).
+     * Resolve skin, avatar, and 3D render preview based on player name.
      */
     private function resolvePlayerSkin(string $playerName, string $playerUuid, bool $onlineMode): array
     {
@@ -620,6 +789,21 @@ class PlayerManagerController extends ClientApiController
                 'is_cracked' => !$onlineMode,
                 'skin_url' => self::STEVE_SKIN_URL,
                 'avatar_url' => self::STEVE_AVATAR_URL,
+                'render_3d_url' => "https://visage.surgeplay.com/full/512/MHF_Steve",
+            ];
+        }
+
+        // Check if Bedrock or Floodgate player (starts with . or * or contains spaces)
+        $isBedrock = str_starts_with($cleanName, '.') || str_starts_with($cleanName, '*') || str_contains($cleanName, ' ');
+        if ($isBedrock) {
+            $skinName = ltrim($cleanName, '.*');
+            $encodedName = urlencode($skinName);
+            return [
+                'skin_type' => 'standard',
+                'skin_name' => $cleanName,
+                'is_cracked' => true,
+                'skin_url' => "https://mc-heads.net/skin/{$encodedName}",
+                'avatar_url' => "https://mc-heads.net/avatar/{$encodedName}/64",
                 'render_3d_url' => "https://visage.surgeplay.com/full/512/MHF_Steve",
             ];
         }
@@ -636,59 +820,88 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Remove player from banned-players.json directly (useful if server is offline).
+     * Remove player from banned-players.json / banned-players.txt directly.
      */
     private function removeBannedPlayerRecord(Server $server, string $name, string $uuid): void
     {
+        // 1. Clean banned-players.json
         try {
             $raw = $this->fileRepository->setServer($server)->getContent('/banned-players.json');
             $banned = json_decode($raw, true);
-            if (!is_array($banned)) return;
-
-            $updated = [];
-            foreach ($banned as $b) {
-                $matchName = !empty($name) && strcasecmp($b['name'] ?? '', $name) === 0;
-                $matchUuid = !empty($uuid) && !empty($b['uuid']) && strcasecmp($b['uuid'], $uuid) === 0;
-                if (!$matchName && !$matchUuid) {
-                    $updated[] = $b;
+            if (is_array($banned)) {
+                $updated = [];
+                foreach ($banned as $b) {
+                    $matchName = !empty($name) && strcasecmp($b['name'] ?? '', $name) === 0;
+                    $matchUuid = !empty($uuid) && !empty($b['uuid']) && strcasecmp($b['uuid'], $uuid) === 0;
+                    if (!$matchName && !$matchUuid) {
+                        $updated[] = $b;
+                    }
                 }
+                $this->fileRepository->setServer($server)->putContent(
+                    '/banned-players.json',
+                    json_encode($updated, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                );
             }
+        } catch (Exception $e) {}
 
-            $this->fileRepository->setServer($server)->putContent(
-                '/banned-players.json',
-                json_encode($updated, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-            );
+        // 2. Clean banned-players.txt
+        try {
+            $rawTxt = $this->fileRepository->setServer($server)->getContent('/banned-players.txt');
+            if (!empty($rawTxt)) {
+                $lines = explode("\n", str_replace("\r\n", "\n", $rawTxt));
+                $newLines = [];
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if (empty($trimmed)) continue;
+                    $parts = explode('|', $trimmed);
+                    if (strcasecmp(trim($parts[0] ?? ''), $name) !== 0) {
+                        $newLines[] = $line;
+                    }
+                }
+                $this->fileRepository->setServer($server)->putContent('/banned-players.txt', implode("\n", $newLines));
+            }
         } catch (Exception $e) {}
     }
 
     /**
-     * Inspect latest.log to track currently joined players with ANSI stripping and /list support.
+     * Inspect latest.log to track currently joined players across Java, Bedrock BDS, Proxies, and Modded.
      */
     private function getOnlinePlayersFromLog(Server $server): array
     {
         $online = [];
         try {
-            $raw = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
+            $raw = '';
+            try {
+                $raw = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
+            } catch (Exception $e) {}
+
+            if (empty($raw)) {
+                try {
+                    $raw = $this->fileRepository->setServer($server)->getContent('/proxy.log.0');
+                } catch (Exception $e) {}
+            }
             if (empty($raw)) return [];
 
             // Strip ANSI escape codes and Minecraft section symbol formatting (§x)
             $cleanLog = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|§[0-9a-fk-or]/i', '', $raw);
             $lines = explode("\n", str_replace("\r\n", "\n", $cleanLog));
-            $tail = count($lines) > 1000 ? array_slice($lines, -1000) : $lines;
+            $tail = count($lines) > 1200 ? array_slice($lines, -1200) : $lines;
 
             foreach ($tail as $line) {
                 $line = trim($line);
                 if (empty($line)) continue;
 
-                // 1. Check for /list command output
-                if (preg_match('/(?:There are \d+(?:\/\d+| of a max of \d+) players online:|Connected players:)\s*(.*)/i', $line, $listMatch)) {
+                // 1. /list or connected players output
+                if (
+                    preg_match('/(?:There are \d+(?:\/\d+| of a max of \d+) players online:|Connected players:)\s*(.*)/i', $line, $listMatch) ||
+                    preg_match('/\[.*?\]\s*\(\d+\):\s*(.*)/i', $line, $listMatch)
+                ) {
                     $playerListStr = trim($listMatch[1]);
-                    $online = []; // Authoritative snapshot
                     if (!empty($playerListStr)) {
                         $names = explode(',', $playerListStr);
                         foreach ($names as $n) {
                             $cleanName = trim($n);
-                            if (preg_match('/^[a-zA-Z0-9_]{2,16}$/', $cleanName)) {
+                            if (preg_match('/^[a-zA-Z0-9_.* -]{2,32}$/', $cleanName) && !in_array(strtolower($cleanName), ['server', 'console', 'anonymous'])) {
                                 $online[strtolower($cleanName)] = $cleanName;
                             }
                         }
@@ -696,25 +909,76 @@ class PlayerManagerController extends ClientApiController
                     continue;
                 }
 
-                // 2. Join / Login patterns
+                // 2. Bedrock BDS Join: "Player connected: Cool Gamer, xuid: ..."
+                if (preg_match('/Player connected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m) || preg_match('/Player Spawned:\s*([^,\n\r]+)\s*xuid:/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    if (!empty($p) && !in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                        $online[strtolower($p)] = $p;
+                    }
+                    continue;
+                }
+
+                // 3. Bedrock BDS Leave: "Player disconnected: Cool Gamer, xuid: ..."
+                if (preg_match('/Player disconnected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    unset($online[strtolower($p)]);
+                    continue;
+                }
+
+                // 4. BungeeCord / Waterfall Join: "[PlayerName] <-> InitialHandler has connected"
+                if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+<->\s+InitialHandler has connected/i', $line, $m) || preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+has connected to/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                        $online[strtolower($p)] = $p;
+                    }
+                    continue;
+                }
+
+                // 5. BungeeCord Leave: "[PlayerName] has disconnected"
+                if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+(?:<->\s+InitialHandler has disconnected|has disconnected)/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    unset($online[strtolower($p)]);
+                    continue;
+                }
+
+                // 6. Velocity Join: "[connected player] PlayerName (/ip) has connected to"
+                if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has connected to/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                        $online[strtolower($p)] = $p;
+                    }
+                    continue;
+                }
+
+                // 7. Velocity Leave: "[connected player] PlayerName (/ip) has disconnected"
+                if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has disconnected/i', $line, $m)) {
+                    $p = trim($m[1]);
+                    unset($online[strtolower($p)]);
+                    continue;
+                }
+
+                // 8. Java Standard Join / Login
                 if (
-                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\[.*?\]\s+logged in/i', $line, $m) ||
-                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+joined the game/i', $line, $m) ||
-                    preg_match('/UUID of player\s+([a-zA-Z0-9_]{2,16})\s+is/i', $line, $m)
+                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\[.*?\]\s+logged in/i', $line, $m) ||
+                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+joined the game/i', $line, $m) ||
+                    preg_match('/UUID of player\s+([a-zA-Z0-9_.* -]{2,32})\s+is/i', $line, $m) ||
+                    preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+connected/i', $line, $m) ||
+                    preg_match('/User\s+([a-zA-Z0-9_.* -]{2,32})\s+\(UUID:.*?\)\s+logged in/i', $line, $m)
                 ) {
-                    $p = $m[1];
+                    $p = trim($m[1]);
                     if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
                         $online[strtolower($p)] = $p;
                     }
                 }
 
-                // 3. Disconnect / Leave patterns
+                // 9. Java Standard Leave / Disconnect
                 if (
-                    preg_match('/:\s+([a-zA-Z0-9_]{2,16})\s+(?:lost connection|left the game)/i', $line, $m) ||
-                    preg_match('/Disconnecting\s+([a-zA-Z0-9_]{2,16}):/i', $line, $m) ||
-                    preg_match('/Kicking\s+([a-zA-Z0-9_]{2,16})/i', $line, $m)
+                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+(?:lost connection|left the game)/i', $line, $m) ||
+                    preg_match('/Disconnecting\s+([a-zA-Z0-9_.* -]{2,32}):/i', $line, $m) ||
+                    preg_match('/Kicking\s+([a-zA-Z0-9_.* -]{2,32})/i', $line, $m) ||
+                    preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+disconnected/i', $line, $m)
                 ) {
-                    $p = $m[1];
+                    $p = trim($m[1]);
                     unset($online[strtolower($p)]);
                 }
             }
@@ -724,8 +988,8 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Merge player records: usercache.json, ops.json, whitelist.json, banned-players.json,
-     * and currently online players in memory with zero directory overhead.
+     * Merge player records: usercache.json, ops, whitelist/allowlist, banned-players,
+     * and currently online players in memory.
      */
     private function getAllKnownPlayers(
         Server $server,
@@ -748,7 +1012,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 2. From ops.json
+        // 2. From opsList (includes BDS permissions.json & ops.txt)
         foreach ($opsList as $op) {
             $name = trim($op['name'] ?? '');
             if (!empty($name) && !isset($playersMap[strtolower($name)])) {
@@ -760,7 +1024,7 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 3. From banned-players.json
+        // 3. From banned-players
         foreach ($bannedPlayersRaw as $bp) {
             $name = trim($bp['name'] ?? '');
             if (!empty($name) && !isset($playersMap[strtolower($name)])) {
@@ -772,23 +1036,39 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 4. From whitelist.json
-        try {
-            $rawWhitelist = $this->fileRepository->setServer($server)->getContent('/whitelist.json');
-            $whitelist = json_decode($rawWhitelist, true);
-            if (is_array($whitelist)) {
-                foreach ($whitelist as $wl) {
-                    $name = trim($wl['name'] ?? '');
-                    if (!empty($name) && !isset($playersMap[strtolower($name)])) {
-                        $playersMap[strtolower($name)] = [
-                            'name' => $name,
-                            'uuid' => $wl['uuid'] ?? '',
-                            'expiresOn' => '',
-                        ];
+        // 4. From whitelist.json / allowlist.json (BDS) / white-list.txt
+        foreach (['/whitelist.json', '/allowlist.json', '/white-list.txt', '/whitelist.txt'] as $wFile) {
+            try {
+                $rawWhitelist = $this->fileRepository->setServer($server)->getContent($wFile);
+                if (empty($rawWhitelist)) continue;
+
+                $whitelist = json_decode($rawWhitelist, true);
+                if (is_array($whitelist)) {
+                    foreach ($whitelist as $wl) {
+                        $name = trim($wl['name'] ?? '');
+                        if (!empty($name) && !isset($playersMap[strtolower($name)])) {
+                            $playersMap[strtolower($name)] = [
+                                'name' => $name,
+                                'uuid' => $wl['uuid'] ?? ($wl['xuid'] ?? ''),
+                                'expiresOn' => '',
+                            ];
+                        }
+                    }
+                } else {
+                    $lines = explode("\n", str_replace("\r\n", "\n", $rawWhitelist));
+                    foreach ($lines as $line) {
+                        $name = trim($line);
+                        if (!empty($name) && !str_starts_with($name, '#') && !isset($playersMap[strtolower($name)])) {
+                            $playersMap[strtolower($name)] = [
+                                'name' => $name,
+                                'uuid' => '',
+                                'expiresOn' => '',
+                            ];
+                        }
                     }
                 }
-            }
-        } catch (Exception $e) {}
+            } catch (Exception $e) {}
+        }
 
         // 5. From currently online players
         foreach ($onlineNames as $onName) {
@@ -969,9 +1249,93 @@ class PlayerManagerController extends ClientApiController
     }
 
     /**
-     * Server List Ping (SLP) Implementation.
+     * Resolve best hosts and ping server (handles Bedrock RakNet UDP & Java TCP SLP).
      */
-    private function pingMinecraftServer(string $host, int $port, float $timeout = 1.2): ?array
+    private function queryServerStatus(Server $server, int $port, string $category = 'java'): ?array
+    {
+        $hosts = [];
+        $allocation = $server->allocation;
+        if ($allocation) {
+            if (!empty($allocation->alias)) {
+                $hosts[] = $allocation->alias;
+            }
+            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0') {
+                $hosts[] = $allocation->ip;
+            }
+        }
+        if (!empty($server->node) && !empty($server->node->fqdn)) {
+            $hosts[] = $server->node->fqdn;
+        }
+        $hosts[] = '127.0.0.1';
+        $hosts = array_values(array_unique(array_filter($hosts)));
+
+        foreach ($hosts as $host) {
+            if ($category === 'bedrock') {
+                $res = $this->pingBedrockServer($host, $port, 0.8);
+                if ($res !== null) return $res;
+            } else {
+                $res = $this->pingMinecraftServer($host, $port, 0.8);
+                if ($res !== null) return $res;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Bedrock RakNet Unconnected Ping via UDP socket.
+     */
+    private function pingBedrockServer(string $host, int $port, float $timeout = 0.8): ?array
+    {
+        $socket = @socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
+        if (!$socket) {
+            return null;
+        }
+
+        @socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, [
+            'sec' => (int) $timeout,
+            'usec' => (int) (($timeout - (int) $timeout) * 1000000),
+        ]);
+
+        $timeMs = (int) (microtime(true) * 1000);
+        $magic = "\x00\xff\xff\x00\xfe\xfe\xfe\xfe\xfd\xfd\xfd\xfd\x12\x34\x56\x78";
+        $packet = "\x01" . pack('J', $timeMs) . $magic . pack('J', 2);
+
+        @socket_sendto($socket, $packet, strlen($packet), 0, $host, $port);
+
+        $buf = '';
+        $from = '';
+        $fromPort = 0;
+        $bytes = @socket_recvfrom($socket, $buf, 4096, 0, $from, $fromPort);
+        @socket_close($socket);
+
+        if ($bytes === false || strlen($buf) < 35 || ord($buf[0]) !== 0x1c) {
+            return null;
+        }
+
+        $payloadLen = unpack('n', substr($buf, 33, 2))[1] ?? 0;
+        $data = substr($buf, 35, $payloadLen);
+        $parts = explode(';', $data);
+
+        return [
+            'edition' => $parts[0] ?? 'MCPE',
+            'motd' => $parts[1] ?? 'Bedrock Server',
+            'protocol' => $parts[2] ?? '',
+            'version' => $parts[3] ?? '',
+            'players' => [
+                'online' => (int) ($parts[4] ?? 0),
+                'max' => (int) ($parts[5] ?? 10),
+            ],
+            'server_id' => $parts[6] ?? '',
+            'level_name' => $parts[7] ?? 'world',
+            'gamemode' => $parts[8] ?? 'Survival',
+        ];
+    }
+
+    /**
+     * Java Server List Ping (SLP) Implementation over TCP socket.
+     */
+    private function pingMinecraftServer(string $host, int $port, float $timeout = 0.8): ?array
     {
         $errno = 0;
         $errstr = '';
@@ -1210,5 +1574,501 @@ class PlayerManagerController extends ClientApiController
             default:
                 return null;
         }
+    }
+
+    /**
+     * Detect installed server software across all Minecraft editions (Java, Bedrock, Proxies).
+     */
+    public function detectServerSoftware(Server $server): array
+    {
+        // 1. Check software manifest (written by SoftwareInstaller)
+        try {
+            $rawManifest = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
+            $manifest = json_decode($rawManifest, true);
+            if (is_array($manifest) && !empty($manifest['software'])) {
+                $softId = strtoupper($manifest['software']);
+                $category = 'java';
+                if (in_array($softId, ['BDS', 'BEDROCK', 'POCKETMINE', 'NUKKIT', 'POWERNUKKIT'])) {
+                    $category = 'bedrock';
+                } elseif (in_array($softId, ['BUNGEECORD', 'WATERFALL', 'VELOCITY', 'HEXACORD'])) {
+                    $category = 'proxy';
+                }
+                return [
+                    'id' => $softId,
+                    'name' => $manifest['software_name'] ?? ucfirst(strtolower($softId)),
+                    'category' => $category,
+                    'version' => $manifest['version'] ?? null,
+                    'build' => $manifest['build'] ?? null,
+                    'supports_plugins' => in_array($softId, ['PAPER', 'PURPUR', 'SPIGOT', 'BUKKIT', 'FOLIA', 'POCKETMINE', 'NUKKIT', 'BUNGEECORD', 'VELOCITY', 'WATERFALL']),
+                    'supports_mods' => in_array($softId, ['FORGE', 'NEOFORGE', 'FABRIC', 'QUILT', 'MOHIST', 'MAGMA', 'ARCLIGHT', 'CATSERVER']),
+                    'config_file' => in_array($softId, ['BUNGEECORD', 'WATERFALL']) ? '/config.yml' : ($softId === 'VELOCITY' ? '/velocity.toml' : '/server.properties'),
+                    'source' => 'manifest',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 2. Check Bedrock Dedicated Server (BDS)
+        try {
+            $isBds = false;
+            try {
+                $hasBedrockBin = $this->fileRepository->setServer($server)->getContent('/bedrock_server');
+                if ($hasBedrockBin !== null) $isBds = true;
+            } catch (Throwable $e) {}
+            if (!$isBds) {
+                try {
+                    $hasAllowlist = $this->fileRepository->setServer($server)->getContent('/allowlist.json');
+                    $hasPermissions = $this->fileRepository->setServer($server)->getContent('/permissions.json');
+                    if ($hasAllowlist !== null || $hasPermissions !== null) $isBds = true;
+                } catch (Throwable $e) {}
+            }
+            if ($isBds) {
+                return [
+                    'id' => 'BDS',
+                    'name' => 'Bedrock Dedicated Server',
+                    'category' => 'bedrock',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => false,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'bedrock_server',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 3. Check PocketMine-MP
+        try {
+            $hasPocketmine = false;
+            try {
+                $pm = $this->fileRepository->setServer($server)->getContent('/pocketmine.yml');
+                if ($pm !== null) $hasPocketmine = true;
+            } catch (Throwable $e) {}
+            if ($hasPocketmine) {
+                return [
+                    'id' => 'POCKETMINE',
+                    'name' => 'PocketMine-MP',
+                    'category' => 'bedrock',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/pocketmine.yml',
+                    'source' => 'pocketmine.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 4. Check Nukkit / PowerNukkit
+        try {
+            $hasNukkit = false;
+            try {
+                $nk = $this->fileRepository->setServer($server)->getContent('/nukkit.yml');
+                if ($nk !== null) $hasNukkit = true;
+            } catch (Throwable $e) {}
+            if ($hasNukkit) {
+                return [
+                    'id' => 'NUKKIT',
+                    'name' => 'Nukkit',
+                    'category' => 'bedrock',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/nukkit.yml',
+                    'source' => 'nukkit.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 5. Check Velocity Proxy
+        try {
+            $hasVelocity = false;
+            try {
+                $vel = $this->fileRepository->setServer($server)->getContent('/velocity.toml');
+                if ($vel !== null) $hasVelocity = true;
+            } catch (Throwable $e) {}
+            if ($hasVelocity) {
+                return [
+                    'id' => 'VELOCITY',
+                    'name' => 'Velocity',
+                    'category' => 'proxy',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/velocity.toml',
+                    'source' => 'velocity.toml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 6. Check BungeeCord / Waterfall Proxy
+        try {
+            $hasBungee = false;
+            try {
+                $bng = $this->fileRepository->setServer($server)->getContent('/config.yml');
+                if ($bng !== null && (str_contains($bng, 'listeners:') || str_contains($bng, 'ip_forward:'))) {
+                    $hasBungee = true;
+                }
+            } catch (Throwable $e) {}
+            if ($hasBungee) {
+                return [
+                    'id' => 'BUNGEECORD',
+                    'name' => 'BungeeCord / Waterfall',
+                    'category' => 'proxy',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/config.yml',
+                    'source' => 'config.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 7. Check version_history.json (Paper / Purpur / Spigot / Folia)
+        try {
+            $rawHistory = $this->fileRepository->setServer($server)->getContent('/version_history.json');
+            $history = json_decode($rawHistory, true);
+            if (is_array($history) && !empty($history['currentVersion'])) {
+                $raw = (string) $history['currentVersion'];
+                $softName = 'Paper';
+                $build = null;
+                $mcVer = null;
+
+                if (preg_match('/git-Purpur-(\d+)/i', $raw, $m)) {
+                    $softName = 'Purpur';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Paper-(\d+)/i', $raw, $m)) {
+                    $softName = 'Paper';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Folia-(\d+)/i', $raw, $m)) {
+                    $softName = 'Folia';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Spigot-([a-f0-9]+)/i', $raw, $m)) {
+                    $softName = 'Spigot';
+                    $build = substr($m[1], 0, 7);
+                }
+
+                if (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
+                    $mcVer = $m[1];
+                }
+
+                return [
+                    'id' => strtoupper($softName),
+                    'name' => $softName,
+                    'category' => 'java',
+                    'version' => $mcVer,
+                    'build' => $build,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'version_history.json',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 8. Check Purpur / Paper / Spigot / Folia YAML files
+        try {
+            $isPurpur = false;
+            try {
+                $py = $this->fileRepository->setServer($server)->getContent('/purpur.yml');
+                if ($py !== null) $isPurpur = true;
+            } catch (Throwable $e) {}
+            if ($isPurpur) {
+                return [
+                    'id' => 'PURPUR',
+                    'name' => 'Purpur',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'purpur.yml',
+                ];
+            }
+
+            $isPaper = false;
+            try {
+                $pay = $this->fileRepository->setServer($server)->getContent('/paper.yml');
+                if ($pay !== null) $isPaper = true;
+            } catch (Throwable $e) {}
+            if (!$isPaper) {
+                try {
+                    $pay = $this->fileRepository->setServer($server)->getContent('/config/paper-global.yml');
+                    if ($pay !== null) $isPaper = true;
+                } catch (Throwable $e) {}
+            }
+            if ($isPaper) {
+                return [
+                    'id' => 'PAPER',
+                    'name' => 'Paper',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'paper.yml',
+                ];
+            }
+
+            $isFolia = false;
+            try {
+                $fy = $this->fileRepository->setServer($server)->getContent('/folia.yml');
+                if ($fy !== null) $isFolia = true;
+            } catch (Throwable $e) {}
+            if ($isFolia) {
+                return [
+                    'id' => 'FOLIA',
+                    'name' => 'Folia',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'folia.yml',
+                ];
+            }
+
+            $isSpigot = false;
+            try {
+                $sy = $this->fileRepository->setServer($server)->getContent('/spigot.yml');
+                if ($sy !== null) $isSpigot = true;
+            } catch (Throwable $e) {}
+            if ($isSpigot) {
+                return [
+                    'id' => 'SPIGOT',
+                    'name' => 'Spigot',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => true,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'spigot.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 9. Check Forge / NeoForge / Fabric / Quilt in libraries directory
+        try {
+            $forgeItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/minecraftforge/forge');
+            if (is_array($forgeItems) && !empty($forgeItems)) {
+                $ver = null;
+                $bld = null;
+                foreach ($forgeItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        $parts = explode('-', $n, 2);
+                        $ver = $parts[0] ?? $n;
+                        $bld = $parts[1] ?? null;
+                        break;
+                    }
+                }
+                return [
+                    'id' => 'FORGE',
+                    'name' => 'Forge',
+                    'category' => 'java',
+                    'version' => $ver,
+                    'build' => $bld,
+                    'supports_plugins' => false,
+                    'supports_mods' => true,
+                    'config_file' => '/server.properties',
+                    'source' => 'libraries/forge',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        try {
+            $neoItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/neoforged/neoforge');
+            if (is_array($neoItems) && !empty($neoItems)) {
+                $bld = null;
+                foreach ($neoItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        $bld = $n;
+                        break;
+                    }
+                }
+                return [
+                    'id' => 'NEOFORGE',
+                    'name' => 'NeoForge',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => $bld,
+                    'supports_plugins' => false,
+                    'supports_mods' => true,
+                    'config_file' => '/server.properties',
+                    'source' => 'libraries/neoforge',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        try {
+            $fabricItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/fabricmc/fabric-loader');
+            if (is_array($fabricItems) && !empty($fabricItems)) {
+                $bld = null;
+                foreach ($fabricItems as $item) {
+                    $n = $item['name'] ?? '';
+                    if (!empty($n) && $n !== '.' && $n !== '..') {
+                        $bld = $n;
+                        break;
+                    }
+                }
+                return [
+                    'id' => 'FABRIC',
+                    'name' => 'Fabric',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => $bld,
+                    'supports_plugins' => false,
+                    'supports_mods' => true,
+                    'config_file' => '/server.properties',
+                    'source' => 'libraries/fabric',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 10. Check Hybrid servers (Mohist / Magma / Arclight / CatServer)
+        try {
+            foreach (['mohist.yml' => 'Mohist', 'magma.yml' => 'Magma', 'arclight.conf' => 'Arclight', 'catserver.yml' => 'CatServer'] as $f => $name) {
+                try {
+                    $c = $this->fileRepository->setServer($server)->getContent("/{$f}");
+                    if ($c !== null) {
+                        return [
+                            'id' => strtoupper($name),
+                            'name' => $name,
+                            'category' => 'java',
+                            'version' => null,
+                            'build' => null,
+                            'supports_plugins' => true,
+                            'supports_mods' => true,
+                            'config_file' => '/server.properties',
+                            'source' => $f,
+                        ];
+                    }
+                } catch (Throwable $e) {}
+            }
+        } catch (Throwable $e) {}
+
+        // 11. Check logs/latest.log startup signatures
+        try {
+            $logContent = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
+            if (!empty($logContent)) {
+                $sample = substr($logContent, 0, 16384);
+                if (preg_match('/This server is running ([A-Za-z0-9_-]+) version git-\1-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $sample, $m)) {
+                    $name = ucfirst(strtolower($m[1]));
+                    return [
+                        'id' => strtoupper($name),
+                        'name' => $name,
+                        'category' => 'java',
+                        'version' => $m[3],
+                        'build' => '#' . $m[2],
+                        'supports_plugins' => true,
+                        'supports_mods' => false,
+                        'config_file' => '/server.properties',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Loading Minecraft ([0-9\.]+) with Fabric Loader ([0-9\.]+)/i', $sample, $m)) {
+                    return [
+                        'id' => 'FABRIC',
+                        'name' => 'Fabric',
+                        'category' => 'java',
+                        'version' => $m[1],
+                        'build' => $m[2],
+                        'supports_plugins' => false,
+                        'supports_mods' => true,
+                        'config_file' => '/server.properties',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/MinecraftForge v([0-9\.]+) Initialized/i', $sample, $m)) {
+                    return [
+                        'id' => 'FORGE',
+                        'name' => 'Forge',
+                        'category' => 'java',
+                        'version' => null,
+                        'build' => $m[1],
+                        'supports_plugins' => false,
+                        'supports_mods' => true,
+                        'config_file' => '/server.properties',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Starting Bedrock Dedicated Server/i', $sample) || preg_match('/IPv4 supported/i', $sample)) {
+                    return [
+                        'id' => 'BDS',
+                        'name' => 'Bedrock Dedicated Server',
+                        'category' => 'bedrock',
+                        'version' => null,
+                        'build' => null,
+                        'supports_plugins' => false,
+                        'supports_mods' => false,
+                        'config_file' => '/server.properties',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Starting minecraft server version ([0-9\.]+)/i', $sample, $m)) {
+                    return [
+                        'id' => 'VANILLA',
+                        'name' => 'Vanilla Minecraft',
+                        'category' => 'java',
+                        'version' => $m[1],
+                        'build' => null,
+                        'supports_plugins' => false,
+                        'supports_mods' => false,
+                        'config_file' => '/server.properties',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+            }
+        } catch (Throwable $e) {}
+
+        // 12. Check if server.properties exists
+        try {
+            $props = $this->fileRepository->setServer($server)->getContent('/server.properties');
+            if (!empty($props)) {
+                if (str_contains($props, 'server-portv6') || str_contains($props, 'allow-cheats')) {
+                    return [
+                        'id' => 'BDS',
+                        'name' => 'Bedrock Dedicated Server',
+                        'category' => 'bedrock',
+                        'version' => null,
+                        'build' => null,
+                        'supports_plugins' => false,
+                        'supports_mods' => false,
+                        'config_file' => '/server.properties',
+                        'source' => 'server.properties',
+                    ];
+                }
+                return [
+                    'id' => 'VANILLA',
+                    'name' => 'Vanilla Minecraft',
+                    'category' => 'java',
+                    'version' => null,
+                    'build' => null,
+                    'supports_plugins' => false,
+                    'supports_mods' => false,
+                    'config_file' => '/server.properties',
+                    'source' => 'server.properties',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        return [
+            'id' => 'CUSTOM',
+            'name' => 'Custom Server',
+            'category' => 'java',
+            'version' => null,
+            'build' => null,
+            'supports_plugins' => false,
+            'supports_mods' => false,
+            'config_file' => '/server.properties',
+            'source' => 'default',
+        ];
     }
 }

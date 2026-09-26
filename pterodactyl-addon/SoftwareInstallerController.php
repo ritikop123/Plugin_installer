@@ -483,7 +483,111 @@ class SoftwareInstallerController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 2. Check Paper/Purpur/Folia version_history.json
+        // 2. Check Bedrock Dedicated Server (BDS)
+        try {
+            $isBds = false;
+            try {
+                $hasBedrockBin = $this->fileRepository->setServer($server)->getContent('/bedrock_server');
+                if ($hasBedrockBin !== null) $isBds = true;
+            } catch (Throwable $e) {}
+            if (!$isBds) {
+                try {
+                    $hasAllowlist = $this->fileRepository->setServer($server)->getContent('/allowlist.json');
+                    $hasPermissions = $this->fileRepository->setServer($server)->getContent('/permissions.json');
+                    if ($hasAllowlist !== null || $hasPermissions !== null) $isBds = true;
+                } catch (Throwable $e) {}
+            }
+            if ($isBds) {
+                return [
+                    'software' => 'Bedrock Dedicated Server',
+                    'software_id' => 'BDS',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'bedrock_server',
+                    'source' => 'bedrock_server',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 3. Check PocketMine-MP
+        try {
+            $hasPocketmine = false;
+            try {
+                $pm = $this->fileRepository->setServer($server)->getContent('/pocketmine.yml');
+                if ($pm !== null) $hasPocketmine = true;
+            } catch (Throwable $e) {}
+            if ($hasPocketmine) {
+                return [
+                    'software' => 'PocketMine-MP',
+                    'software_id' => 'POCKETMINE',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'PocketMine-MP.phar',
+                    'source' => 'pocketmine.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 4. Check Nukkit / PowerNukkit
+        try {
+            $hasNukkit = false;
+            try {
+                $nk = $this->fileRepository->setServer($server)->getContent('/nukkit.yml');
+                if ($nk !== null) $hasNukkit = true;
+            } catch (Throwable $e) {}
+            if ($hasNukkit) {
+                return [
+                    'software' => 'Nukkit',
+                    'software_id' => 'NUKKIT',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'nukkit.jar',
+                    'source' => 'nukkit.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 5. Check Velocity Proxy
+        try {
+            $hasVelocity = false;
+            try {
+                $vel = $this->fileRepository->setServer($server)->getContent('/velocity.toml');
+                if ($vel !== null) $hasVelocity = true;
+            } catch (Throwable $e) {}
+            if ($hasVelocity) {
+                return [
+                    'software' => 'Velocity',
+                    'software_id' => 'VELOCITY',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'server.jar',
+                    'source' => 'velocity.toml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 6. Check BungeeCord / Waterfall Proxy
+        try {
+            $hasBungee = false;
+            try {
+                $bng = $this->fileRepository->setServer($server)->getContent('/config.yml');
+                if ($bng !== null && (str_contains($bng, 'listeners:') || str_contains($bng, 'ip_forward:'))) {
+                    $hasBungee = true;
+                }
+            } catch (Throwable $e) {}
+            if ($hasBungee) {
+                return [
+                    'software' => 'BungeeCord / Waterfall',
+                    'software_id' => 'BUNGEECORD',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'server.jar',
+                    'source' => 'config.yml',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 7. Check Paper/Purpur/Folia version_history.json
         try {
             $vhContent = $this->fileRepository->setServer($server)->getContent('/version_history.json');
             $vh = json_decode($vhContent, true);
@@ -493,11 +597,21 @@ class SoftwareInstallerController extends ClientApiController
                 $mcVer = null;
                 $build = null;
 
-                if (preg_match('/git-([A-Za-z]+)-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
-                    $softName = $m[1];
-                    $build = '#' . $m[2];
-                    $mcVer = $m[3];
-                } elseif (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
+                if (preg_match('/git-Purpur-(\d+)/i', $raw, $m)) {
+                    $softName = 'Purpur';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Paper-(\d+)/i', $raw, $m)) {
+                    $softName = 'Paper';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Folia-(\d+)/i', $raw, $m)) {
+                    $softName = 'Folia';
+                    $build = '#' . $m[1];
+                } elseif (preg_match('/git-Spigot-([a-f0-9]+)/i', $raw, $m)) {
+                    $softName = 'Spigot';
+                    $build = substr($m[1], 0, 7);
+                }
+
+                if (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
                     $mcVer = $m[1];
                 }
 
@@ -512,10 +626,68 @@ class SoftwareInstallerController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 3. Check Forge / NeoForge / Fabric in libraries directory
+        // 8. Check Purpur / Paper / Spigot / Folia YAML files
+        try {
+            try {
+                if ($this->fileRepository->setServer($server)->getContent('/purpur.yml') !== null) {
+                    return [
+                        'software' => 'Purpur',
+                        'software_id' => 'PURPUR',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'server.jar',
+                        'source' => 'purpur.yml',
+                    ];
+                }
+            } catch (Throwable $e) {}
+
+            try {
+                if (
+                    $this->fileRepository->setServer($server)->getContent('/paper.yml') !== null ||
+                    $this->fileRepository->setServer($server)->getContent('/config/paper-global.yml') !== null
+                ) {
+                    return [
+                        'software' => 'Paper',
+                        'software_id' => 'PAPER',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'server.jar',
+                        'source' => 'paper.yml',
+                    ];
+                }
+            } catch (Throwable $e) {}
+
+            try {
+                if ($this->fileRepository->setServer($server)->getContent('/folia.yml') !== null) {
+                    return [
+                        'software' => 'Folia',
+                        'software_id' => 'FOLIA',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'server.jar',
+                        'source' => 'folia.yml',
+                    ];
+                }
+            } catch (Throwable $e) {}
+
+            try {
+                if ($this->fileRepository->setServer($server)->getContent('/spigot.yml') !== null) {
+                    return [
+                        'software' => 'Spigot',
+                        'software_id' => 'SPIGOT',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'server.jar',
+                        'source' => 'spigot.yml',
+                    ];
+                }
+            } catch (Throwable $e) {}
+        } catch (Throwable $e) {}
+
+        // 9. Check Forge / NeoForge / Fabric in libraries directory
         try {
             $forgeItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/minecraftforge/forge');
-            if (is_array($forgeItems)) {
+            if (is_array($forgeItems) && !empty($forgeItems)) {
                 foreach ($forgeItems as $item) {
                     $n = $item['name'] ?? '';
                     if (!empty($n) && $n !== '.' && $n !== '..') {
@@ -535,7 +707,7 @@ class SoftwareInstallerController extends ClientApiController
 
         try {
             $neoItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/neoforged/neoforge');
-            if (is_array($neoItems)) {
+            if (is_array($neoItems) && !empty($neoItems)) {
                 foreach ($neoItems as $item) {
                     $n = $item['name'] ?? '';
                     if (!empty($n) && $n !== '.' && $n !== '..') {
@@ -554,7 +726,7 @@ class SoftwareInstallerController extends ClientApiController
 
         try {
             $fabricItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/fabricmc/fabric-loader');
-            if (is_array($fabricItems)) {
+            if (is_array($fabricItems) && !empty($fabricItems)) {
                 foreach ($fabricItems as $item) {
                     $n = $item['name'] ?? '';
                     if (!empty($n) && $n !== '.' && $n !== '..') {
@@ -571,45 +743,58 @@ class SoftwareInstallerController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 4. Check startup logs in logs/latest.log
+        // 10. Check startup logs in logs/latest.log
         try {
             $logContent = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
             if (!empty($logContent)) {
-                $sample = substr($logContent, 0, 8192);
-                $lines = explode("\n", $sample);
-                $detectedSoft = null;
-                $detectedVer = null;
-                $detectedBuild = null;
-
-                foreach ($lines as $line) {
-                    if (preg_match('/This server is running ([A-Za-z]+) version git-\1-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $line, $m)) {
-                        $detectedSoft = $m[1];
-                        $detectedBuild = '#' . $m[2];
-                        $detectedVer = $m[3];
-                        break;
-                    }
-                    if (preg_match('/Loading Minecraft ([0-9\.]+) with Fabric Loader ([0-9\.]+)/i', $line, $m)) {
-                        $detectedSoft = 'Fabric';
-                        $detectedVer = $m[1];
-                        $detectedBuild = $m[2];
-                        break;
-                    }
-                    if (preg_match('/MinecraftForge v([0-9\.]+) Initialized/i', $line, $m)) {
-                        $detectedSoft = 'Forge';
-                        $detectedBuild = $m[1];
-                        break;
-                    }
-                    if (preg_match('/Starting minecraft server version ([0-9\.]+)/i', $line, $m)) {
-                        if (!$detectedVer) $detectedVer = $m[1];
-                    }
-                }
-
-                if ($detectedSoft || $detectedVer) {
+                $sample = substr($logContent, 0, 16384);
+                if (preg_match('/This server is running ([A-Za-z0-9_-]+) version git-\1-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $sample, $m)) {
+                    $softName = ucfirst(strtolower($m[1]));
                     return [
-                        'software' => $detectedSoft ?: 'Minecraft Server',
-                        'software_id' => $detectedSoft ? strtoupper($detectedSoft) : 'VANILLA',
-                        'version' => $detectedVer,
-                        'build' => $detectedBuild,
+                        'software' => $softName,
+                        'software_id' => strtoupper($softName),
+                        'version' => $m[3],
+                        'build' => '#' . $m[2],
+                        'filename' => 'server.jar',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Loading Minecraft ([0-9\.]+) with Fabric Loader ([0-9\.]+)/i', $sample, $m)) {
+                    return [
+                        'software' => 'Fabric',
+                        'software_id' => 'FABRIC',
+                        'version' => $m[1],
+                        'build' => $m[2],
+                        'filename' => 'server.jar',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/MinecraftForge v([0-9\.]+) Initialized/i', $sample, $m)) {
+                    return [
+                        'software' => 'Forge',
+                        'software_id' => 'FORGE',
+                        'version' => null,
+                        'build' => $m[1],
+                        'filename' => 'server.jar',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Starting Bedrock Dedicated Server/i', $sample) || preg_match('/IPv4 supported/i', $sample)) {
+                    return [
+                        'software' => 'Bedrock Dedicated Server',
+                        'software_id' => 'BDS',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'bedrock_server',
+                        'source' => 'logs/latest.log',
+                    ];
+                }
+                if (preg_match('/Starting minecraft server version ([0-9\.]+)/i', $sample, $m)) {
+                    return [
+                        'software' => 'Vanilla Minecraft',
+                        'software_id' => 'VANILLA',
+                        'version' => $m[1],
+                        'build' => null,
                         'filename' => 'server.jar',
                         'source' => 'logs/latest.log',
                     ];
@@ -617,7 +802,32 @@ class SoftwareInstallerController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 5. Fallback: check if server.jar exists in root
+        // 11. Check if server.properties exists (Standard Java Vanilla)
+        try {
+            $props = $this->fileRepository->setServer($server)->getContent('/server.properties');
+            if (!empty($props)) {
+                if (str_contains($props, 'server-portv6') || str_contains($props, 'allow-cheats')) {
+                    return [
+                        'software' => 'Bedrock Dedicated Server',
+                        'software_id' => 'BDS',
+                        'version' => null,
+                        'build' => null,
+                        'filename' => 'bedrock_server',
+                        'source' => 'server.properties',
+                    ];
+                }
+                return [
+                    'software' => 'Vanilla Minecraft',
+                    'software_id' => 'VANILLA',
+                    'version' => null,
+                    'build' => null,
+                    'filename' => 'server.jar',
+                    'source' => 'server.properties',
+                ];
+            }
+        } catch (Throwable $e) {}
+
+        // 12. Fallback: check if server.jar exists in root
         try {
             $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
             if (is_array($rootItems)) {

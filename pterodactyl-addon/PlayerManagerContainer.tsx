@@ -103,8 +103,20 @@ interface PlayerDetailResponse {
   };
 }
 
+interface ServerSoftwareInfo {
+  id: string;
+  name: string;
+  category: 'java' | 'bedrock' | 'proxy';
+  version?: string | null;
+  build?: string | null;
+  supports_plugins?: boolean;
+  supports_mods?: boolean;
+  config_file?: string;
+}
+
 interface PlayersApiResponse {
   success: boolean;
+  software?: ServerSoftwareInfo;
   server_online: boolean;
   online_count: number;
   max_players: number;
@@ -133,7 +145,8 @@ export default function PlayerManagerContainer() {
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Server stats
+  // Server stats & software
+  const [software, setSoftware] = useState<ServerSoftwareInfo | null>(null);
   const [serverOnline, setServerOnline] = useState(true);
   const [onlineCount, setOnlineCount] = useState(0);
   const [maxPlayers, setMaxPlayers] = useState(20);
@@ -200,6 +213,7 @@ export default function PlayerManagerContainer() {
       try {
         const res = await http.get<PlayersApiResponse>(`/api/client/servers/${uuid}/players`);
         if (res.data.success) {
+          if (res.data.software) setSoftware(res.data.software);
           setServerOnline(res.data.server_online);
           setOnlineCount(res.data.online_count);
           setMaxPlayers(res.data.max_players || 20);
@@ -227,6 +241,7 @@ export default function PlayerManagerContainer() {
         action: 'sync',
       });
       if (res.data.success) {
+        if (res.data.software) setSoftware(res.data.software);
         setServerOnline(res.data.server_online);
         setOnlineCount(res.data.online_count);
         setMaxPlayers(res.data.max_players || 20);
@@ -518,7 +533,7 @@ export default function PlayerManagerContainer() {
               <FontAwesomeIcon icon={faUsers} className="text-2xl" />
             </div>
             <div>
-              <div className="flex items-center gap-2.5 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-2.5 py-0.5 rounded-full border bg-neutral-800 text-neutral-300 border-neutral-700">
                   <FontAwesomeIcon
                     icon={faCircle}
@@ -528,6 +543,12 @@ export default function PlayerManagerContainer() {
                   />
                   {serverOnline ? 'Server Active' : 'Server Standby'}
                 </span>
+                {software && (
+                  <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border bg-cyan-950/60 text-cyan-300 border-cyan-700/50 font-medium">
+                    <FontAwesomeIcon icon={faCube} className="text-[10px]" />
+                    <span>{software.name} {software.version ? software.version : ''}</span>
+                  </span>
+                )}
                 {!onlineMode && (
                   <span className="text-xs px-2.5 py-0.5 rounded-full border bg-amber-950/60 text-amber-300 border-amber-700/50 font-medium">
                     Cracked Mode
@@ -812,7 +833,14 @@ export default function PlayerManagerContainer() {
                       </span>
                     )}
 
-                    {player.skin_type === 'steve' ? (
+                    {(player.name.startsWith('.') || player.name.startsWith('*') || player.name.includes(' ') || software?.category === 'bedrock') ? (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md bg-emerald-950/50 text-emerald-300 border border-emerald-800/40 text-[10px]"
+                        title="Bedrock edition player"
+                      >
+                        Bedrock
+                      </span>
+                    ) : player.skin_type === 'steve' ? (
                       <span
                         className="px-1.5 py-0.5 rounded-md bg-amber-950/50 text-amber-300 border border-amber-800/40 text-[10px]"
                         title="Cracked account default Steve"
