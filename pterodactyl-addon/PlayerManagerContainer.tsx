@@ -261,10 +261,10 @@ export default function PlayerManagerContainer() {
 
   useEffect(() => {
     loadPlayers();
-    // Auto-refresh stats every 25 seconds
+    // Auto-refresh stats every 15 seconds
     const interval = setInterval(() => {
       loadPlayers();
-    }, 25000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [loadPlayers]);
 
@@ -737,7 +737,7 @@ export default function PlayerManagerContainer() {
       </div>
 
       {/* Players Cards Grid */}
-      {loading ? (
+      {loading && allPlayers.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
           <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-3xl mb-3 text-primary-400" />
           <p className="text-sm">Querying server for player records & skins...</p>

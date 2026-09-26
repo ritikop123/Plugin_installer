@@ -6,6 +6,7 @@ use Exception;
 use Throwable;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -41,29 +42,42 @@ class PlayerManagerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        // 1. Detect server software & category (java, bedrock, proxy)
-        $software = $this->detectServerSoftware($server);
-        $category = $software['category'] ?? 'java';
+        // 1. Fetch server metadata (cached for 12 seconds to ensure instant 20ms refreshes)
+        $metaKey = "ptero:pm:{$server->id}:meta";
+        $meta = Cache::remember($metaKey, 12, function () use ($server) {
+            $software = $this->detectServerSoftware($server);
+            $category = $software['category'] ?? 'java';
+            $properties = $this->readServerProperties($server, $category);
+            return [
+                'software' => $software,
+                'category' => $category,
+                'properties' => $properties,
+                'user_cache' => $this->readUserCache($server),
+                'ops_list' => $this->readOpsList($server, $category),
+                'banned_players' => $this->readBannedPlayers($server),
+                'banned_ips' => $this->readBannedIps($server),
+            ];
+        });
 
-        // 2. Read server properties / config
-        $properties = $this->readServerProperties($server, $category);
+        $software = $meta['software'];
+        $category = $meta['category'];
+        $properties = $meta['properties'];
         $maxPlayers = isset($properties['max-players']) ? (int) $properties['max-players'] : 20;
         $onlineMode = isset($properties['online-mode']) ? strtolower($properties['online-mode']) === 'true' : true;
 
-        // 3. Read player caches across all software (ops.json / permissions.json / ops.txt, banned-players, etc.)
-        $userCache = $this->readUserCache($server);
-        $opsList = $this->readOpsList($server, $category);
-        $bannedPlayersRaw = $this->readBannedPlayers($server);
-        $bannedIps = $this->readBannedIps($server);
+        $userCache = $meta['user_cache'];
+        $opsList = $meta['ops_list'];
+        $bannedPlayersRaw = $meta['banned_players'];
+        $bannedIps = $meta['banned_ips'];
 
-        // 4. Resolve Port
+        // 2. Resolve Port
         $port = ($category === 'bedrock') ? 19132 : 25565;
         $allocation = $server->allocation;
         if ($allocation) {
             $port = (int) $allocation->port;
         }
 
-        // 5. Query server status & online count (UDP RakNet for Bedrock, TCP SLP for Java/Proxy)
+        // 3. Fast Query server status & online count (UDP RakNet for Bedrock, TCP SLP for Java/Proxy)
         $pingResult = $this->queryServerStatus($server, $port, $category);
         $serverOnline = ($pingResult !== null);
         $onlineCount = 0;
@@ -86,15 +100,17 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
-        // 6. Online players from latest.log
-        $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
+        // 4. Online players mapping (only scan tail of latest.log if SLP didn't return names)
         $mergedOnlineNames = [];
-
         foreach ($slpOnlinePlayers as $sp) {
             $mergedOnlineNames[strtolower($sp['name'])] = $sp['name'];
         }
-        foreach ($logOnlinePlayers as $lp) {
-            $mergedOnlineNames[strtolower($lp)] = $lp;
+
+        if (empty($mergedOnlineNames) || $onlineCount > count($mergedOnlineNames)) {
+            $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
+            foreach ($logOnlinePlayers as $lp) {
+                $mergedOnlineNames[strtolower($lp)] = $lp;
+            }
         }
 
         if (!empty($mergedOnlineNames)) {
@@ -268,7 +284,7 @@ class PlayerManagerController extends ClientApiController
         $skinInfo = $this->resolvePlayerSkin($playerName, $playerUuid, $onlineMode);
 
         // Read single playerdata NBT file (if Java)
-        $nbtData = ($category === 'java') ? $this->readPlayerNbtData($server, $playerUuid, $levelName) : [
+        $nbtData = ($category === 'java') ? $this->readPlayerNbtData($server, $playerName, $playerUuid, $levelName) : [
             'inventory' => [],
             'ender_chest' => [],
             'health' => 20.0,
@@ -333,6 +349,8 @@ class PlayerManagerController extends ClientApiController
 
         // Instant real-time player synchronization via console /list or /glist
         if ($action === 'sync' || $action === 'refresh') {
+            Cache::forget("ptero:pm:{$server->id}:meta");
+            Cache::forget("ptero:pm:{$server->id}:log_online");
             try {
                 $syncCmd = ($category === 'proxy') ? 'glist' : 'list';
                 $this->sendCommand($server, $syncCmd);
@@ -510,6 +528,10 @@ class PlayerManagerController extends ClientApiController
                 default:
                     return response()->json(['error' => "Unsupported action '{$action}'."], 400);
             }
+
+            // Purge caches so the next player index fetch is immediately updated with new state
+            Cache::forget("ptero:pm:{$server->id}:meta");
+            Cache::forget("ptero:pm:{$server->id}:log_online");
 
             return response()->json([
                 'success' => true,
@@ -868,123 +890,131 @@ class PlayerManagerController extends ClientApiController
      */
     private function getOnlinePlayersFromLog(Server $server): array
     {
-        $online = [];
-        try {
-            $raw = '';
+        $cacheKey = "ptero:pm:{$server->id}:log_online";
+        return Cache::remember($cacheKey, 6, function () use ($server) {
+            $online = [];
             try {
-                $raw = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
-            } catch (Exception $e) {}
-
-            if (empty($raw)) {
+                $raw = '';
                 try {
-                    $raw = $this->fileRepository->setServer($server)->getContent('/proxy.log.0');
+                    $raw = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
                 } catch (Exception $e) {}
-            }
-            if (empty($raw)) return [];
 
-            // Strip ANSI escape codes and Minecraft section symbol formatting (§x)
-            $cleanLog = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|§[0-9a-fk-or]/i', '', $raw);
-            $lines = explode("\n", str_replace("\r\n", "\n", $cleanLog));
-            $tail = count($lines) > 1200 ? array_slice($lines, -1200) : $lines;
+                if (empty($raw)) {
+                    try {
+                        $raw = $this->fileRepository->setServer($server)->getContent('/proxy.log.0');
+                    } catch (Exception $e) {}
+                }
+                if (empty($raw)) return [];
 
-            foreach ($tail as $line) {
-                $line = trim($line);
-                if (empty($line)) continue;
+                // Slice to tail 48KB to prevent CPU lag on huge log files
+                if (strlen($raw) > 49152) {
+                    $raw = substr($raw, -49152);
+                }
 
-                // 1. /list or connected players output
-                if (
-                    preg_match('/(?:There are \d+(?:\/\d+| of a max of \d+) players online:|Connected players:)\s*(.*)/i', $line, $listMatch) ||
-                    preg_match('/\[.*?\]\s*\(\d+\):\s*(.*)/i', $line, $listMatch)
-                ) {
-                    $playerListStr = trim($listMatch[1]);
-                    if (!empty($playerListStr)) {
-                        $names = explode(',', $playerListStr);
-                        foreach ($names as $n) {
-                            $cleanName = trim($n);
-                            if (preg_match('/^[a-zA-Z0-9_.* -]{2,32}$/', $cleanName) && !in_array(strtolower($cleanName), ['server', 'console', 'anonymous'])) {
-                                $online[strtolower($cleanName)] = $cleanName;
+                // Strip ANSI escape codes and Minecraft section symbol formatting (§x)
+                $cleanLog = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|§[0-9a-fk-or]/i', '', $raw);
+                $lines = explode("\n", str_replace("\r\n", "\n", $cleanLog));
+                $tail = count($lines) > 400 ? array_slice($lines, -400) : $lines;
+
+                foreach ($tail as $line) {
+                    $line = trim($line);
+                    if (empty($line)) continue;
+
+                    // 1. /list or connected players output
+                    if (
+                        preg_match('/(?:There are \d+(?:\/\d+| of a max of \d+) players online:|Connected players:)\s*(.*)/i', $line, $listMatch) ||
+                        preg_match('/\[.*?\]\s*\(\d+\):\s*(.*)/i', $line, $listMatch)
+                    ) {
+                        $playerListStr = trim($listMatch[1]);
+                        if (!empty($playerListStr)) {
+                            $names = explode(',', $playerListStr);
+                            foreach ($names as $n) {
+                                $cleanName = trim($n);
+                                if (preg_match('/^[a-zA-Z0-9_.* -]{2,32}$/', $cleanName) && !in_array(strtolower($cleanName), ['server', 'console', 'anonymous'])) {
+                                    $online[strtolower($cleanName)] = $cleanName;
+                                }
                             }
                         }
+                        continue;
                     }
-                    continue;
-                }
 
-                // 2. Bedrock BDS Join: "Player connected: Cool Gamer, xuid: ..."
-                if (preg_match('/Player connected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m) || preg_match('/Player Spawned:\s*([^,\n\r]+)\s*xuid:/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    if (!empty($p) && !in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
-                        $online[strtolower($p)] = $p;
+                    // 2. Bedrock BDS Join: "Player connected: Cool Gamer, xuid: ..."
+                    if (preg_match('/Player connected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m) || preg_match('/Player Spawned:\s*([^,\n\r]+)\s*xuid:/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        if (!empty($p) && !in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                            $online[strtolower($p)] = $p;
+                        }
+                        continue;
                     }
-                    continue;
-                }
 
-                // 3. Bedrock BDS Leave: "Player disconnected: Cool Gamer, xuid: ..."
-                if (preg_match('/Player disconnected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    unset($online[strtolower($p)]);
-                    continue;
-                }
-
-                // 4. BungeeCord / Waterfall Join: "[PlayerName] <-> InitialHandler has connected"
-                if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+<->\s+InitialHandler has connected/i', $line, $m) || preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+has connected to/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
-                        $online[strtolower($p)] = $p;
+                    // 3. Bedrock BDS Leave: "Player disconnected: Cool Gamer, xuid: ..."
+                    if (preg_match('/Player disconnected:\s*([^,\n\r]+),\s*xuid:/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        unset($online[strtolower($p)]);
+                        continue;
                     }
-                    continue;
-                }
 
-                // 5. BungeeCord Leave: "[PlayerName] has disconnected"
-                if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+(?:<->\s+InitialHandler has disconnected|has disconnected)/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    unset($online[strtolower($p)]);
-                    continue;
-                }
-
-                // 6. Velocity Join: "[connected player] PlayerName (/ip) has connected to"
-                if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has connected to/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
-                        $online[strtolower($p)] = $p;
+                    // 4. BungeeCord / Waterfall Join: "[PlayerName] <-> InitialHandler has connected"
+                    if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+<->\s+InitialHandler has connected/i', $line, $m) || preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+has connected to/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                            $online[strtolower($p)] = $p;
+                        }
+                        continue;
                     }
-                    continue;
-                }
 
-                // 7. Velocity Leave: "[connected player] PlayerName (/ip) has disconnected"
-                if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has disconnected/i', $line, $m)) {
-                    $p = trim($m[1]);
-                    unset($online[strtolower($p)]);
-                    continue;
-                }
+                    // 5. BungeeCord Leave: "[PlayerName] has disconnected"
+                    if (preg_match('/\[([a-zA-Z0-9_.* -]{2,32})\]\s+(?:<->\s+InitialHandler has disconnected|has disconnected)/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        unset($online[strtolower($p)]);
+                        continue;
+                    }
 
-                // 8. Java Standard Join / Login
-                if (
-                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\[.*?\]\s+logged in/i', $line, $m) ||
-                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+joined the game/i', $line, $m) ||
-                    preg_match('/UUID of player\s+([a-zA-Z0-9_.* -]{2,32})\s+is/i', $line, $m) ||
-                    preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+connected/i', $line, $m) ||
-                    preg_match('/User\s+([a-zA-Z0-9_.* -]{2,32})\s+\(UUID:.*?\)\s+logged in/i', $line, $m)
-                ) {
-                    $p = trim($m[1]);
-                    if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
-                        $online[strtolower($p)] = $p;
+                    // 6. Velocity Join: "[connected player] PlayerName (/ip) has connected to"
+                    if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has connected to/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                            $online[strtolower($p)] = $p;
+                        }
+                        continue;
+                    }
+
+                    // 7. Velocity Leave: "[connected player] PlayerName (/ip) has disconnected"
+                    if (preg_match('/\[connected player\]\s+([a-zA-Z0-9_.* -]{2,32})\s+\(.*?\)\s+has disconnected/i', $line, $m)) {
+                        $p = trim($m[1]);
+                        unset($online[strtolower($p)]);
+                        continue;
+                    }
+
+                    // 8. Java Standard Join / Login
+                    if (
+                        preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\[.*?\]\s+logged in/i', $line, $m) ||
+                        preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+joined the game/i', $line, $m) ||
+                        preg_match('/UUID of player\s+([a-zA-Z0-9_.* -]{2,32})\s+is/i', $line, $m) ||
+                        preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+connected/i', $line, $m) ||
+                        preg_match('/User\s+([a-zA-Z0-9_.* -]{2,32})\s+\(UUID:.*?\)\s+logged in/i', $line, $m)
+                    ) {
+                        $p = trim($m[1]);
+                        if (!in_array(strtolower($p), ['server', 'console', 'anonymous'])) {
+                            $online[strtolower($p)] = $p;
+                        }
+                    }
+
+                    // 9. Java Standard Leave / Disconnect
+                    if (
+                        preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+(?:lost connection|left the game)/i', $line, $m) ||
+                        preg_match('/Disconnecting\s+([a-zA-Z0-9_.* -]{2,32}):/i', $line, $m) ||
+                        preg_match('/Kicking\s+([a-zA-Z0-9_.* -]{2,32})/i', $line, $m) ||
+                        preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+disconnected/i', $line, $m)
+                    ) {
+                        $p = trim($m[1]);
+                        unset($online[strtolower($p)]);
                     }
                 }
+            } catch (Exception $e) {}
 
-                // 9. Java Standard Leave / Disconnect
-                if (
-                    preg_match('/:\s+([a-zA-Z0-9_.* -]{2,32})\s+(?:lost connection|left the game)/i', $line, $m) ||
-                    preg_match('/Disconnecting\s+([a-zA-Z0-9_.* -]{2,32}):/i', $line, $m) ||
-                    preg_match('/Kicking\s+([a-zA-Z0-9_.* -]{2,32})/i', $line, $m) ||
-                    preg_match('/Player\s+([a-zA-Z0-9_.* -]{2,32})\s+disconnected/i', $line, $m)
-                ) {
-                    $p = trim($m[1]);
-                    unset($online[strtolower($p)]);
-                }
-            }
-        } catch (Exception $e) {}
-
-        return array_values($online);
+            return array_values($online);
+        });
     }
 
     /**
@@ -1086,8 +1116,9 @@ class PlayerManagerController extends ClientApiController
 
     /**
      * Read playerdata/<uuid>.dat and extract inventory and player stats using pure PHP NBT parser.
+     * Supports offline mode (cracked), online mode (premium), and multi-version item components.
      */
-    private function readPlayerNbtData(Server $server, string $playerUuid, string $levelName = 'world'): array
+    private function readPlayerNbtData(Server $server, string $playerName, string $playerUuid, string $levelName = 'world'): array
     {
         $result = [
             'inventory' => [],
@@ -1101,34 +1132,94 @@ class PlayerManagerController extends ClientApiController
             'pos' => [0, 64, 0],
             'last_modified' => null,
             'last_known_name' => null,
+            'money' => null,
         ];
 
-        if (empty($playerUuid)) {
-            return $result;
+        // 1. Gather all candidate UUIDs (online, offline, usercache, clean)
+        $candidates = [];
+        if (!empty($playerUuid)) {
+            $clean = strtolower(trim($playerUuid));
+            $candidates[] = $clean;
+            $noDashes = str_replace('-', '', $clean);
+            if (strlen($noDashes) === 32) {
+                $withDashes = sprintf(
+                    '%s-%s-%s-%s-%s',
+                    substr($noDashes, 0, 8),
+                    substr($noDashes, 8, 4),
+                    substr($noDashes, 12, 4),
+                    substr($noDashes, 16, 4),
+                    substr($noDashes, 20)
+                );
+                $candidates[] = $withDashes;
+                $candidates[] = $noDashes;
+            }
         }
 
-        $possiblePaths = [
-            "/{$levelName}/playerdata/{$playerUuid}.dat",
-            "/world/playerdata/{$playerUuid}.dat",
-            "/world_nether/playerdata/{$playerUuid}.dat",
-        ];
+        if (!empty($playerName)) {
+            $offlineUuid = strtolower($this->generateOfflineUuid($playerName));
+            $candidates[] = $offlineUuid;
+            $candidates[] = str_replace('-', '', $offlineUuid);
 
-        $rawBytes = null;
-        foreach ($possiblePaths as $path) {
+            // Also check usercache.json for this player's UUID
             try {
-                $content = $this->fileRepository->setServer($server)->getContent($path);
-                if (!empty($content)) {
-                    $rawBytes = $content;
-                    break;
+                $uc = $this->readUserCache($server);
+                foreach ($uc as $u) {
+                    if (strcasecmp($u['name'] ?? '', $playerName) === 0 && !empty($u['uuid'])) {
+                        $candidates[] = strtolower($u['uuid']);
+                        $candidates[] = str_replace('-', '', strtolower($u['uuid']));
+                    }
                 }
             } catch (Exception $e) {}
         }
 
+        $candidates = array_values(array_unique(array_filter($candidates)));
+
+        $possibleDirs = [
+            "/{$levelName}/playerdata",
+            "/world/playerdata",
+            "/playerdata",
+            "/{$levelName}_nether/playerdata",
+            "/{$levelName}_the_end/playerdata",
+            "/worlds/{$levelName}/playerdata",
+            "/worlds/world/playerdata",
+        ];
+
+        $rawBytes = null;
+        foreach ($possibleDirs as $dir) {
+            foreach ($candidates as $cand) {
+                $path = "{$dir}/{$cand}.dat";
+                try {
+                    $content = $this->fileRepository->setServer($server)->getContent($path);
+                    if (!empty($content)) {
+                        $rawBytes = $content;
+                        break 2;
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+
         if (empty($rawBytes)) {
+            // Check Essentials userdata if available
+            foreach ($candidates as $cand) {
+                try {
+                    $essYaml = $this->fileRepository->setServer($server)->getContent("/plugins/Essentials/userdata/{$cand}.yml");
+                    if (!empty($essYaml)) {
+                        $this->parseEssentialsUserData($essYaml, $result);
+                        break;
+                    }
+                } catch (Exception $e) {}
+            }
             return $result;
         }
 
+        // Multi-compression decompression: GZIP -> ZLIB -> DEFLATE -> RAW
         $decompressed = @gzdecode($rawBytes);
+        if ($decompressed === false) {
+            $decompressed = @gzuncompress($rawBytes);
+        }
+        if ($decompressed === false) {
+            $decompressed = @gzinflate($rawBytes);
+        }
         if ($decompressed === false) {
             $decompressed = $rawBytes;
         }
@@ -1174,32 +1265,72 @@ class PlayerManagerController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
+        // Check Essentials for extra stats like money if present
+        foreach ($candidates as $cand) {
+            try {
+                $essYaml = $this->fileRepository->setServer($server)->getContent("/plugins/Essentials/userdata/{$cand}.yml");
+                if (!empty($essYaml)) {
+                    $this->parseEssentialsUserData($essYaml, $result);
+                    break;
+                }
+            } catch (Exception $e) {}
+        }
+
         return $result;
     }
 
     /**
+     * Parse Essentials YAML userdata file for extra player details.
+     */
+    private function parseEssentialsUserData(string $yaml, array &$result): void
+    {
+        if (preg_match('/money:\s*[\'"]?([0-9.]+)[\'"]?/i', $yaml, $m)) {
+            $result['money'] = (float) $m[1];
+        }
+        if (preg_match('/lastAccountName:\s*[\'"]?([^\r\n\'"]+)[\'"]?/i', $yaml, $m)) {
+            $result['last_known_name'] = trim($m[1]);
+        }
+    }
+
+    /**
      * Format NBT inventory items array into clean JSON item representation.
+     * Supports both legacy Minecraft (1.8 - 1.20.4 tag) and modern (1.20.5+ / 1.21+ components).
      */
     private function formatItemList(array $rawItems): array
     {
         $items = [];
         foreach ($rawItems as $item) {
-            if (!is_array($item) || !isset($item['Slot'])) continue;
+            if (!is_array($item)) continue;
 
-            $slot = (int) $item['Slot'];
+            $slot = null;
+            if (isset($item['Slot'])) {
+                $slot = (int) $item['Slot'];
+            } elseif (isset($item['slot'])) {
+                $slot = (int) $item['slot'];
+            }
+            if ($slot === null) continue;
+
             if ($slot < 0) {
+                // E.g. offhand is -106 -> maps to 150
                 $slot = 256 + $slot;
             }
 
-            $id = (string) ($item['id'] ?? 'minecraft:air');
-            $count = (int) ($item['Count'] ?? 1);
+            $id = (string) ($item['id'] ?? ($item['Id'] ?? 'minecraft:air'));
+            if ($id === 'minecraft:air' || $id === 'air') continue;
+
+            // In 1.20.5+, Count was renamed to count (int)
+            $count = (int) ($item['count'] ?? ($item['Count'] ?? 1));
+            if ($count <= 0) $count = 1;
 
             $tag = $item['tag'] ?? [];
+            $components = $item['components'] ?? [];
+
             $displayName = null;
             $lore = [];
             $enchantments = [];
             $damage = 0;
 
+            // 1. Check legacy tag (Minecraft <= 1.20.4)
             if (is_array($tag)) {
                 if (isset($tag['display']['Name'])) {
                     $rawName = (string) $tag['display']['Name'];
@@ -1225,6 +1356,32 @@ class PlayerManagerController extends ClientApiController
                 }
                 if (isset($tag['Damage'])) {
                     $damage = (int) $tag['Damage'];
+                }
+            }
+
+            // 2. Check modern components (Minecraft >= 1.20.5 / 1.21)
+            if (is_array($components)) {
+                if (isset($components['minecraft:custom_name'])) {
+                    $rawName = (string) $components['minecraft:custom_name'];
+                    $nameJson = json_decode($rawName, true);
+                    $displayName = is_array($nameJson) ? ($nameJson['text'] ?? $rawName) : $rawName;
+                }
+                if (isset($components['minecraft:lore']) && is_array($components['minecraft:lore'])) {
+                    foreach ($components['minecraft:lore'] as $l) {
+                        $lJson = json_decode((string) $l, true);
+                        $lore[] = is_array($lJson) ? ($lJson['text'] ?? (string) $l) : (string) $l;
+                    }
+                }
+                if (isset($components['minecraft:enchantments']['levels']) && is_array($components['minecraft:enchantments']['levels'])) {
+                    foreach ($components['minecraft:enchantments']['levels'] as $enchId => $lvl) {
+                        $enchantments[] = [
+                            'id' => str_replace('minecraft:', '', (string) $enchId),
+                            'lvl' => (int) $lvl,
+                        ];
+                    }
+                }
+                if (isset($components['minecraft:damage'])) {
+                    $damage = (int) $components['minecraft:damage'];
                 }
             }
 
@@ -1254,27 +1411,29 @@ class PlayerManagerController extends ClientApiController
     private function queryServerStatus(Server $server, int $port, string $category = 'java'): ?array
     {
         $hosts = [];
+        // Localhost first: responds in < 1ms on panel nodes
+        $hosts[] = '127.0.0.1';
+
         $allocation = $server->allocation;
         if ($allocation) {
+            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
+                $hosts[] = $allocation->ip;
+            }
             if (!empty($allocation->alias)) {
                 $hosts[] = $allocation->alias;
-            }
-            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0') {
-                $hosts[] = $allocation->ip;
             }
         }
         if (!empty($server->node) && !empty($server->node->fqdn)) {
             $hosts[] = $server->node->fqdn;
         }
-        $hosts[] = '127.0.0.1';
         $hosts = array_values(array_unique(array_filter($hosts)));
 
         foreach ($hosts as $host) {
             if ($category === 'bedrock') {
-                $res = $this->pingBedrockServer($host, $port, 0.8);
+                $res = $this->pingBedrockServer($host, $port, 0.25);
                 if ($res !== null) return $res;
             } else {
-                $res = $this->pingMinecraftServer($host, $port, 0.8);
+                $res = $this->pingMinecraftServer($host, $port, 0.25);
                 if ($res !== null) return $res;
             }
         }
@@ -1478,14 +1637,14 @@ class PlayerManagerController extends ClientApiController
                 return $val;
 
             case 2: // TAG_Short
-                $val = unpack('s', pack('s', unpack('n', substr($data, $offset, 2))[1] ?? 0))[1] ?? 0;
+                $u = unpack('n', substr($data, $offset, 2))[1] ?? 0;
                 $offset += 2;
-                return $val;
+                return ($u >= 0x8000) ? $u - 0x10000 : $u;
 
             case 3: // TAG_Int
-                $val = unpack('l', pack('l', unpack('N', substr($data, $offset, 4))[1] ?? 0))[1] ?? 0;
+                $u = unpack('N', substr($data, $offset, 4))[1] ?? 0;
                 $offset += 4;
-                return $val;
+                return ($u >= 0x80000000) ? $u - 0x100000000 : $u;
 
             case 4: // TAG_Long
                 $high = unpack('N', substr($data, $offset, 4))[1] ?? 0;
@@ -1507,7 +1666,8 @@ class PlayerManagerController extends ClientApiController
                 return $val;
 
             case 7: // TAG_Byte_Array
-                $len = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $uLen = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $len = ($uLen >= 0x80000000) ? 0 : $uLen;
                 $offset += 4;
                 $bytes = substr($data, $offset, max(0, $len));
                 $offset += max(0, $len);
@@ -1522,7 +1682,8 @@ class PlayerManagerController extends ClientApiController
 
             case 9: // TAG_List
                 $elemType = ord($data[$offset++]);
-                $count = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $uCount = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $count = ($uCount >= 0x80000000) ? 0 : $uCount;
                 $offset += 4;
                 $list = [];
                 for ($i = 0; $i < $count && $offset < $length; $i++) {
@@ -1550,18 +1711,21 @@ class PlayerManagerController extends ClientApiController
                 return $compound;
 
             case 11: // TAG_Int_Array
-                $len = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $uLen = unpack('N', substr($data, $offset, 4))[1] ?? 0;
                 $offset += 4;
+                $len = ($uLen >= 0x80000000) ? 0 : $uLen;
                 $ints = [];
                 for ($i = 0; $i < $len && $offset < $length; $i++) {
-                    $ints[] = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                    $u = unpack('N', substr($data, $offset, 4))[1] ?? 0;
                     $offset += 4;
+                    $ints[] = ($u >= 0x80000000) ? $u - 0x100000000 : $u;
                 }
                 return $ints;
 
             case 12: // TAG_Long_Array
-                $len = unpack('N', substr($data, $offset, 4))[1] ?? 0;
+                $uLen = unpack('N', substr($data, $offset, 4))[1] ?? 0;
                 $offset += 4;
+                $len = ($uLen >= 0x80000000) ? 0 : $uLen;
                 $longs = [];
                 for ($i = 0; $i < $len && $offset < $length; $i++) {
                     $high = unpack('N', substr($data, $offset, 4))[1] ?? 0;
