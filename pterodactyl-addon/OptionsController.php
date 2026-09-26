@@ -55,6 +55,19 @@ class OptionsController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        // Auto-suspend expired server immediately if past expiration date
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== Server::STATUS_SUSPENDED) {
+            try {
+                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
+                $server->refresh();
+            } catch (Throwable $e) {
+                try {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                } catch (Throwable $ex) {}
+            }
+        }
+
         try {
             // 1. Detect server software & category
             $software = $this->detectServerSoftware($server);
@@ -199,6 +212,19 @@ class OptionsController extends ClientApiController
      */
     public function subscription(Request $request, Server $server): JsonResponse
     {
+        // Auto-suspend expired server immediately if past expiration date
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== Server::STATUS_SUSPENDED) {
+            try {
+                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
+                $server->refresh();
+            } catch (Throwable $e) {
+                try {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                } catch (Throwable $ex) {}
+            }
+        }
+
         return response()->json([
             'data' => [
                 'status' => $server->isSuspended() ? 'suspended' : 'active',

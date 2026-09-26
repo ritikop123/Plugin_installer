@@ -252,6 +252,43 @@ export default function PlayerManagerContainer() {
   const selectedPlayerRef = useRef<PlayerSummary | null>(null);
   selectedPlayerRef.current = selectedPlayer;
 
+  // Load single player details, stats and live inventory
+  const loadPlayerDetails = useCallback(
+    async (player: PlayerSummary, forceLoadingState = false, fresh = false) => {
+      if (isDetailFetchingRef.current) return;
+      isDetailFetchingRef.current = true;
+      if (fresh) {
+        setDetailSyncing(true);
+      } else if (forceLoadingState || !player.inventory) {
+        setLoadingDetail(true);
+      }
+      try {
+        const res = await http.get<PlayerDetailResponse>(`/api/client/servers/${uuid}/players/detail`, {
+          params: {
+            player: player.name,
+            uuid: player.uuid,
+            fresh: fresh ? 1 : 0,
+          },
+          timeout: 10000,
+        });
+        if (res.data.success) {
+          setPlayerDetail(res.data);
+          if (fresh) {
+            showToast('success', 'Live inventory flushed from server RAM.');
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('error', `Failed to load details for ${player.name}: ${httpErrorToHuman(err)}`);
+      } finally {
+        isDetailFetchingRef.current = false;
+        setLoadingDetail(false);
+        setDetailSyncing(false);
+      }
+    },
+    [uuid]
+  );
+
   // Fetch all players data from backend
   const loadPlayers = useCallback(
     async (isManualRefresh = false) => {
@@ -326,43 +363,6 @@ export default function PlayerManagerContainer() {
     }, 5000);
     return () => clearInterval(interval);
   }, [loadPlayers]);
-
-  // Load single player details, stats and live inventory
-  const loadPlayerDetails = useCallback(
-    async (player: PlayerSummary, forceLoadingState = false, fresh = false) => {
-      if (isDetailFetchingRef.current) return;
-      isDetailFetchingRef.current = true;
-      if (fresh) {
-        setDetailSyncing(true);
-      } else if (forceLoadingState || !player.inventory) {
-        setLoadingDetail(true);
-      }
-      try {
-        const res = await http.get<PlayerDetailResponse>(`/api/client/servers/${uuid}/players/detail`, {
-          params: {
-            player: player.name,
-            uuid: player.uuid,
-            fresh: fresh ? 1 : 0,
-          },
-          timeout: 10000,
-        });
-        if (res.data.success) {
-          setPlayerDetail(res.data);
-          if (fresh) {
-            showToast('success', 'Live inventory flushed from server RAM.');
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        showToast('error', `Failed to load details for ${player.name}: ${httpErrorToHuman(err)}`);
-      } finally {
-        isDetailFetchingRef.current = false;
-        setLoadingDetail(false);
-        setDetailSyncing(false);
-      }
-    },
-    [uuid]
-  );
 
   // Open modal for player (Instant opening with optimistic preview)
   const handleSelectPlayer = (player: PlayerSummary) => {

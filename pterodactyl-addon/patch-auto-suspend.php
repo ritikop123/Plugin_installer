@@ -180,11 +180,12 @@ PATCH;
     file_put_contents($serversCtrlFile, $c);
 }
 
-// Patch 6: app/Transformers/Api/Client/ServerTransformer.php (Expose attributes to ServerContext)
+// Patch 6: app/Transformers/Api/Client/ServerTransformer.php (Expose attributes to ServerContext & Instant auto-suspend check)
 $transformerFile = "app/Transformers/Api/Client/ServerTransformer.php";
 if (file_exists($transformerFile)) {
     $c = file_get_contents($transformerFile);
     $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
+    $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION CHECK START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION CHECK END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
             'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
@@ -192,10 +193,29 @@ if (file_exists($transformerFile)) {
             'plan_price' => $server->plan_price ?? null,
             /* <<< ARIX AUTO SUSPENSION END <<< */
 PATCH;
+    $checkPatch = <<<'CHECK'
+/* >>> ARIX AUTO SUSPENSION CHECK START >>> */
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== \Pterodactyl\Models\Server::STATUS_SUSPENDED) {
+            try {
+                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
+                $server->refresh();
+            } catch (\Throwable $e) {
+                try {
+                    $server->status = \Pterodactyl\Models\Server::STATUS_SUSPENDED;
+                    $server->save();
+                } catch (\Throwable $ex) {}
+            }
+        }
+        /* <<< ARIX AUTO SUSPENSION CHECK END <<< */
+
+CHECK;
+    if (strpos($c, 'public function transform(Server $server): array') !== false) {
+        $c = preg_replace('/(public function transform\\(Server \\$server\\): array\\s*\\{)/', "$1\n        " . $checkPatch, $c, 1);
+    }
     if (strpos($c, "'egg_features' => $server->egg->inherit_features,") !== false) {
         $c = preg_replace('/(\\x27egg_features\\x27 => \\$server->egg->inherit_features,\\s*)/', "$1" . $patch . "\n", $c, 1);
-        file_put_contents($transformerFile, $c);
     }
+    file_put_contents($transformerFile, $c);
 }
 
 // Patch 7: routes/api-client.php (Register /subscription endpoint for Arix theme widgets)
@@ -221,7 +241,7 @@ if (file_exists($kernelFile)) {
     $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-        $schedule->command("ptero:auto-suspend")->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command("ptero:auto-suspend")->everyMinute()->withoutOverlapping();
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
