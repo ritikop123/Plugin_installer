@@ -6,11 +6,30 @@ use Exception;
 use Throwable;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
 use Pterodactyl\Repositories\Wings\DaemonFileRepository;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
+
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(?string $haystack, ?string $needle): bool {
+        return (string)$needle !== '' && strncmp((string)$haystack, (string)$needle, strlen((string)$needle)) === 0;
+    }
+}
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(?string $haystack, ?string $needle): bool {
+        $needle = (string)$needle;
+        $haystack = (string)$haystack;
+        return $needle === '' || $needle === substr($haystack, -strlen($needle));
+    }
+}
+if (!function_exists('str_contains')) {
+    function str_contains(?string $haystack, ?string $needle): bool {
+        return (string)$needle !== '' && strpos((string)$haystack, (string)$needle) !== false;
+    }
+}
 
 class OptionsController extends ClientApiController
 {
@@ -36,119 +55,142 @@ class OptionsController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        // 1. Detect server software & category
-        $software = $this->detectServerSoftware($server);
-        $category = $software['category'] ?? 'java';
-        $configFile = $software['config_file'] ?? '/server.properties';
-
-        // 2. Resolve Server Allocation Address (Primary IP/Domain & Port)
-        $address = '';
-        $port = ($category === 'bedrock') ? 19132 : 25565;
-        $allocation = $server->allocation;
-        if ($allocation) {
-            $host = !empty($allocation->alias) ? $allocation->alias : $allocation->ip;
-            $port = (int) $allocation->port;
-            $address = $host . ':' . $port;
-        }
-
-        // 3. Read config properties
-        $properties = [];
-        $fileExists = false;
         try {
-            $raw = $this->fileRepository->setServer($server)->getContent($configFile);
-            $fileExists = true;
-            $lines = explode("\n", str_replace("\r\n", "\n", $raw));
-            foreach ($lines as $line) {
-                $trimmed = trim($line);
-                if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) {
-                    continue;
-                }
-                if (str_contains($line, '=')) {
-                    $parts = explode('=', $line, 2);
-                    $properties[trim($parts[0])] = trim($parts[1]);
-                } elseif (str_contains($line, ':')) {
-                    $parts = explode(':', $line, 2);
-                    $properties[trim($parts[0])] = trim(trim($parts[1]), '"\'');
-                }
-            }
-        } catch (Exception $e) {
-            // Fallback to /server.properties if dedicated config missing
-            if ($configFile !== '/server.properties') {
-                try {
-                    $raw = $this->fileRepository->setServer($server)->getContent('/server.properties');
-                    $fileExists = true;
-                    $lines = explode("\n", str_replace("\r\n", "\n", $raw));
-                    foreach ($lines as $line) {
-                        $trimmed = trim($line);
-                        if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) continue;
-                        $parts = explode('=', $line, 2);
-                        if (count($parts) === 2) {
-                            $properties[trim($parts[0])] = trim($parts[1]);
-                        }
-                    }
-                } catch (Exception $ex) {
-                    $fileExists = false;
-                }
-            }
-        }
+            // 1. Detect server software & category
+            $software = $this->detectServerSoftware($server);
+            $category = $software['category'] ?? 'java';
+            $configFile = $software['config_file'] ?? '/server.properties';
 
-        // 4. Map Bedrock / Proxy MOTD & Settings
-        if ($category === 'bedrock') {
-            if (!empty($properties['server-name']) && empty($properties['motd'])) {
-                $properties['motd'] = $properties['server-name'];
-            } elseif (!empty($properties['motd']) && empty($properties['server-name'])) {
-                $properties['server-name'] = $properties['motd'];
+            // 2. Resolve Server Allocation Address (Primary IP/Domain & Port)
+            $address = '';
+            $port = ($category === 'bedrock') ? 19132 : 25565;
+            $allocation = $server->allocation;
+            if ($allocation) {
+                $host = !empty($allocation->alias) ? $allocation->alias : $allocation->ip;
+                $port = (int) $allocation->port;
+                $address = $host . ':' . $port;
             }
-        } elseif ($category === 'proxy') {
-            if (!empty($properties['show-max-players']) && empty($properties['max-players'])) {
-                $properties['max-players'] = $properties['show-max-players'];
-            }
-        }
 
-        // 5. Ensure Default MOTD if not set or default vanilla
-        $motd = $properties['motd'] ?? '';
-        if (empty($motd) || $motd === 'A Minecraft Server' || $motd === 'Dedicated Server') {
-            $properties['motd'] = self::DEFAULT_MOTD;
-        }
-
-        // 6. Check for server-icon.png (64x64 PNG)
-        $hasCustomIcon = false;
-        $iconData = 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64;
-        try {
-            $iconBytes = $this->fileRepository->setServer($server)->getContent('/server-icon.png');
-            if (!empty($iconBytes)) {
-                $b64 = base64_encode($iconBytes);
-                $hasCustomIcon = ($b64 !== self::DEFAULT_ICON_BASE64);
-                $iconData = 'data:image/png;base64,' . $b64;
-            } else {
-                $defaultBytes = base64_decode(self::DEFAULT_ICON_BASE64);
-                $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
-            }
-        } catch (Exception $e) {
+            // 3. Read config properties
+            $properties = [];
+            $fileExists = false;
             try {
-                $defaultBytes = base64_decode(self::DEFAULT_ICON_BASE64);
-                $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
-            } catch (Exception $ex) {}
-        }
+                $raw = $this->fileRepository->setServer($server)->getContent($configFile);
+                $fileExists = true;
+                $lines = explode("\n", str_replace("\r\n", "\n", $raw));
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) {
+                        continue;
+                    }
+                    if (str_contains($line, '=')) {
+                        $parts = explode('=', $line, 2);
+                        $properties[trim($parts[0])] = trim($parts[1]);
+                    } elseif (str_contains($line, ':')) {
+                        $parts = explode(':', $line, 2);
+                        $properties[trim($parts[0])] = trim(trim($parts[1]), '"\'');
+                    }
+                }
+            } catch (Throwable $e) {
+                // Fallback to /server.properties if dedicated config missing
+                if ($configFile !== '/server.properties') {
+                    try {
+                        $raw = $this->fileRepository->setServer($server)->getContent('/server.properties');
+                        $fileExists = true;
+                        $lines = explode("\n", str_replace("\r\n", "\n", $raw));
+                        foreach ($lines as $line) {
+                            $trimmed = trim($line);
+                            if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '!')) continue;
+                            $parts = explode('=', $line, 2);
+                            if (count($parts) === 2) {
+                                $properties[trim($parts[0])] = trim($parts[1]);
+                            }
+                        }
+                    } catch (Throwable $ex) {
+                        $fileExists = false;
+                    }
+                }
+            }
 
-        return response()->json([
-            'success' => true,
-            'software' => $software,
-            'address' => $address,
-            'port' => $port,
-            'server_name' => $server->name,
-            'server_description' => $server->description ?? '',
-            'has_custom_icon' => $hasCustomIcon,
-            'icon_data' => $iconData,
-            'default_icon' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
-            'default_motd' => self::DEFAULT_MOTD,
-            'file_exists' => $fileExists,
-            'properties' => $properties,
-            'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
-            'is_suspended' => $server->isSuspended(),
-            'plan_name' => $server->plan_name ?? null,
-            'plan_price' => $server->plan_price ?? null,
-        ]);
+            // 4. Map Bedrock / Proxy MOTD & Settings
+            if ($category === 'bedrock') {
+                if (!empty($properties['server-name']) && empty($properties['motd'])) {
+                    $properties['motd'] = $properties['server-name'];
+                } elseif (!empty($properties['motd']) && empty($properties['server-name'])) {
+                    $properties['server-name'] = $properties['motd'];
+                }
+            } elseif ($category === 'proxy') {
+                if (!empty($properties['show-max-players']) && empty($properties['max-players'])) {
+                    $properties['max-players'] = $properties['show-max-players'];
+                }
+            }
+
+            // 5. Ensure Default MOTD if not set or default vanilla
+            $motd = $properties['motd'] ?? '';
+            if (empty($motd) || $motd === 'A Minecraft Server' || $motd === 'Dedicated Server') {
+                $properties['motd'] = self::DEFAULT_MOTD;
+            }
+
+            // 6. Check for server-icon.png (64x64 PNG)
+            $hasCustomIcon = false;
+            $iconData = 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64;
+            try {
+                $iconBytes = $this->fileRepository->setServer($server)->getContent('/server-icon.png');
+                if (!empty($iconBytes)) {
+                    $b64 = base64_encode($iconBytes);
+                    $hasCustomIcon = ($b64 !== self::DEFAULT_ICON_BASE64);
+                    $iconData = 'data:image/png;base64,' . $b64;
+                } else {
+                    $defaultBytes = base64_decode(self::DEFAULT_ICON_BASE64);
+                    $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
+                }
+            } catch (Throwable $e) {
+                try {
+                    $defaultBytes = base64_decode(self::DEFAULT_ICON_BASE64);
+                    $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
+                } catch (Throwable $ex) {}
+            }
+
+            return response()->json([
+                'success' => true,
+                'software' => $software,
+                'address' => $address,
+                'port' => $port,
+                'server_name' => $server->name,
+                'server_description' => $server->description ?? '',
+                'has_custom_icon' => $hasCustomIcon,
+                'icon_data' => $iconData,
+                'default_icon' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
+                'default_motd' => self::DEFAULT_MOTD,
+                'file_exists' => $fileExists,
+                'properties' => $properties,
+                'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
+                'is_suspended' => $server->isSuspended(),
+                'plan_name' => $server->plan_name ?? null,
+                'plan_price' => $server->plan_price ?? null,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('[OptionsController] index error: ' . $e->getMessage());
+            return response()->json([
+                'success' => true,
+                'software' => ['id' => 'CUSTOM', 'name' => 'Minecraft Server', 'category' => 'java'],
+                'address' => '',
+                'port' => 25565,
+                'server_name' => $server->name,
+                'server_description' => $server->description ?? '',
+                'has_custom_icon' => false,
+                'icon_data' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
+                'default_icon' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
+                'default_motd' => self::DEFAULT_MOTD,
+                'file_exists' => false,
+                'properties' => [],
+                'expire_at' => null,
+                'is_suspended' => $server->isSuspended(),
+                'plan_name' => null,
+                'plan_price' => null,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -207,7 +249,7 @@ class OptionsController extends ClientApiController
         try {
             $content = $this->fileRepository->setServer($server)->getContent($configFile);
             $existingLines = explode("\n", str_replace("\r\n", "\n", $content));
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $existingLines = [
                 '# Minecraft server properties',
                 '#' . date('D M d H:i:s T Y'),
@@ -275,7 +317,7 @@ class OptionsController extends ClientApiController
                 'software' => $software,
                 'message' => 'Server options saved successfully.',
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => "Failed to save {$configFile}.",
                 'message' => $e->getMessage(),
@@ -368,7 +410,7 @@ class OptionsController extends ClientApiController
                 'has_custom_icon' => true,
                 'icon_data' => 'data:image/png;base64,' . base64_encode($pngBytes),
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Failed to save /server-icon.png.',
                 'message' => $e->getMessage(),
@@ -395,7 +437,7 @@ class OptionsController extends ClientApiController
                 'has_custom_icon' => false,
                 'icon_data' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Failed to reset server icon.',
                 'message' => $e->getMessage(),
@@ -447,7 +489,7 @@ class OptionsController extends ClientApiController
             $raw = '';
             try {
                 $raw = $this->fileRepository->setServer($server)->getContent('/server.properties');
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
                 $raw = "#Minecraft server properties\n#" . date('D M d H:i:s T Y') . "\n";
             }
 
@@ -477,7 +519,7 @@ class OptionsController extends ClientApiController
             }
 
             $this->fileRepository->setServer($server)->putContent('/server.properties', implode("\n", $updatedLines));
-        } catch (Exception $e) {}
+        } catch (Throwable $e) {}
 
         return response()->json([
             'success' => true,
@@ -518,7 +560,7 @@ class OptionsController extends ClientApiController
                 }
             }
             $this->fileRepository->setServer($server)->putContent('/server.properties', implode("\n", $updatedLines));
-        } catch (Exception $e) {}
+        } catch (Throwable $e) {}
 
         return response()->json([
             'success' => true,
