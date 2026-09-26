@@ -42,9 +42,9 @@ class PlayerManagerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        // 1. Fetch server metadata (cached for 12 seconds to ensure instant 20ms refreshes)
+        // 1. Fetch server metadata (cached for 4 seconds for fresh 5s auto-polling)
         $metaKey = "ptero:pm:{$server->id}:meta";
-        $meta = Cache::remember($metaKey, 12, function () use ($server) {
+        $meta = Cache::remember($metaKey, 4, function () use ($server) {
             $software = $this->detectServerSoftware($server);
             $category = $software['category'] ?? 'java';
             $properties = $this->readServerProperties($server, $category);
@@ -891,7 +891,7 @@ class PlayerManagerController extends ClientApiController
     private function getOnlinePlayersFromLog(Server $server): array
     {
         $cacheKey = "ptero:pm:{$server->id}:log_online";
-        return Cache::remember($cacheKey, 6, function () use ($server) {
+        return Cache::remember($cacheKey, 4, function () use ($server) {
             $online = [];
             try {
                 $raw = '';

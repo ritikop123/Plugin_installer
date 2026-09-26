@@ -261,10 +261,10 @@ export default function PlayerManagerContainer() {
 
   useEffect(() => {
     loadPlayers();
-    // Auto-refresh stats every 15 seconds
+    // Auto-refresh stats every 5 seconds seamlessly
     const interval = setInterval(() => {
       loadPlayers();
-    }, 15000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [loadPlayers]);
 
@@ -542,6 +542,10 @@ export default function PlayerManagerContainer() {
                     }`}
                   />
                   {serverOnline ? 'Server Active' : 'Server Standby'}
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-full">
+                  <FontAwesomeIcon icon={faSyncAlt} className="text-[9px] animate-spin" style={{ animationDuration: '4s' }} />
+                  <span>Live 5s</span>
                 </span>
                 {software && (
                   <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border bg-cyan-950/60 text-cyan-300 border-cyan-700/50 font-medium">
