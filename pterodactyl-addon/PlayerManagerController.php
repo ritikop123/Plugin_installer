@@ -123,13 +123,14 @@ class PlayerManagerController extends ClientApiController
                 }
             }
 
-            // 4. Online players mapping (only scan tail of latest.log if server is online with active players)
+            // 4. Online players mapping (merge SLP sample and latest.log)
             $mergedOnlineNames = [];
             foreach ($slpOnlinePlayers as $sp) {
                 $mergedOnlineNames[strtolower($sp['name'])] = $sp['name'];
             }
 
-            if ($serverOnline && $onlineCount > 0 && (empty($mergedOnlineNames) || $onlineCount > count($mergedOnlineNames))) {
+            // Always check latest.log if SLP didn't return names or if ping returned more count
+            if (empty($mergedOnlineNames) || $onlineCount > count($mergedOnlineNames)) {
                 $logOnlinePlayers = $this->getOnlinePlayersFromLog($server);
                 foreach ($logOnlinePlayers as $lp) {
                     $mergedOnlineNames[strtolower($lp)] = $lp;
@@ -300,16 +301,14 @@ class PlayerManagerController extends ClientApiController
                 }
             }
 
-            // Always flush RAM to disk so equipped armor and newly acquired items are saved
-            if ($category === 'java') {
-                try {
-                    $this->sendCommand($server, 'save-all');
-                    usleep(120000); // 120ms
-                } catch (Throwable $e) {}
-            }
-
-            // If fresh requested: bust caches
+            // If fresh requested: flush RAM to disk and bust caches
             if ($forceFresh && $category === 'java') {
+                try {
+                    if ($request->user()->can(Permission::ACTION_CONTROL_CONSOLE, $server)) {
+                        $this->sendCommand($server, 'save-all');
+                        usleep(100000); // 100ms
+                    }
+                } catch (Throwable $e) {}
                 $cleanName = strtolower(trim($playerName));
                 $cleanUuid = strtolower(trim($playerUuid));
                 Cache::forget("ptero:pm:{$server->id}:nbt:{$cleanName}_{$cleanUuid}");
@@ -1903,10 +1902,10 @@ class PlayerManagerController extends ClientApiController
 
             foreach ($hosts as $host) {
                 if ($category === 'bedrock') {
-                    $res = $this->pingBedrockServer($host, $port, 0.15);
+                    $res = $this->pingBedrockServer($host, $port, 0.4);
                     if ($res !== null) return $res;
                 } else {
-                    $res = $this->pingMinecraftServer($host, $port, 0.15);
+                    $res = $this->pingMinecraftServer($host, $port, 0.4);
                     if ($res !== null) return $res;
                 }
             }

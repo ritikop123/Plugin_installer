@@ -249,6 +249,8 @@ export default function PlayerManagerContainer() {
 
   const isFetchingRef = useRef(false);
   const isDetailFetchingRef = useRef(false);
+  const selectedPlayerRef = useRef<PlayerSummary | null>(null);
+  selectedPlayerRef.current = selectedPlayer;
 
   // Fetch all players data from backend
   const loadPlayers = useCallback(
@@ -269,6 +271,11 @@ export default function PlayerManagerContainer() {
           setOnlinePlayers(res.data.online_players || []);
           setBannedPlayers(res.data.banned_players || []);
           setAllPlayers(res.data.all_players || []);
+
+          // If a player details modal is currently open, refresh their inventory in background
+          if (selectedPlayerRef.current && !isDetailFetchingRef.current) {
+            loadPlayerDetails(selectedPlayerRef.current, false, false);
+          }
         }
       } catch (err) {
         console.error(err);
@@ -281,7 +288,7 @@ export default function PlayerManagerContainer() {
         setRefreshing(false);
       }
     },
-    [uuid]
+    [uuid, loadPlayerDetails]
   );
 
   // Synchronize live online players via server console /list command
