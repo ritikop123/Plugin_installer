@@ -5,37 +5,32 @@ import ServerContentBlock from '@/components/elements/ServerContentBlock';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faUsers,
-  faUserCheck,
   faUserSlash,
-  faUserFriends,
   faCircle,
   faShieldAlt,
-  faCrown,
   faSignOutAlt,
   faGavel,
   faHeartbeat,
   faUtensils,
-  faEraser,
   faSyncAlt,
   faSearch,
   faTimes,
   faCheckCircle,
   faExclamationTriangle,
   faCube,
-  faSlidersH,
-  faCommentDots,
   faSkull,
   faCopy,
   faCheck,
   faUnlockAlt,
-  faEye,
-  faPlay,
-  faPause,
   faTh,
   faBoxArchive,
-  faInfoCircle,
   faGlobeAmericas,
   faMapMarkerAlt,
+  faClock,
+  faCrosshairs,
+  faTrashAlt,
+  faCompass,
+  faLocationArrow,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface PlayerSkinInfo {
@@ -53,6 +48,7 @@ interface PlayerSummary extends PlayerSkinInfo {
   is_op: boolean;
   is_banned: boolean;
   is_online: boolean;
+  is_whitelisted?: boolean;
   created?: string;
   source?: string;
   expires?: string;
@@ -68,6 +64,7 @@ interface PlayerSummary extends PlayerSkinInfo {
     game_mode: number;
     dimension: string;
     pos: [number, number, number];
+    last_death_location?: { x: number; y: number; z: number; dimension: string } | null;
     last_modified?: string | null;
   };
 }
@@ -83,12 +80,41 @@ interface InventoryItem {
   lore?: string[];
 }
 
+interface StatItemEntry {
+  id: string;
+  clean_id: string;
+  name: string;
+  count: number;
+}
+
+interface GameStatistics {
+  play_time_seconds: number;
+  play_time_formatted: string;
+  player_kills: number;
+  deaths: number;
+  mob_kills: number;
+  kdr: string;
+  distance_travelled: {
+    walked: number;
+    sprinted: number;
+    crouched: number;
+    fallen: number;
+    climbed: number;
+    walked_under_water: number;
+    walked_on_water: number;
+  };
+  blocks_broken: StatItemEntry[];
+  items_used: StatItemEntry[];
+  entities_killed: StatItemEntry[];
+}
+
 interface PlayerDetailResponse {
   success: boolean;
   name: string;
   uuid: string;
   is_op: boolean;
   is_banned: boolean;
+  is_whitelisted?: boolean;
   ban_info?: {
     created: string;
     source: string;
@@ -111,8 +137,10 @@ interface PlayerDetailResponse {
     game_mode: number;
     dimension: string;
     pos: [number, number, number];
+    last_death_location?: { x: number; y: number; z: number; dimension: string } | null;
     last_modified?: string | null;
   };
+  game_statistics?: GameStatistics | null;
 }
 
 interface ServerSoftwareInfo {
@@ -139,10 +167,10 @@ interface PlayersApiResponse {
 }
 
 const GAMEMODES = [
-  { label: 'Survival', value: 'survival' },
-  { label: 'Creative', value: 'creative' },
-  { label: 'Adventure', value: 'adventure' },
-  { label: 'Spectator', value: 'spectator' },
+  { label: 'Survival', value: 'survival', modeIndex: 0 },
+  { label: 'Creative', value: 'creative', modeIndex: 1 },
+  { label: 'Adventure', value: 'adventure', modeIndex: 2 },
+  { label: 'Spectator', value: 'spectator', modeIndex: 3 },
 ];
 
 export default function PlayerManagerContainer() {
@@ -173,27 +201,43 @@ export default function PlayerManagerContainer() {
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerSummary | null>(null);
   const [playerDetail, setPlayerDetail] = useState<PlayerDetailResponse | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailSyncing, setDetailSyncing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Sub-modals for Kick / Ban / Message
+  // Sub-modals
   const [kickModalOpen, setKickModalOpen] = useState(false);
   const [kickReason, setKickReason] = useState('Kicked by server administrator.');
   const [banModalOpen, setBanModalOpen] = useState(false);
   const [banReason, setBanReason] = useState('Banned by server administrator.');
   const [banIpChecked, setBanIpChecked] = useState(false);
-  const [messageModalOpen, setMessageModalOpen] = useState(false);
-  const [whisperMessage, setWhisperMessage] = useState('');
+  const [teleportModalOpen, setTeleportModalOpen] = useState(false);
+  const [teleportCoords, setTeleportCoords] = useState({ x: '', y: '', z: '', target: '' });
   const [copiedUuid, setCopiedUuid] = useState(false);
 
   // Inventory tab: 'inventory' or 'ender_chest'
   const [inventoryView, setInventoryView] = useState<'inventory' | 'ender_chest'>('inventory');
 
-  // 3D Model viewer references & state
-  const skinCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const skinViewerInstanceRef = useRef<any>(null);
-  const [autoRotate3D, setAutoRotate3D] = useState(true);
-  const [currentAnimation, setCurrentAnimation] = useState<'walk' | 'run' | 'idle'>('walk');
-  const [skinviewLoaded, setSkinviewLoaded] = useState(false);
+  // Stats view expansions
+  const [showAllBlocks, setShowAllBlocks] = useState(false);
+  const [showAllItems, setShowAllItems] = useState(false);
+
+  // Delete player data checkboxes
+  const [deleteTargets, setDeleteTargets] = useState<{
+    experience: boolean;
+    inventory: boolean;
+    ender_chest: boolean;
+    playerdata: boolean;
+    stats: boolean;
+    advancements: boolean;
+  }>({
+    experience: false,
+    inventory: false,
+    ender_chest: false,
+    playerdata: false,
+    stats: false,
+    advancements: false,
+  });
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Show Toast notification helper
   const showToast = (type: 'success' | 'error', text: string) => {
@@ -202,21 +246,6 @@ export default function PlayerManagerContainer() {
       setToastMessage((cur) => (cur?.text === text ? null : cur));
     }, 4500);
   };
-
-  // Load skinview3d script dynamically on mount
-  useEffect(() => {
-    if ((window as any).skinview3d) {
-      setSkinviewLoaded(true);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/skinview3d@3.1.0/bundles/skinview3d.bundle.js';
-    script.async = true;
-    script.onload = () => {
-      setSkinviewLoaded(true);
-    };
-    document.head.appendChild(script);
-  }, []);
 
   // Fetch all players data from backend
   const loadPlayers = useCallback(
@@ -271,20 +300,21 @@ export default function PlayerManagerContainer() {
     }
   };
 
+  // Auto-refresh every 5 seconds seamlessly
   useEffect(() => {
     loadPlayers();
-    // Auto-refresh stats every 5 seconds seamlessly
     const interval = setInterval(() => {
       loadPlayers();
     }, 5000);
     return () => clearInterval(interval);
   }, [loadPlayers]);
 
-  // Load single player details and inventory
+  // Load single player details, stats and live inventory
   const loadPlayerDetails = useCallback(
-    async (player: PlayerSummary, forceLoadingState = false) => {
-      // If player already has pre-fetched data, don't flash spinner
-      if (forceLoadingState || !player.inventory) {
+    async (player: PlayerSummary, forceLoadingState = false, fresh = false) => {
+      if (fresh) {
+        setDetailSyncing(true);
+      } else if (forceLoadingState || !player.inventory) {
         setLoadingDetail(true);
       }
       try {
@@ -292,22 +322,27 @@ export default function PlayerManagerContainer() {
           params: {
             player: player.name,
             uuid: player.uuid,
+            fresh: fresh ? 1 : 0,
           },
         });
         if (res.data.success) {
           setPlayerDetail(res.data);
+          if (fresh) {
+            showToast('success', 'Live inventory flushed from server RAM.');
+          }
         }
       } catch (err) {
         console.error(err);
         showToast('error', `Failed to load details for ${player.name}: ${httpErrorToHuman(err)}`);
       } finally {
         setLoadingDetail(false);
+        setDetailSyncing(false);
       }
     },
     [uuid]
   );
 
-  // Open modal for player (Instant 0ms opening like Aternos!)
+  // Open modal for player (Instant opening with optimistic preview)
   const handleSelectPlayer = (player: PlayerSummary) => {
     setSelectedPlayer(player);
     if (player.inventory !== undefined && player.stats !== undefined) {
@@ -317,6 +352,7 @@ export default function PlayerManagerContainer() {
         uuid: player.uuid,
         is_op: player.is_op,
         is_banned: player.is_banned,
+        is_whitelisted: player.is_whitelisted,
         skin_url: player.skin_url,
         avatar_url: player.avatar_url,
         render_3d_url: player.render_3d_url,
@@ -331,101 +367,27 @@ export default function PlayerManagerContainer() {
       setPlayerDetail(null);
     }
     setInventoryView('inventory');
-    loadPlayerDetails(player);
+    setShowAllBlocks(false);
+    setShowAllItems(false);
+    setDeleteTargets({
+      experience: false,
+      inventory: false,
+      ender_chest: false,
+      playerdata: false,
+      stats: false,
+      advancements: false,
+    });
+    // Fetch full details + game statistics
+    loadPlayerDetails(player, true, false);
   };
 
   // Close modal
   const handleCloseModal = () => {
     setSelectedPlayer(null);
     setPlayerDetail(null);
-    if (skinViewerInstanceRef.current) {
-      try {
-        skinViewerInstanceRef.current.dispose();
-      } catch (e) {}
-      skinViewerInstanceRef.current = null;
-    }
   };
 
-  // Initialize or update skinview3d on modal open
-  useEffect(() => {
-    if (!selectedPlayer || !skinCanvasRef.current || !(window as any).skinview3d) {
-      return;
-    }
-
-    try {
-      if (skinViewerInstanceRef.current) {
-        skinViewerInstanceRef.current.dispose();
-        skinViewerInstanceRef.current = null;
-      }
-
-      const skinUrl =
-        playerDetail?.skin_url ||
-        selectedPlayer.skin_url ||
-        'https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/entity/player/wide/steve.png';
-
-      const viewer = new (window as any).skinview3d.SkinViewer({
-        canvas: skinCanvasRef.current,
-        width: 220,
-        height: 280,
-        skin: skinUrl,
-      });
-
-      viewer.fov = 70;
-      viewer.zoom = 0.9;
-      viewer.autoRotate = autoRotate3D;
-      viewer.autoRotateSpeed = 1.0;
-
-      if (currentAnimation === 'walk') {
-        viewer.animation = new (window as any).skinview3d.WalkingAnimation();
-        viewer.animation.speed = 0.65;
-      } else if (currentAnimation === 'run') {
-        viewer.animation = new (window as any).skinview3d.RunningAnimation();
-        viewer.animation.speed = 0.85;
-      } else {
-        viewer.animation = null;
-      }
-
-      skinViewerInstanceRef.current = viewer;
-    } catch (e) {
-      console.error('Skin viewer error:', e);
-    }
-
-    return () => {
-      if (skinViewerInstanceRef.current) {
-        try {
-          skinViewerInstanceRef.current.dispose();
-        } catch (e) {}
-        skinViewerInstanceRef.current = null;
-      }
-    };
-  }, [selectedPlayer, playerDetail?.skin_url, skinviewLoaded]);
-
-  // Update auto-rotate in 3D viewer
-  const toggleAutoRotate = () => {
-    const next = !autoRotate3D;
-    setAutoRotate3D(next);
-    if (skinViewerInstanceRef.current) {
-      skinViewerInstanceRef.current.autoRotate = next;
-    }
-  };
-
-  // Switch 3D animation
-  const switchAnimation = (anim: 'walk' | 'run' | 'idle') => {
-    setCurrentAnimation(anim);
-    if (!skinViewerInstanceRef.current || !(window as any).skinview3d) return;
-
-    if (anim === 'walk') {
-      skinViewerInstanceRef.current.animation = new (window as any).skinview3d.WalkingAnimation();
-      skinViewerInstanceRef.current.animation.speed = 0.65;
-    } else if (anim === 'run') {
-      skinViewerInstanceRef.current.animation = new (window as any).skinview3d.RunningAnimation();
-      skinViewerInstanceRef.current.animation.speed = 0.85;
-    } else {
-      skinViewerInstanceRef.current.animation = null;
-    }
-  };
-
-  // Perform Player Action (OP, kick, ban, heal, feed, clear, unban, etc.)
+  // Execute Player Action
   const executePlayerAction = async (action: string, payload: Record<string, any> = {}) => {
     if (!selectedPlayer) return;
     setActionLoading(action);
@@ -439,14 +401,12 @@ export default function PlayerManagerContainer() {
 
       if (res.data.success) {
         showToast('success', res.data.message || `Action ${action} executed.`);
-        // Reload details & lists
         loadPlayers();
         if (action === 'ban' || action === 'kick') {
           handleCloseModal();
-        } else if (action === 'unban') {
-          handleCloseModal();
         } else {
-          loadPlayerDetails(selectedPlayer);
+          // Re-fetch player details to reflect changes
+          loadPlayerDetails(selectedPlayer, false, action === 'heal' || action === 'feed' || action === 'starve');
         }
       }
     } catch (err) {
@@ -465,7 +425,7 @@ export default function PlayerManagerContainer() {
     setTimeout(() => setCopiedUuid(false), 2000);
   };
 
-  // Combined players map (ensuring online players are always present and flagged is_online)
+  // Combined players map
   const combinedPlayersList = useMemo(() => {
     const map = new Map<string, PlayerSummary>();
     for (const p of allPlayers) {
@@ -481,7 +441,6 @@ export default function PlayerManagerContainer() {
       }
     }
     const list = Array.from(map.values());
-    // Sort: Online players first, then alphabetically
     list.sort((a, b) => {
       if (a.is_online !== b.is_online) {
         return a.is_online ? -1 : 1;
@@ -499,7 +458,7 @@ export default function PlayerManagerContainer() {
     return combinedPlayersList.filter((p) => !p.is_online).length;
   }, [combinedPlayersList]);
 
-  // Filter players by active tab, sub-filter, and search query
+  // Filter players by active tab and search query
   const filteredPlayers = useMemo(() => {
     let list: PlayerSummary[] = [];
 
@@ -525,15 +484,78 @@ export default function PlayerManagerContainer() {
     return items.find((i) => i.slot === slot);
   };
 
-  // Helper to format item texture URL with fallback
-  const getItemIconUrl = (cleanId: string) => {
-    return `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${cleanId}.png`;
+  // Check if all delete targets selected
+  const allDeleteSelected = useMemo(() => {
+    return (
+      deleteTargets.experience &&
+      deleteTargets.inventory &&
+      deleteTargets.ender_chest &&
+      deleteTargets.playerdata &&
+      deleteTargets.stats &&
+      deleteTargets.advancements
+    );
+  }, [deleteTargets]);
+
+  const toggleSelectAllDelete = () => {
+    const next = !allDeleteSelected;
+    setDeleteTargets({
+      experience: next,
+      inventory: next,
+      ender_chest: next,
+      playerdata: next,
+      stats: next,
+      advancements: next,
+    });
   };
+
+  const hasAnyDeleteTarget = useMemo(() => {
+    return Object.values(deleteTargets).some(Boolean);
+  }, [deleteTargets]);
+
+  // Calculate distance travelled total
+  const totalDistance = useMemo(() => {
+    if (!playerDetail?.game_statistics?.distance_travelled) return 0;
+    const d = playerDetail.game_statistics.distance_travelled;
+    return (
+      (d.walked || 0) +
+      (d.sprinted || 0) +
+      (d.crouched || 0) +
+      (d.fallen || 0) +
+      (d.climbed || 0) +
+      (d.walked_under_water || 0) +
+      (d.walked_on_water || 0)
+    );
+  }, [playerDetail]);
+
+  // Calculate blocks broken total
+  const totalBlocksBroken = useMemo(() => {
+    if (!playerDetail?.game_statistics?.blocks_broken) return 0;
+    return playerDetail.game_statistics.blocks_broken.reduce((acc, b) => acc + b.count, 0);
+  }, [playerDetail]);
+
+  // Calculate items used total
+  const totalItemsUsed = useMemo(() => {
+    if (!playerDetail?.game_statistics?.items_used) return 0;
+    return playerDetail.game_statistics.items_used.reduce((acc, i) => acc + i.count, 0);
+  }, [playerDetail]);
+
+  // Calculate entities killed total
+  const totalEntitiesKilled = useMemo(() => {
+    if (!playerDetail?.game_statistics?.entities_killed) return 0;
+    return playerDetail.game_statistics.entities_killed.reduce((acc, e) => acc + e.count, 0);
+  }, [playerDetail]);
+
+  // Active gamemode name
+  const currentGamemodeValue = useMemo(() => {
+    const mode = playerDetail?.stats?.game_mode ?? 0;
+    const match = GAMEMODES.find((g) => g.modeIndex === mode);
+    return match ? match.value : 'survival';
+  }, [playerDetail?.stats?.game_mode]);
 
   return (
     <ServerContentBlock
       title="Player Manager"
-      description="Live player monitoring, real-time 3D skin models, inventory inspector, operator controls, and ban manager."
+      description="Live player monitoring, real-time inventory inspection, operator controls, and player statistics."
     >
       {/* Toast Alert */}
       {toastMessage && (
@@ -578,8 +600,8 @@ export default function PlayerManagerContainer() {
                   {serverOnline ? 'Server Active' : 'Server Standby'}
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-full">
-                  <FontAwesomeIcon icon={faSyncAlt} className="text-[9px] animate-spin" style={{ animationDuration: '4s' }} />
-                  <span>Live 5s</span>
+                  <FontAwesomeIcon icon={faSyncAlt} className="text-[9px] animate-spin" style={{ animationDuration: '5s' }} />
+                  <span>5s Live</span>
                 </span>
                 {software && (
                   <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border bg-cyan-950/60 text-cyan-300 border-cyan-700/50 font-medium">
@@ -604,7 +626,7 @@ export default function PlayerManagerContainer() {
             </div>
           </div>
 
-          {/* Search and Refresh Action */}
+          {/* Search and Refresh Actions */}
           <div className="flex items-center gap-3 w-full lg:w-auto">
             <div className="relative flex-1 lg:w-72">
               <FontAwesomeIcon
@@ -615,7 +637,7 @@ export default function PlayerManagerContainer() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search players by name..."
+                placeholder="Search players by name or UUID..."
                 className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 placeholder-neutral-500 text-sm focus:outline-none focus:border-primary-500 transition-colors"
               />
               {searchQuery && (
@@ -649,50 +671,11 @@ export default function PlayerManagerContainer() {
             </button>
           </div>
         </div>
-
-        {/* Capacity Progress Bar */}
-        <div className="mt-4 pt-4 border-t border-neutral-800/80 flex items-center gap-3">
-          <div className="flex-1 bg-neutral-950 h-2 rounded-full overflow-hidden border border-neutral-800">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                onlineCount / (maxPlayers || 1) > 0.85
-                  ? 'bg-gradient-to-r from-amber-500 to-rose-500'
-                  : 'bg-gradient-to-r from-primary-500 to-emerald-400'
-              }`}
-              style={{
-                width: `${Math.min(100, Math.round((onlineCount / (maxPlayers || 1)) * 100))}%`,
-              }}
-            />
-          </div>
-          <span className="text-xs text-neutral-400 font-mono">
-            {Math.round((onlineCount / (maxPlayers || 1)) * 100)}% Capacity
-          </span>
-        </div>
       </div>
 
-      {/* Notice banner if server reports online players but list is syncing */}
-      {serverOnline && onlineCount > 0 && onlinePlayersCount === 0 && (
-        <div className="bg-primary-950/40 border border-primary-800/50 rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-primary-200 shadow-md">
-          <div className="flex items-center gap-3">
-            <FontAwesomeIcon icon={faInfoCircle} className="text-primary-400 text-lg flex-shrink-0" />
-            <span>
-              Server reports <strong>{onlineCount}</strong> player(s) online. If names haven't refreshed yet, click <strong>Sync Online</strong>.
-            </span>
-          </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="px-3 py-1.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap self-start sm:self-auto"
-          >
-            <FontAwesomeIcon icon={faSyncAlt} className={syncing ? 'animate-spin' : ''} />
-            <span>Sync Now</span>
-          </button>
-        </div>
-      )}
-
-      {/* Primary Tabs: Players | Banned Players */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 mb-6 pb-3">
-        <div className="flex items-center gap-2">
+      {/* Tabs & Sub-filter Switcher */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2 bg-neutral-950 p-1.5 rounded-2xl border border-neutral-800">
           <button
             onClick={() => setActiveTab('players')}
             className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
@@ -736,7 +719,7 @@ export default function PlayerManagerContainer() {
           </button>
         </div>
 
-        {/* Sub-filters for Players Tab: All | Online | Offline */}
+        {/* Sub-filters for Players Tab */}
         {activeTab === 'players' && (
           <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800 self-start sm:self-auto">
             <button
@@ -778,7 +761,7 @@ export default function PlayerManagerContainer() {
       {loading && allPlayers.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
           <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-3xl mb-3 text-primary-400" />
-          <p className="text-sm">Querying server for player records & skins...</p>
+          <p className="text-sm">Querying server for player records...</p>
         </div>
       ) : filteredPlayers.length === 0 ? (
         <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-12 text-center">
@@ -796,8 +779,8 @@ export default function PlayerManagerContainer() {
             {activeTab === 'banned'
               ? 'Clean record! There are no banned players in banned-players.json.'
               : playerFilter === 'online'
-              ? 'None of the server players are currently connected. Join your Minecraft server address to appear online.'
-              : 'No players have joined this Minecraft server yet. Connect to the server to generate player data and inventories.'}
+              ? 'None of the server players are currently connected.'
+              : 'No players have joined this Minecraft server yet.'}
           </p>
           {activeTab === 'players' && playerFilter === 'online' && combinedPlayersList.length > 0 && (
             <button
@@ -823,7 +806,6 @@ export default function PlayerManagerContainer() {
               }`}
             >
               <div className="flex items-center gap-3.5">
-                {/* 64x64 Player Head Avatar */}
                 <div className="relative flex-shrink-0">
                   <img
                     src={player.avatar_url}
@@ -843,7 +825,6 @@ export default function PlayerManagerContainer() {
                   )}
                 </div>
 
-                {/* Player Name and Badges */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-1">
                     <h4 className="text-sm font-bold text-white truncate group-hover:text-primary-400 transition-colors">
@@ -856,47 +837,32 @@ export default function PlayerManagerContainer() {
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <div className="text-[11px] text-neutral-400 font-mono truncate mb-1.5">
+                    {player.uuid || 'Unknown UUID'}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {player.is_banned ? (
-                      <span className="px-2 py-0.5 rounded-md bg-rose-950/70 text-rose-400 border border-rose-800/50 font-medium">
+                      <span className="px-1.5 py-0.5 rounded-md bg-rose-950/60 text-rose-300 border border-rose-800/40 text-[10px] font-semibold">
                         Banned
                       </span>
                     ) : player.is_online ? (
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-950/70 text-emerald-400 border border-emerald-800/50 font-medium">
+                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 text-[10px] font-semibold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         Online
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-neutral-400 border border-neutral-700 font-medium">
+                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-800 text-neutral-400 text-[10px]">
                         Offline
                       </span>
                     )}
 
-                    {(player.name.startsWith('.') || player.name.startsWith('*') || player.name.includes(' ') || software?.category === 'bedrock') ? (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-emerald-950/50 text-emerald-300 border border-emerald-800/40 text-[10px]"
-                        title="Bedrock edition player"
-                      >
-                        Bedrock
-                      </span>
-                    ) : player.skin_type === 'steve' ? (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-amber-950/50 text-amber-300 border border-amber-800/40 text-[10px]"
-                        title="Cracked account default Steve"
-                      >
+                    {player.skin_type === 'steve' ? (
+                      <span className="px-1.5 py-0.5 rounded-md bg-amber-950/50 text-amber-300 border border-amber-800/40 text-[10px]">
                         Steve
                       </span>
-                    ) : player.skin_type === 'premium' ? (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-cyan-950/50 text-cyan-300 border border-cyan-800/40 text-[10px]"
-                        title="Official Mojang premium skin"
-                      >
-                        Premium
-                      </span>
                     ) : (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-indigo-950/50 text-indigo-300 border border-indigo-800/40 text-[10px]"
-                        title="Player skin"
-                      >
+                      <span className="px-1.5 py-0.5 rounded-md bg-cyan-950/50 text-cyan-300 border border-cyan-800/40 text-[10px]">
                         Skin
                       </span>
                     )}
@@ -904,7 +870,6 @@ export default function PlayerManagerContainer() {
                 </div>
               </div>
 
-              {/* Ban Reason Preview if Banned */}
               {player.is_banned && player.reason && (
                 <div className="mt-3 pt-2.5 border-t border-rose-900/30 text-xs text-rose-300/80 truncate">
                   <span className="font-semibold text-rose-400">Reason:</span> {player.reason}
@@ -916,520 +881,963 @@ export default function PlayerManagerContainer() {
       )}
 
       {/* ========================================================================= */}
-      {/* PLAYER MANAGEMENT MODAL / GUI                                              */}
+      {/* ATERNOS-STYLE PROFESSIONAL PLAYER DETAILS MODAL / VIEW                     */}
       {/* ========================================================================= */}
       {selectedPlayer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative w-full max-w-5xl bg-neutral-900 border border-neutral-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-            {/* Modal Top Bar */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/70">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-6xl bg-[#1e232d] border border-neutral-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
+            
+            {/* Modal Top Header Bar */}
+            <div className="flex items-center justify-between px-5 py-3.5 bg-[#171b23] border-b border-neutral-800">
               <div className="flex items-center gap-3">
-                <img
-                  src={selectedPlayer.avatar_url}
-                  alt={selectedPlayer.name}
-                  className="w-10 h-10 rounded-xl bg-neutral-800 border border-neutral-700 object-cover"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-extrabold text-white tracking-tight">
-                      {selectedPlayer.name}
-                    </h2>
-                    {selectedPlayer.is_op && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-600/50 font-bold flex items-center gap-1">
-                        <FontAwesomeIcon icon={faShieldAlt} /> OP
-                      </span>
-                    )}
-                    {selectedPlayer.is_banned ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-600/50 font-semibold">
-                        Banned
-                      </span>
-                    ) : selectedPlayer.is_online ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600/50 font-semibold flex items-center gap-1">
-                        <FontAwesomeIcon icon={faCircle} className="text-[7px] text-emerald-400 animate-pulse" />
-                        Online
-                      </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 font-semibold">
-                        Offline
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono">
-                    <span>{selectedPlayer.uuid}</span>
-                    <button
-                      onClick={() => handleCopyUuid(selectedPlayer.uuid)}
-                      title="Copy UUID"
-                      className="text-neutral-500 hover:text-white transition-colors"
-                    >
-                      <FontAwesomeIcon icon={copiedUuid ? faCheck : faCopy} />
-                    </button>
-                  </div>
-                </div>
+                <span className="text-base sm:text-lg font-bold text-[#4aa3df]">
+                  Player details
+                </span>
+                {detailSyncing && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary-950/60 text-primary-300 border border-primary-700/50 flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-[10px]" />
+                    <span>Flushing server RAM...</span>
+                  </span>
+                )}
               </div>
 
-              <button
-                onClick={handleCloseModal}
-                className="w-9 h-9 rounded-xl bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center transition-colors"
-              >
-                <FontAwesomeIcon icon={faTimes} />
-              </button>
-            </div>
-
-            {/* Banned Alert Banner */}
-            {selectedPlayer.is_banned && (
-              <div className="bg-rose-950/60 border-b border-rose-800/40 px-6 py-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3 text-sm text-rose-200">
-                  <FontAwesomeIcon icon={faUserSlash} className="text-rose-400 text-lg" />
-                  <div>
-                    <span className="font-bold text-white">Player is Banned:</span>{' '}
-                    <span className="italic">
-                      "{playerDetail?.ban_info?.reason || selectedPlayer.reason || 'Banned by operator'}"
-                    </span>
-                    <div className="text-xs text-rose-300/70 mt-0.5">
-                      Banned by: {playerDetail?.ban_info?.source || selectedPlayer.source || 'Server'} |
-                      Date: {playerDetail?.ban_info?.created || selectedPlayer.created || 'N/A'}
-                    </div>
-                  </div>
-                </div>
-
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => executePlayerAction('unban')}
-                  disabled={actionLoading === 'unban'}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg flex items-center gap-2 active:scale-95"
+                  onClick={() => loadPlayerDetails(selectedPlayer, false, true)}
+                  disabled={detailSyncing || loadingDetail}
+                  title="Force Minecraft server to flush live RAM to disk (save-all) and refresh inventory"
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors flex items-center gap-1.5 active:scale-95"
                 >
-                  <FontAwesomeIcon icon={faUnlockAlt} />
-                  <span>Unban Player</span>
+                  <FontAwesomeIcon icon={faSyncAlt} className={detailSyncing ? 'animate-spin' : ''} />
+                  <span className="hidden sm:inline">Live RAM Sync</span>
+                </button>
+                <button
+                  onClick={handleCloseModal}
+                  className="w-8 h-8 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <FontAwesomeIcon icon={faTimes} />
                 </button>
               </div>
-            )}
+            </div>
 
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* LEFT COLUMN: 3D MODEL & QUICK CONTROLS (5 cols) */}
-              <div className="lg:col-span-4 flex flex-col gap-4">
-                {/* 3D Model Box */}
-                <div className="bg-neutral-950 rounded-2xl border border-neutral-800 p-4 flex flex-col items-center justify-center shadow-inner relative overflow-hidden">
-                  <div className="absolute top-3 left-3 z-10">
-                    <span
-                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${
-                        selectedPlayer.skin_type === 'steve'
-                          ? 'bg-amber-950/80 text-amber-300 border-amber-700/50'
-                          : selectedPlayer.skin_type === 'premium'
-                          ? 'bg-cyan-950/80 text-cyan-300 border-cyan-700/50'
-                          : 'bg-indigo-950/80 text-indigo-300 border-indigo-700/50'
-                      }`}
-                    >
-                      {selectedPlayer.skin_type === 'steve'
-                        ? 'Cracked (Steve Skin)'
-                        : selectedPlayer.skin_type === 'premium'
-                        ? 'Official Premium Skin'
-                        : 'Player Skin'}
-                    </span>
-                  </div>
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
 
-                  {/* 3D WebGL Canvas */}
-                  <div className="relative w-full h-[280px] flex items-center justify-center">
-                    <canvas
-                      ref={skinCanvasRef}
-                      className="cursor-grab active:cursor-grabbing max-w-full"
-                    />
-                    {!skinviewLoaded && (
-                      <img
-                        src={selectedPlayer.render_3d_url}
-                        alt="3D render"
-                        className="max-h-[250px] object-contain drop-shadow-2xl"
-                      />
-                    )}
-                  </div>
-
-                  {/* 3D View Controls */}
-                  <div className="w-full flex items-center justify-between pt-3 mt-1 border-t border-neutral-800/80 text-xs text-neutral-400">
-                    <button
-                      onClick={toggleAutoRotate}
-                      className={`px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5 ${
-                        autoRotate3D
-                          ? 'bg-neutral-800 text-primary-400 border-primary-500/40'
-                          : 'bg-neutral-900 text-neutral-400 border-neutral-800'
-                      }`}
-                      title="Toggle auto rotation"
-                    >
-                      <FontAwesomeIcon icon={faSyncAlt} className={autoRotate3D ? 'animate-spin' : ''} />
-                      <span>Rotate</span>
-                    </button>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => switchAnimation('walk')}
-                        className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                          currentAnimation === 'walk'
-                            ? 'bg-neutral-800 text-white font-semibold'
-                            : 'hover:bg-neutral-800/50 text-neutral-400'
-                        }`}
-                      >
-                        Walk
-                      </button>
-                      <button
-                        onClick={() => switchAnimation('run')}
-                        className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                          currentAnimation === 'run'
-                            ? 'bg-neutral-800 text-white font-semibold'
-                            : 'hover:bg-neutral-800/50 text-neutral-400'
-                        }`}
-                      >
-                        Run
-                      </button>
-                      <button
-                        onClick={() => switchAnimation('idle')}
-                        className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                          currentAnimation === 'idle'
-                            ? 'bg-neutral-800 text-white font-semibold'
-                            : 'hover:bg-neutral-800/50 text-neutral-400'
-                        }`}
-                      >
-                        Idle
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Management Action Buttons Grid */}
-                <div className="bg-neutral-950/70 rounded-2xl border border-neutral-800 p-4">
-                  <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">
-                    Player Actions
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* OP / DEOP */}
-                    <button
-                      onClick={() => executePlayerAction(selectedPlayer.is_op ? 'deop' : 'op')}
-                      disabled={actionLoading !== null}
-                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                        selectedPlayer.is_op
-                          ? 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'
-                          : 'bg-neutral-800 hover:bg-neutral-700 border-neutral-700 text-neutral-200'
-                      }`}
-                    >
-                      <FontAwesomeIcon icon={faShieldAlt} />
-                      <span>{selectedPlayer.is_op ? 'Revoke OP' : 'Give OP'}</span>
-                    </button>
-
-                    {/* HEAL */}
-                    <button
-                      onClick={() => executePlayerAction('heal')}
-                      disabled={actionLoading !== null}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-emerald-950/80 border border-neutral-700 hover:border-emerald-600/60 text-emerald-300 transition-all active:scale-95"
-                    >
-                      <FontAwesomeIcon icon={faHeartbeat} />
-                      <span>Heal</span>
-                    </button>
-
-                    {/* FEED */}
-                    <button
-                      onClick={() => executePlayerAction('feed')}
-                      disabled={actionLoading !== null}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-amber-950/80 border border-neutral-700 hover:border-amber-600/60 text-amber-300 transition-all active:scale-95"
-                    >
-                      <FontAwesomeIcon icon={faUtensils} />
-                      <span>Feed</span>
-                    </button>
-
-                    {/* CLEAR INVENTORY */}
-                    <button
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Are you sure you want to clear ${selectedPlayer.name}'s inventory?`
-                          )
-                        ) {
-                          executePlayerAction('clear');
-                        }
-                      }}
-                      disabled={actionLoading !== null}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-rose-950/80 border border-neutral-700 hover:border-rose-600/60 text-rose-300 transition-all active:scale-95"
-                    >
-                      <FontAwesomeIcon icon={faEraser} />
-                      <span>Clear Inv</span>
-                    </button>
-
-                    {/* KICK */}
-                    <button
-                      onClick={() => setKickModalOpen(true)}
-                      disabled={actionLoading !== null || !selectedPlayer.is_online}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-amber-950/80 border border-neutral-700 hover:border-amber-600/60 text-amber-400 transition-all disabled:opacity-40 active:scale-95"
-                    >
-                      <FontAwesomeIcon icon={faSignOutAlt} />
-                      <span>Kick</span>
-                    </button>
-
-                    {/* BAN / UNBAN */}
-                    {selectedPlayer.is_banned ? (
-                      <button
-                        onClick={() => executePlayerAction('unban')}
-                        disabled={actionLoading !== null}
-                        className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all active:scale-95"
-                      >
-                        <FontAwesomeIcon icon={faUnlockAlt} />
-                        <span>Unban</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setBanModalOpen(true)}
-                        disabled={actionLoading !== null}
-                        className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-rose-950/80 border border-neutral-700 hover:border-rose-600/60 text-rose-400 transition-all active:scale-95"
-                      >
-                        <FontAwesomeIcon icon={faGavel} />
-                        <span>Ban</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Gamemode Selector */}
-                  <div className="mt-3 pt-3 border-t border-neutral-800">
-                    <label className="text-[11px] font-semibold text-neutral-400 block mb-1.5 flex items-center gap-1.5">
-                      <FontAwesomeIcon icon={faSlidersH} />
-                      <span>Switch Gamemode</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {GAMEMODES.map((gm) => (
-                        <button
-                          key={gm.value}
-                          onClick={() => executePlayerAction('gamemode', { gamemode: gm.value })}
-                          className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] text-neutral-300 font-medium text-left transition-colors flex items-center justify-between"
-                        >
-                          <span>{gm.label}</span>
-                          {playerDetail?.stats.game_mode ===
-                            (gm.value === 'survival'
-                              ? 0
-                              : gm.value === 'creative'
-                              ? 1
-                              : gm.value === 'adventure'
-                              ? 2
-                              : 3) && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-primary-400" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT COLUMN: INVENTORY & IN-GAME ATTRIBUTES (8 cols) */}
-              <div className="lg:col-span-8 flex flex-col gap-4">
-                {/* Player In-Game Stats Strip */}
-                <div className="bg-neutral-950/80 rounded-2xl border border-neutral-800 p-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {/* Health */}
-                    <div className="bg-neutral-900/90 rounded-xl p-3 border border-neutral-800/80 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-rose-950/60 border border-rose-800/40 flex items-center justify-center text-rose-400">
-                        <FontAwesomeIcon icon={faHeartbeat} />
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-neutral-400 font-medium">Health</div>
-                        <div className="text-sm font-bold text-white">
-                          {playerDetail ? `${playerDetail.stats.health} / 20` : '—'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Food / Hunger */}
-                    <div className="bg-neutral-900/90 rounded-xl p-3 border border-neutral-800/80 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-amber-950/60 border border-amber-800/40 flex items-center justify-center text-amber-400">
-                        <FontAwesomeIcon icon={faUtensils} />
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-neutral-400 font-medium">Hunger</div>
-                        <div className="text-sm font-bold text-white">
-                          {playerDetail ? `${playerDetail.stats.food_level} / 20` : '—'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Level */}
-                    <div className="bg-neutral-900/90 rounded-xl p-3 border border-neutral-800/80 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-950/60 border border-emerald-800/40 flex items-center justify-center text-emerald-400 font-mono font-black">
-                        L
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-neutral-400 font-medium">Experience</div>
-                        <div className="text-sm font-bold text-emerald-400">
-                          {playerDetail ? `Level ${playerDetail.stats.level}` : '—'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Dimension */}
-                    <div className="bg-neutral-900/90 rounded-xl p-3 border border-neutral-800/80 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400">
-                        <FontAwesomeIcon icon={faGlobeAmericas} />
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-neutral-400 font-medium">Dimension</div>
-                        <div className="text-sm font-bold text-white capitalize truncate">
-                          {playerDetail
-                            ? playerDetail.stats.dimension.replace('minecraft:', '').replace('_', ' ')
-                            : '—'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Coordinates if available */}
-                  {playerDetail?.stats.pos && (
-                    <div className="mt-3 pt-3 border-t border-neutral-800/70 flex items-center justify-between text-xs text-neutral-400">
-                      <div className="flex items-center gap-2">
-                        <FontAwesomeIcon icon={faMapMarkerAlt} className="text-neutral-500" />
-                        <span>
-                          X: <strong className="text-neutral-200">{playerDetail.stats.pos[0]}</strong>, Y:{' '}
-                          <strong className="text-neutral-200">{playerDetail.stats.pos[1]}</strong>, Z:{' '}
-                          <strong className="text-neutral-200">{playerDetail.stats.pos[2]}</strong>
+              {/* 1. TOP PLAYER BANNER (Avatar, Name, Online badge, UUID, Gamemode dropdown) */}
+              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={playerDetail?.avatar_url || selectedPlayer.avatar_url}
+                    alt={selectedPlayer.name}
+                    className="w-12 h-12 rounded-lg bg-neutral-900 border border-neutral-700 object-cover flex-shrink-0"
+                    style={{ imageRendering: 'pixelated' }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://mc-heads.net/avatar/MHF_Steve/64';
+                    }}
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base sm:text-lg font-bold text-white tracking-wide">
+                        {selectedPlayer.name}
+                      </span>
+                      {selectedPlayer.is_banned ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-semibold">
+                          Banned
                         </span>
-                      </div>
-                      {selectedPlayer.is_banned && (
-                        <span className="text-rose-400 font-medium">
-                          Last known data saved prior to ban
+                      ) : selectedPlayer.is_online ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Online
+                        </span>
+                      ) : (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 font-semibold">
+                          Offline
                         </span>
                       )}
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono mt-0.5">
+                      <span>{selectedPlayer.uuid}</span>
+                      <button
+                        onClick={() => handleCopyUuid(selectedPlayer.uuid)}
+                        title="Copy UUID"
+                        className="text-neutral-500 hover:text-white transition-colors"
+                      >
+                        <FontAwesomeIcon icon={copiedUuid ? faCheck : faCopy} className="text-xs" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                {/* IN-GAME INVENTORY GUI */}
-                <div className="bg-neutral-950/90 rounded-2xl border border-neutral-800 p-5 shadow-2xl flex-1 flex flex-col">
-                  {/* Inventory Header & Tab Switcher */}
-                  <div className="flex items-center justify-between pb-3 mb-4 border-b border-neutral-800">
-                    <div className="flex items-center gap-2">
+                {/* Gamemode Dropdown */}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <label className="text-xs text-neutral-400 font-medium hidden sm:inline">Gamemode:</label>
+                  <select
+                    value={currentGamemodeValue}
+                    onChange={(e) => executePlayerAction('gamemode', { gamemode: e.target.value })}
+                    disabled={actionLoading !== null}
+                    className="px-3 py-1.5 rounded-lg bg-[#181d26] border border-neutral-700 text-white text-xs font-semibold focus:outline-none focus:border-primary-500 cursor-pointer"
+                  >
+                    {GAMEMODES.map((gm) => (
+                      <option key={gm.value} value={gm.value}>
+                        {gm.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 2. MIDDLE TWO-COLUMN SECTION */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+                {/* LEFT COLUMN: Health & Experience + Inventory (8 cols) */}
+                <div className="lg:col-span-8 flex flex-col gap-4">
+
+                  {/* Health and Experience Box */}
+                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
+                    <div className="text-xs font-bold text-neutral-300">
+                      Health and experience
+                    </div>
+
+                    {/* Green Experience Bar */}
+                    <div className="relative w-full h-8 bg-neutral-900 rounded-md overflow-hidden border border-neutral-700/80 flex items-center justify-between px-2">
+                      {/* Minecraft XP Green Progress Background */}
+                      <div
+                        className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-600 via-green-500 to-lime-400 transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, (playerDetail?.stats?.exp ?? 0) * 100))}%`,
+                        }}
+                      />
+
+                      {/* Open Ender Chest / Inventory Switch Button */}
                       <button
-                        onClick={() => setInventoryView('inventory')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                          inventoryView === 'inventory'
-                            ? 'bg-neutral-800 text-white border border-neutral-700'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
+                        onClick={() =>
+                          setInventoryView(inventoryView === 'inventory' ? 'ender_chest' : 'inventory')
+                        }
+                        className="relative z-10 px-2.5 py-1 rounded bg-[#1f242e]/90 hover:bg-[#181d26] text-white text-[11px] font-bold border border-neutral-700 shadow transition-colors flex items-center gap-1.5"
                       >
-                        <FontAwesomeIcon icon={faTh} />
-                        <span>Inventory</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-neutral-900 text-neutral-400">
-                          {playerDetail?.inventory.length || 0}
-                        </span>
+                        <FontAwesomeIcon icon={inventoryView === 'inventory' ? faBoxArchive : faTh} />
+                        <span>{inventoryView === 'inventory' ? 'Open Ender Chest' : 'Open Inventory'}</span>
                       </button>
 
+                      {/* Level Indicator (Centered) */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <span
+                          className="font-bold text-xs text-white drop-shadow-[0_1px_2px_rgba(0,0,0,1)] select-none"
+                          style={{
+                            textShadow: '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000',
+                          }}
+                        >
+                          Level {playerDetail?.stats?.level ?? selectedPlayer.stats?.level ?? 0}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Controls Row: Kill/Starve Buttons + 10 Hearts & Drumsticks + Heal/Feed Buttons */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                      {/* Left: Kill & Starve (Orange/Coral) */}
+                      <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => executePlayerAction('kill')}
+                          disabled={actionLoading !== null}
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                        >
+                          <FontAwesomeIcon icon={faSkull} className="text-[11px]" />
+                          <span>Kill</span>
+                        </button>
+                        <button
+                          onClick={() => executePlayerAction('starve')}
+                          disabled={actionLoading !== null}
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                        >
+                          <FontAwesomeIcon icon={faUtensils} className="text-[11px]" />
+                          <span>Starve</span>
+                        </button>
+                      </div>
+
+                      {/* Center: 10 Hearts & 10 Drumsticks */}
+                      <div className="flex flex-col items-center gap-2 py-1">
+                        {/* 10 Hearts Row */}
+                        <div className="flex items-center gap-1 sm:gap-1.5" title={`Health: ${playerDetail?.stats?.health ?? 20} / 20`}>
+                          {Array.from({ length: 10 }, (_, i) => {
+                            const hp = playerDetail?.stats?.health ?? 20;
+                            const full = (i + 1) * 2;
+                            const half = i * 2 + 1;
+                            const fill = hp >= full ? 'full' : hp >= half ? 'half' : 'empty';
+                            return <MinecraftHeart key={i} fill={fill} />;
+                          })}
+                        </div>
+
+                        {/* 10 Drumsticks Row */}
+                        <div className="flex items-center gap-1 sm:gap-1.5" title={`Food: ${playerDetail?.stats?.food_level ?? 20} / 20`}>
+                          {Array.from({ length: 10 }, (_, i) => {
+                            const food = playerDetail?.stats?.food_level ?? 20;
+                            const full = (i + 1) * 2;
+                            const half = i * 2 + 1;
+                            const fill = food >= full ? 'full' : food >= half ? 'half' : 'empty';
+                            return <MinecraftDrumstick key={i} fill={fill} />;
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Right: Heal & Feed (Green) */}
+                      <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => executePlayerAction('heal')}
+                          disabled={actionLoading !== null}
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                        >
+                          <FontAwesomeIcon icon={faHeartbeat} className="text-[11px]" />
+                          <span>Heal</span>
+                        </button>
+                        <button
+                          onClick={() => executePlayerAction('feed')}
+                          disabled={actionLoading !== null}
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                        >
+                          <FontAwesomeIcon icon={faUtensils} className="text-[11px]" />
+                          <span>Feed</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Inventory / Ender Chest Container */}
+                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-neutral-300">
+                        {inventoryView === 'inventory' ? 'Inventory' : 'Ender Chest'}
+                      </div>
+                      <div className="text-[11px] text-neutral-400">
+                        {inventoryView === 'inventory'
+                          ? `${playerDetail?.inventory?.length || 0} items stored`
+                          : `${playerDetail?.ender_chest?.length || 0} items stored`}
+                      </div>
+                    </div>
+
+                    {/* Gray Minecraft Container Background */}
+                    <div className="bg-[#c6c6c6] p-3 sm:p-4 rounded-xl border-2 border-[#555] shadow-inner text-neutral-900 overflow-x-auto">
+                      {loadingDetail && !playerDetail ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-neutral-700">
+                          <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-xl mb-2 text-neutral-800" />
+                          <span className="text-xs font-bold">Reading Minecraft inventory...</span>
+                        </div>
+                      ) : inventoryView === 'inventory' ? (
+                        <div className="flex gap-4 sm:gap-6 min-w-max justify-center items-start">
+                          {/* Left Column: 4 Armor Slots + Offhand Slot */}
+                          <div className="flex flex-col gap-2">
+                            <InventorySlot
+                              item={getItemAtSlot(playerDetail?.inventory || [], 103)}
+                              placeholder="helmet"
+                            />
+                            <InventorySlot
+                              item={getItemAtSlot(playerDetail?.inventory || [], 102)}
+                              placeholder="chestplate"
+                            />
+                            <InventorySlot
+                              item={getItemAtSlot(playerDetail?.inventory || [], 101)}
+                              placeholder="leggings"
+                            />
+                            <InventorySlot
+                              item={getItemAtSlot(playerDetail?.inventory || [], 100)}
+                              placeholder="boots"
+                            />
+                            <div className="pt-2">
+                              <InventorySlot
+                                item={
+                                  getItemAtSlot(playerDetail?.inventory || [], -106) ||
+                                  getItemAtSlot(playerDetail?.inventory || [], 150)
+                                }
+                                placeholder="shield"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Center / Right: Main Inventory 3x9 + Hotbar 1x9 */}
+                          <div className="flex flex-col gap-3">
+                            {/* Main Inventory: 3 rows of 9 slots (slots 9 to 35) */}
+                            <div className="grid grid-cols-9 gap-1.5">
+                              {Array.from({ length: 27 }, (_, i) => i + 9).map((slotIndex) => (
+                                <InventorySlot
+                                  key={slotIndex}
+                                  item={getItemAtSlot(playerDetail?.inventory || [], slotIndex)}
+                                />
+                              ))}
+                            </div>
+
+                            {/* Hotbar: 1 row of 9 slots (slots 0 to 8) */}
+                            <div className="grid grid-cols-9 gap-1.5 pt-1">
+                              {Array.from({ length: 9 }, (_, i) => i).map((slotIndex) => (
+                                <InventorySlot
+                                  key={slotIndex}
+                                  item={getItemAtSlot(playerDetail?.inventory || [], slotIndex)}
+                                  isHotbar
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Ender Chest: 3 rows of 9 slots (slots 0 to 26) */
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="grid grid-cols-9 gap-1.5">
+                            {Array.from({ length: 27 }, (_, i) => i).map((slotIndex) => (
+                              <InventorySlot
+                                key={slotIndex}
+                                item={getItemAtSlot(playerDetail?.ender_chest || [], slotIndex)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT COLUMN: Control & Information (4 cols) */}
+                <div className="lg:col-span-4 flex flex-col gap-4">
+
+                  {/* Control Box */}
+                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-2.5">
+                    <div className="text-xs font-bold text-neutral-300 mb-1">
+                      Control
+                    </div>
+
+                    {/* Whitelisted */}
+                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-neutral-800">
+                        Whitelisted
+                      </span>
                       <button
-                        onClick={() => setInventoryView('ender_chest')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                          inventoryView === 'ender_chest'
-                            ? 'bg-neutral-800 text-white border border-neutral-700'
-                            : 'text-neutral-400 hover:text-white'
+                        onClick={() =>
+                          executePlayerAction('whitelist', {
+                            enable: !playerDetail?.is_whitelisted,
+                          })
+                        }
+                        disabled={actionLoading !== null}
+                        title="Toggle Whitelist status"
+                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                          playerDetail?.is_whitelisted
+                            ? 'bg-[#27ae60] hover:bg-[#219653]'
+                            : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
                         }`}
                       >
-                        <FontAwesomeIcon icon={faBoxArchive} />
-                        <span>Ender Chest</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-neutral-900 text-neutral-400">
-                          {playerDetail?.ender_chest.length || 0}
-                        </span>
+                        <FontAwesomeIcon
+                          icon={playerDetail?.is_whitelisted ? faCheck : faTimes}
+                        />
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    {/* Banned */}
+                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-neutral-800">
+                        Banned
+                      </span>
                       <button
-                        onClick={() => loadPlayerDetails(selectedPlayer, true)}
-                        disabled={loadingDetail}
-                        className="text-xs px-2.5 py-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 transition-colors flex items-center gap-1.5"
-                        title="Reload player inventory data from disk"
+                        onClick={() => {
+                          if (playerDetail?.is_banned || selectedPlayer.is_banned) {
+                            executePlayerAction('unban');
+                          } else {
+                            setBanModalOpen(true);
+                          }
+                        }}
+                        disabled={actionLoading !== null}
+                        title={playerDetail?.is_banned ? 'Unban Player' : 'Ban Player'}
+                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                          playerDetail?.is_banned || selectedPlayer.is_banned
+                            ? 'bg-[#27ae60] hover:bg-[#219653]'
+                            : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
+                        }`}
                       >
                         <FontAwesomeIcon
-                          icon={faSyncAlt}
-                          className={`${loadingDetail ? 'animate-spin' : ''}`}
+                          icon={
+                            playerDetail?.is_banned || selectedPlayer.is_banned
+                              ? faCheck
+                              : faTimes
+                          }
                         />
-                        <span>Sync</span>
+                      </button>
+                    </div>
+
+                    {/* Operator */}
+                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-neutral-800">
+                        Operator
+                      </span>
+                      <button
+                        onClick={() =>
+                          executePlayerAction(
+                            playerDetail?.is_op || selectedPlayer.is_op ? 'deop' : 'op'
+                          )
+                        }
+                        disabled={actionLoading !== null}
+                        title="Toggle OP status"
+                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                          playerDetail?.is_op || selectedPlayer.is_op
+                            ? 'bg-[#27ae60] hover:bg-[#219653]'
+                            : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
+                        }`}
+                      >
+                        <FontAwesomeIcon
+                          icon={
+                            playerDetail?.is_op || selectedPlayer.is_op
+                              ? faCheck
+                              : faTimes
+                          }
+                        />
                       </button>
                     </div>
                   </div>
 
-                  {loadingDetail && !playerDetail ? (
-                    <div className="flex-1 flex flex-col items-center justify-center py-16 text-neutral-400">
-                      <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-2xl mb-2 text-primary-400" />
-                      <span className="text-xs">Reading playerdata NBT storage...</span>
+                  {/* Information Box */}
+                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
+                    <div className="text-xs font-bold text-neutral-300">
+                      Information
                     </div>
-                  ) : inventoryView === 'inventory' ? (
-                    <div className="flex flex-col gap-4">
-                      {/* Equipment Row: Helmet, Chestplate, Leggings, Boots, Offhand */}
-                      <div className="flex items-center justify-between bg-neutral-900/60 p-3 rounded-xl border border-neutral-800/80">
-                        <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                          Equipment
+
+                    {/* Current Position */}
+                    <div className="bg-[#181d26] rounded-lg p-3 border border-neutral-700/60 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-200">
+                          <FontAwesomeIcon icon={faMapMarkerAlt} className="text-primary-400 text-xs" />
+                          <span>Current position</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {/* Slot 103: Helmet */}
-                          <InventorySlot item={getItemAtSlot(playerDetail?.inventory || [], 103)} placeholder="Helmet" />
-                          {/* Slot 102: Chestplate */}
-                          <InventorySlot item={getItemAtSlot(playerDetail?.inventory || [], 102)} placeholder="Chestplate" />
-                          {/* Slot 101: Leggings */}
-                          <InventorySlot item={getItemAtSlot(playerDetail?.inventory || [], 101)} placeholder="Leggings" />
-                          {/* Slot 100: Boots */}
-                          <InventorySlot item={getItemAtSlot(playerDetail?.inventory || [], 100)} placeholder="Boots" />
-                          <div className="w-[1px] h-8 bg-neutral-800 mx-1" />
-                          {/* Slot -106 / 150: Offhand */}
-                          <InventorySlot
-                            item={
-                              getItemAtSlot(playerDetail?.inventory || [], -106) ||
-                              getItemAtSlot(playerDetail?.inventory || [], 150)
+                        <button
+                          onClick={() => {
+                            const p = playerDetail?.stats?.pos;
+                            if (p) {
+                              setTeleportCoords({
+                                x: String(p[0]),
+                                y: String(p[1]),
+                                z: String(p[2]),
+                                target: '',
+                              });
                             }
-                            placeholder="Offhand"
-                          />
-                        </div>
+                            setTeleportModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 rounded bg-[#2980b9] hover:bg-[#2471a3] text-white text-[11px] font-bold transition-colors flex items-center gap-1 shadow"
+                        >
+                          <FontAwesomeIcon icon={faLocationArrow} className="text-[10px]" />
+                          <span>Teleport</span>
+                        </button>
                       </div>
 
-                      {/* Main Inventory 3x9 Grid (Slots 9 to 35) */}
-                      <div className="bg-neutral-900/40 p-3 rounded-xl border border-neutral-800/80">
-                        <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
-                          Main Inventory
-                        </div>
-                        <div className="grid grid-cols-9 gap-1.5">
-                          {Array.from({ length: 27 }, (_, i) => i + 9).map((slotIndex) => (
-                            <InventorySlot
-                              key={slotIndex}
-                              item={getItemAtSlot(playerDetail?.inventory || [], slotIndex)}
-                            />
-                          ))}
-                        </div>
+                      <div className="text-xs text-neutral-300 font-mono">
+                        {playerDetail?.stats?.pos ? (
+                          <>
+                            X: <strong>{playerDetail.stats.pos[0]}</strong> / Y:{' '}
+                            <strong>{playerDetail.stats.pos[1]}</strong> / Z:{' '}
+                            <strong>{playerDetail.stats.pos[2]}</strong>
+                          </>
+                        ) : (
+                          'X: 0 / Y: 64 / Z: 0'
+                        )}
                       </div>
 
-                      {/* Hotbar 1x9 Grid (Slots 0 to 8) */}
-                      <div className="bg-neutral-900/70 p-3 rounded-xl border border-neutral-800">
-                        <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
-                          Hotbar
-                        </div>
-                        <div className="grid grid-cols-9 gap-1.5">
-                          {Array.from({ length: 9 }, (_, i) => i).map((slotIndex) => (
-                            <InventorySlot
-                              key={slotIndex}
-                              item={getItemAtSlot(playerDetail?.inventory || [], slotIndex)}
-                              isHotbar
-                            />
-                          ))}
-                        </div>
+                      <div className="text-[11px] text-neutral-400 font-mono">
+                        {playerDetail?.stats?.dimension || 'minecraft:overworld'}
                       </div>
                     </div>
-                  ) : (
-                    /* Ender Chest 3x9 Grid (Slots 0 to 26) */
-                    <div className="bg-neutral-900/40 p-4 rounded-xl border border-neutral-800/80 flex-1">
-                      <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <FontAwesomeIcon icon={faBoxArchive} className="text-primary-400" />
-                        <span>Ender Chest Storage (27 Slots)</span>
+
+                    {/* Last Death Location */}
+                    <div className="bg-[#181d26] rounded-lg p-3 border border-neutral-700/60 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-200">
+                        <FontAwesomeIcon icon={faSkull} className="text-rose-400 text-xs" />
+                        <span>Last death location</span>
                       </div>
-                      <div className="grid grid-cols-9 gap-1.5">
-                        {Array.from({ length: 27 }, (_, i) => i).map((slotIndex) => (
-                          <InventorySlot
-                            key={slotIndex}
-                            item={getItemAtSlot(playerDetail?.ender_chest || [], slotIndex)}
-                          />
-                        ))}
+                      <div className="text-xs text-neutral-400 font-mono">
+                        {playerDetail?.stats?.last_death_location ? (
+                          <>
+                            X: {playerDetail.stats.last_death_location.x} / Y:{' '}
+                            {playerDetail.stats.last_death_location.y} / Z:{' '}
+                            {playerDetail.stats.last_death_location.z}
+                            <div className="text-[10px] text-neutral-500 mt-0.5">
+                              {playerDetail.stats.last_death_location.dimension}
+                            </div>
+                          </>
+                        ) : (
+                          'None recorded'
+                        )}
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
+
+              {/* 3. STATISTICS SECTION (4 Columns: PlayTime, Player Kills, Deaths, KDR) */}
+              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-4">
+                <div className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                  Statistics
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Column 1: PlayTime & Distances */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                        <FontAwesomeIcon icon={faClock} />
+                        <span>PlayTime</span>
+                      </div>
+                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                        {playerDetail?.game_statistics?.play_time_formatted || '0 minutes'}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-neutral-300">
+                        Distance travelled (in blocks)
+                      </div>
+                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                        <span>Total</span>
+                        <strong className="text-white">{totalDistance.toLocaleString()}</strong>
+                      </div>
+                      {playerDetail?.game_statistics?.distance_travelled && (
+                        <div className="flex flex-col gap-1 text-[11px] text-neutral-400 font-mono mt-1">
+                          <div className="flex justify-between">
+                            <span>Distance Walked</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.walked.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Sprinted</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.sprinted.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Crouched</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.crouched.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Fallen</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.fallen.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Climbed</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.climbed.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Walked under Water</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.walked_under_water.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Distance Walked on Water</span>
+                            <span className="text-neutral-200">
+                              {playerDetail.game_statistics.distance_travelled.walked_on_water.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Column 2: Player Kills & Blocks Broken */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                        <FontAwesomeIcon icon={faShieldAlt} />
+                        <span>Player Kills</span>
+                      </div>
+                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                        {playerDetail?.game_statistics?.player_kills ?? 0}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-neutral-300">
+                        Blocks broken
+                      </div>
+                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                        <span>Total</span>
+                        <strong className="text-white">{totalBlocksBroken.toLocaleString()}</strong>
+                      </div>
+
+                      {/* Blocks broken list */}
+                      <div className="flex flex-col gap-1.5 mt-1 max-h-56 overflow-y-auto pr-1">
+                        {(playerDetail?.game_statistics?.blocks_broken || [])
+                          .slice(0, showAllBlocks ? 50 : 8)
+                          .map((b) => (
+                            <div
+                              key={b.id}
+                              className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                            >
+                              <div className="flex items-center gap-1.5 truncate">
+                                <img
+                                  src={`https://api.minecraftitems.xyz/api/item/${b.clean_id}`}
+                                  alt={b.name}
+                                  className="w-4 h-4 object-contain flex-shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src =
+                                      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${b.clean_id}.png`;
+                                  }}
+                                />
+                                <span className="truncate text-[11px]">{b.name}</span>
+                              </div>
+                              <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                                {b.count.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+
+                      {(playerDetail?.game_statistics?.blocks_broken?.length || 0) > 8 && (
+                        <button
+                          onClick={() => setShowAllBlocks(!showAllBlocks)}
+                          className="mt-1 self-start px-2 py-0.5 rounded bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
+                        >
+                          {showAllBlocks ? 'Show less' : 'Show all'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Column 3: Deaths & Items Used */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                        <FontAwesomeIcon icon={faSkull} />
+                        <span>Deaths</span>
+                      </div>
+                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                        {playerDetail?.game_statistics?.deaths ?? 0}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-neutral-300">
+                        Items used
+                      </div>
+                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                        <span>Total</span>
+                        <strong className="text-white">{totalItemsUsed.toLocaleString()}</strong>
+                      </div>
+
+                      {/* Items used list */}
+                      <div className="flex flex-col gap-1.5 mt-1 max-h-56 overflow-y-auto pr-1">
+                        {(playerDetail?.game_statistics?.items_used || [])
+                          .slice(0, showAllItems ? 50 : 8)
+                          .map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                            >
+                              <div className="flex items-center gap-1.5 truncate">
+                                <img
+                                  src={`https://api.minecraftitems.xyz/api/item/${item.clean_id}`}
+                                  alt={item.name}
+                                  className="w-4 h-4 object-contain flex-shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src =
+                                      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${item.clean_id}.png`;
+                                  }}
+                                />
+                                <span className="truncate text-[11px]">{item.name}</span>
+                              </div>
+                              <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                                {item.count.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+
+                      {(playerDetail?.game_statistics?.items_used?.length || 0) > 8 && (
+                        <button
+                          onClick={() => setShowAllItems(!showAllItems)}
+                          className="mt-1 self-start px-2 py-0.5 rounded bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
+                        >
+                          {showAllItems ? 'Show less' : 'Show all'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Column 4: KDR & Entities Killed */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                        <FontAwesomeIcon icon={faCrosshairs} />
+                        <span>KDR</span>
+                      </div>
+                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                        {playerDetail?.game_statistics?.kdr || '0.00'}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-neutral-300">
+                        Entities killed
+                      </div>
+                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                        <span>Total</span>
+                        <strong className="text-white">{totalEntitiesKilled.toLocaleString()}</strong>
+                      </div>
+
+                      {/* Entities killed list */}
+                      <div className="flex flex-col gap-1.5 mt-1 max-h-56 overflow-y-auto pr-1">
+                        {(playerDetail?.game_statistics?.entities_killed || []).map((e) => (
+                          <div
+                            key={e.id}
+                            className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                          >
+                            <span className="truncate text-[11px]">{e.name}</span>
+                            <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                              {e.count.toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                        {(!playerDetail?.game_statistics?.entities_killed ||
+                          playerDetail.game_statistics.entities_killed.length === 0) && (
+                          <div className="text-[11px] text-neutral-500 italic">None recorded</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. DELETE PLAYER DATA SECTION */}
+              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
+                <div className="text-xs font-bold text-neutral-300">
+                  Delete player data
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  {/* Checkboxes */}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-300 select-none">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.experience}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, experience: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Experience points</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.inventory}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, inventory: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Inventory</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.ender_chest}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, ender_chest: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Ender Chest</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.playerdata}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, playerdata: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Player data file</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.stats}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, stats: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Statistics file</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deleteTargets.advancements}
+                        onChange={(e) =>
+                          setDeleteTargets((cur) => ({ ...cur, advancements: e.target.checked }))
+                        }
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Advancements file</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-neutral-200">
+                      <input
+                        type="checkbox"
+                        checked={allDeleteSelected}
+                        onChange={toggleSelectAllDelete}
+                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                      />
+                      <span>Select all</span>
+                    </label>
+                  </div>
+
+                  {/* Red Action Button */}
+                  <button
+                    onClick={() => {
+                      if (!hasAnyDeleteTarget) {
+                        showToast('error', 'Please select at least one data component to delete.');
+                        return;
+                      }
+                      setDeleteConfirmOpen(true);
+                    }}
+                    disabled={actionLoading !== null || !hasAnyDeleteTarget}
+                    className="px-4 py-2 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-all shadow disabled:opacity-40 active:scale-95 whitespace-nowrap self-start sm:self-auto"
+                  >
+                    Delete player data
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUB-MODALS                                                                */}
+      {/* ========================================================================= */}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmOpen && selectedPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-neutral-900 border border-rose-700/60 rounded-2xl p-6 shadow-2xl">
+            <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
+              <FontAwesomeIcon icon={faTrashAlt} className="text-rose-400" />
+              <span>Confirm Player Data Deletion</span>
+            </h3>
+            <p className="text-xs text-neutral-300 mb-4 leading-relaxed">
+              Are you sure you want to permanently delete selected data for{' '}
+              <strong className="text-white">{selectedPlayer.name}</strong>? This action cannot be
+              undone.
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  const selectedKeys = Object.entries(deleteTargets)
+                    .filter(([_, val]) => val)
+                    .map(([k]) => k);
+                  executePlayerAction('delete_player_data', { targets: selectedKeys });
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Teleport Modal */}
+      {teleportModalOpen && selectedPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-neutral-900 border border-neutral-700 rounded-2xl p-6 shadow-2xl">
+            <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
+              <FontAwesomeIcon icon={faLocationArrow} className="text-primary-400" />
+              <span>Teleport {selectedPlayer.name}</span>
+            </h3>
+            <p className="text-xs text-neutral-400 mb-4">
+              Teleport this player to custom coordinates or to another online player.
+            </p>
+
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">X Coord</label>
+                <input
+                  type="text"
+                  value={teleportCoords.x}
+                  onChange={(e) => setTeleportCoords({ ...teleportCoords, x: e.target.value })}
+                  placeholder="0"
+                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">Y Coord</label>
+                <input
+                  type="text"
+                  value={teleportCoords.y}
+                  onChange={(e) => setTeleportCoords({ ...teleportCoords, y: e.target.value })}
+                  placeholder="64"
+                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">Z Coord</label>
+                <input
+                  type="text"
+                  value={teleportCoords.z}
+                  onChange={(e) => setTeleportCoords({ ...teleportCoords, z: e.target.value })}
+                  placeholder="0"
+                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                />
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <label className="text-[11px] font-semibold text-neutral-400 block mb-1">
+                Or Destination Player
+              </label>
+              <input
+                type="text"
+                value={teleportCoords.target}
+                onChange={(e) => setTeleportCoords({ ...teleportCoords, target: e.target.value })}
+                placeholder="Target Player Username"
+                className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setTeleportModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setTeleportModalOpen(false);
+                  executePlayerAction('teleport', {
+                    x: teleportCoords.x || undefined,
+                    y: teleportCoords.y || undefined,
+                    z: teleportCoords.z || undefined,
+                    target: teleportCoords.target || undefined,
+                  });
+                }}
+                className="px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-500 text-white text-xs font-bold shadow-lg"
+              >
+                Teleport
+              </button>
             </div>
           </div>
         </div>
@@ -1447,9 +1855,7 @@ export default function PlayerManagerContainer() {
               Disconnect this player immediately from the server.
             </p>
 
-            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">
-              Kick Reason
-            </label>
+            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">Kick Reason</label>
             <input
               type="text"
               value={kickReason}
@@ -1490,9 +1896,7 @@ export default function PlayerManagerContainer() {
               Add this player to banned-players.json and prevent reconnection.
             </p>
 
-            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">
-              Ban Reason
-            </label>
+            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">Ban Reason</label>
             <input
               type="text"
               value={banReason}
@@ -1535,7 +1939,7 @@ export default function PlayerManagerContainer() {
 }
 
 /**
- * Individual Inventory Slot Component with Hover Tooltip
+ * Individual Inventory Slot Component with 3D Item Rendering and Hover Tooltip
  */
 function InventorySlot({
   item,
@@ -1544,44 +1948,50 @@ function InventorySlot({
 }: {
   item?: InventoryItem;
   isHotbar?: boolean;
-  placeholder?: string;
+  placeholder?: 'helmet' | 'chestplate' | 'leggings' | 'boots' | 'shield';
 }) {
   const [hovered, setHovered] = useState(false);
+  const [fallbackIndex, setFallbackIndex] = useState(0);
+
+  // Available fallback texture sources
+  const textureSources = useMemo(() => {
+    if (!item) return [];
+    return [
+      `https://api.minecraftitems.xyz/api/item/${item.clean_id}`,
+      `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/items/${item.clean_id}.png`,
+      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${item.clean_id}.png`,
+      `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${item.clean_id}.png`,
+    ];
+  }, [item]);
+
+  const currentImgSrc = textureSources[fallbackIndex] || '';
+
+  const handleImgError = () => {
+    if (fallbackIndex < textureSources.length - 1) {
+      setFallbackIndex((prev) => prev + 1);
+    }
+  };
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center border transition-all ${
-        item
-          ? 'bg-neutral-900 border-neutral-700/80 hover:border-primary-400 hover:scale-105 shadow-inner'
-          : isHotbar
-          ? 'bg-neutral-950/80 border-neutral-800'
-          : 'bg-neutral-950/50 border-neutral-800/60'
-      }`}
+      className="relative w-9 h-9 sm:w-10 sm:h-10 bg-[#8b8b8b] border-2 border-t-[#373737] border-l-[#373737] border-b-[#ffffff] border-r-[#ffffff] flex items-center justify-center select-none"
     >
       {item ? (
         <>
           <img
-            src={`https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${item.clean_id}.png`}
+            src={currentImgSrc}
             alt={item.name}
-            className="w-7 h-7 sm:w-8 sm:h-8 object-contain pointer-events-none"
+            className="w-7 h-7 sm:w-8 sm:h-8 object-contain pointer-events-none drop-shadow"
             style={{ imageRendering: 'pixelated' }}
-            onError={(e) => {
-              // Try block texture if item texture not found
-              const target = e.target as HTMLImageElement;
-              if (!target.src.includes('/block/')) {
-                target.src = `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/block/${item.clean_id}.png`;
-              } else {
-                target.style.display = 'none';
-              }
-            }}
+            onError={handleImgError}
           />
 
-          {/* Stack Count Badge */}
+          {/* Minecraft Item Count in Bottom-Right Corner */}
           {item.count > 1 && (
             <span
-              className="absolute bottom-0.5 right-1 font-mono font-black text-[11px] text-white select-none pointer-events-none drop-shadow-[0_1.5px_1px_rgba(0,0,0,1)]"
+              className="absolute bottom-0.5 right-1 font-mono font-bold text-[11px] text-white select-none pointer-events-none drop-shadow-[0_1.5px_1px_rgba(0,0,0,1)]"
               style={{
                 textShadow: '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000',
               }}
@@ -1590,16 +2000,24 @@ function InventorySlot({
             </span>
           )}
 
-          {/* Rich Tooltip on Hover */}
+          {/* Rich Minecraft Item Tooltip */}
           {hovered && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none w-52 bg-neutral-950/95 border border-purple-500/50 rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-left">
-              <div className="text-xs font-bold text-white mb-0.5">{item.name}</div>
-              <div className="text-[10px] font-mono text-neutral-400 mb-1.5">{item.id}</div>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none w-52 bg-[#120524]/95 border-2 border-[#380e68] rounded-md p-2.5 shadow-2xl backdrop-blur-md text-left">
+              <div
+                className={`text-xs font-bold mb-0.5 ${
+                  item.enchantments && item.enchantments.length > 0
+                    ? 'text-cyan-300'
+                    : 'text-white'
+                }`}
+              >
+                {item.name}
+              </div>
+              <div className="text-[10px] font-mono text-neutral-400 mb-1">{item.id}</div>
 
               {item.enchantments && item.enchantments.length > 0 && (
-                <div className="border-t border-neutral-800/80 pt-1 mt-1 flex flex-col gap-0.5">
+                <div className="border-t border-[#380e68] pt-1 mt-1 flex flex-col gap-0.5">
                   {item.enchantments.map((ench, idx) => (
-                    <div key={idx} className="text-[11px] text-purple-300 font-medium">
+                    <div key={idx} className="text-[11px] text-[#aa00aa] font-semibold">
                       {formatEnchantmentName(ench.id)} {toRoman(ench.lvl)}
                     </div>
                   ))}
@@ -1607,7 +2025,7 @@ function InventorySlot({
               )}
 
               {item.lore && item.lore.length > 0 && (
-                <div className="border-t border-neutral-800/80 pt-1 mt-1 text-[10px] text-cyan-200/80 italic flex flex-col gap-0.5">
+                <div className="border-t border-[#380e68] pt-1 mt-1 text-[10px] text-purple-200/80 italic flex flex-col gap-0.5">
                   {item.lore.map((l, lIdx) => (
                     <div key={lIdx}>{l}</div>
                   ))}
@@ -1615,17 +2033,103 @@ function InventorySlot({
               )}
 
               {item.damage !== undefined && item.damage > 0 && (
-                <div className="text-[10px] text-amber-400 mt-1">Durability Damaged: {item.damage}</div>
+                <div className="text-[10px] text-amber-400 mt-1">Durability: -{item.damage}</div>
               )}
             </div>
           )}
         </>
       ) : placeholder ? (
-        <span className="text-[9px] text-neutral-600 font-semibold select-none text-center px-1 leading-tight">
-          {placeholder}
-        </span>
+        /* Silhouette Slot Placeholder */
+        <div className="opacity-30 pointer-events-none flex items-center justify-center">
+          {placeholder === 'helmet' && (
+            <svg className="w-5 h-5 fill-neutral-700" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12v5h4v-3h12v3h4v-5c0-5.52-4.48-10-10-10zm-3 8H6V8h3v2zm9 0h-3V8h3v2z" />
+            </svg>
+          )}
+          {placeholder === 'chestplate' && (
+            <svg className="w-5 h-5 fill-neutral-700" viewBox="0 0 24 24">
+              <path d="M6 3l3 3h6l3-3 4 4-2 3v11H4V10L2 7l4-4z" />
+            </svg>
+          )}
+          {placeholder === 'leggings' && (
+            <svg className="w-5 h-5 fill-neutral-700" viewBox="0 0 24 24">
+              <path d="M6 2h12v6h-3v14h-6V8H6V2z" />
+            </svg>
+          )}
+          {placeholder === 'boots' && (
+            <svg className="w-5 h-5 fill-neutral-700" viewBox="0 0 24 24">
+              <path d="M4 4h5v11h2V4h5v11h2v5H11v-3H9v3H4V4z" />
+            </svg>
+          )}
+          {placeholder === 'shield' && (
+            <svg className="w-5 h-5 fill-neutral-700" viewBox="0 0 24 24">
+              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+            </svg>
+          )}
+        </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Pixel-accurate SVG Minecraft Heart
+ */
+function MinecraftHeart({ fill }: { fill: 'full' | 'half' | 'empty' }) {
+  if (fill === 'full') {
+    return (
+      <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 1h2v1H1zM6 1h2v1H6zM0 2h1v3H0zM3 2h3v1H3zM8 2h1v3H8zM1 5h1v1H1zM7 5h1v1H7zM2 6h1v1H2zM6 6h1v1H6zM3 7h1v1H3zM5 7h1v1H5zM4 8h1v1H4z" fill="#000" />
+        <path d="M1 2h2v3H1zM6 2h2v3H6zM3 3h3v3H3zM2 5h5v1H2zM3 6h3v1H3zM4 7h1v1H4z" fill="#E11D48" />
+        <path d="M1 2h1v1H1zM2 3h1v1H2z" fill="#FFF" />
+      </svg>
+    );
+  }
+  if (fill === 'half') {
+    return (
+      <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 1h2v1H1zM6 1h2v1H6zM0 2h1v3H0zM3 2h3v1H3zM8 2h1v3H8zM1 5h1v1H1zM7 5h1v1H7zM2 6h1v1H2zM6 6h1v1H6zM3 7h1v1H3zM5 7h1v1H5zM4 8h1v1H4z" fill="#000" />
+        <path d="M1 2h2v3H1zM3 3h1v3H3zM2 5h2v1H2zM3 6h1v1H3zM4 7h1v1H4z" fill="#E11D48" />
+        <path d="M1 2h1v1H1zM2 3h1v1H2z" fill="#FFF" />
+        <path d="M6 2h2v3H6zM4 3h2v3H4zM4 5h3v1H4zM4 6h2v1H4z" fill="#374151" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow opacity-50" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M1 1h2v1H1zM6 1h2v1H6zM0 2h1v3H0zM3 2h3v1H3zM8 2h1v3H8zM1 5h1v1H1zM7 5h1v1H7zM2 6h1v1H2zM6 6h1v1H6zM3 7h1v1H3zM5 7h1v1H5zM4 8h1v1H4z" fill="#000" />
+      <path d="M1 2h2v3H1zM6 2h2v3H6zM3 3h3v3H3zM2 5h5v1H2zM3 6h3v1H3zM4 7h1v1H4z" fill="#374151" />
+    </svg>
+  );
+}
+
+/**
+ * Pixel-accurate SVG Minecraft Drumstick
+ */
+function MinecraftDrumstick({ fill }: { fill: 'full' | 'half' | 'empty' }) {
+  if (fill === 'full') {
+    return (
+      <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 0h3v1H4zM2 1h5v1H2zM1 2h6v2H1zM2 4h5v1H2zM3 5h3v1H3zM0 6h2v1H0zM1 7h2v1H1zM0 8h2v1H0z" fill="#78350F" />
+        <path d="M4 1h2v1H4zM3 2h4v1H3zM3 3h3v1H3z" fill="#F59E0B" />
+        <path d="M0 6h1v1H0zM1 7h1v1H1zM0 8h1v1H0z" fill="#E5E7EB" />
+      </svg>
+    );
+  }
+  if (fill === 'half') {
+    return (
+      <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 0h3v1H4zM2 1h5v1H2zM1 2h6v2H1zM2 4h5v1H2zM3 5h3v1H3zM0 6h2v1H0zM1 7h2v1H1zM0 8h2v1H0z" fill="#374151" />
+        <path d="M4 1h1v1H4zM3 2h2v1H3zM3 3h2v1H3zM3 4h1v1H3z" fill="#78350F" />
+        <path d="M0 6h1v1H0zM1 7h1v1H1zM0 8h1v1H0z" fill="#E5E7EB" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 sm:w-5 sm:h-5 drop-shadow opacity-50" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 0h3v1H4zM2 1h5v1H2zM1 2h6v2H1zM2 4h5v1H2zM3 5h3v1H3zM0 6h2v1H0zM1 7h2v1H1zM0 8h2v1H0z" fill="#374151" />
+      <path d="M0 6h1v1H0zM1 7h1v1H1zM0 8h1v1H0z" fill="#9CA3AF" />
+    </svg>
   );
 }
 

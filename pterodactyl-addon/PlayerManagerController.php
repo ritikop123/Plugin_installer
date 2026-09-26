@@ -325,6 +325,7 @@ class PlayerManagerController extends ClientApiController
 
             $playerName = trim((string) $request->query('player', ''));
             $playerUuid = trim((string) $request->query('uuid', ''));
+            $forceFresh = (bool) $request->query('fresh', false);
 
             $properties = $this->readServerProperties($server, $category);
             $onlineMode = isset($properties['online-mode']) ? strtolower((string) $properties['online-mode']) === 'true' : true;
@@ -343,8 +344,23 @@ class PlayerManagerController extends ClientApiController
                 }
             }
 
+            // If fresh requested: Flush RAM to disk and bust caches
+            if ($forceFresh && $category === 'java') {
+                try {
+                    $this->sendCommand($server, 'save-all');
+                    usleep(150000); // 150ms
+                } catch (Throwable $e) {}
+                $cleanName = strtolower(trim($playerName));
+                $cleanUuid = strtolower(trim($playerUuid));
+                Cache::forget("ptero:pm:{$server->id}:nbt:{$cleanName}_{$cleanUuid}");
+                Cache::forget("ptero:pm:{$server->id}:stats:{$cleanUuid}");
+            }
+
             $opsList = $this->readOpsList($server, $category);
             $isOp = $this->isPlayerOp($playerName, $playerUuid, $opsList);
+
+            $whitelist = $this->readWhitelist($server);
+            $isWhitelisted = $this->isPlayerWhitelisted($playerName, $playerUuid, $whitelist);
 
             $bannedPlayersRaw = $this->readBannedPlayers($server);
             $isBanned = false;
@@ -378,6 +394,7 @@ class PlayerManagerController extends ClientApiController
                 'game_mode' => 0,
                 'dimension' => 'minecraft:overworld',
                 'pos' => [0, 64, 0],
+                'last_death_location' => null,
                 'last_modified' => null,
             ];
 
@@ -387,6 +404,8 @@ class PlayerManagerController extends ClientApiController
                 } catch (Throwable $e) {}
             }
 
+            $statsData = ($category === 'java') ? $this->readPlayerStats($server, $playerUuid, $levelName) : null;
+
             return response()->json([
                 'success' => true,
                 'software' => $software,
@@ -394,6 +413,7 @@ class PlayerManagerController extends ClientApiController
                 'uuid' => $playerUuid,
                 'is_op' => $isOp,
                 'is_banned' => $isBanned,
+                'is_whitelisted' => $isWhitelisted,
                 'ban_info' => $banInfo,
                 'skin_url' => $skinInfo['skin_url'],
                 'avatar_url' => $skinInfo['avatar_url'],
@@ -411,8 +431,10 @@ class PlayerManagerController extends ClientApiController
                     'game_mode' => $nbtData['game_mode'] ?? 0,
                     'dimension' => $nbtData['dimension'] ?? 'minecraft:overworld',
                     'pos' => $nbtData['pos'] ?? [0, 64, 0],
+                    'last_death_location' => $nbtData['last_death_location'] ?? null,
                     'last_modified' => $nbtData['last_modified'] ?? null,
                 ],
+                'game_statistics' => $statsData,
             ]);
         } catch (Throwable $e) {
             Log::error('[PlayerManager] detail error: ' . $e->getMessage());
@@ -423,6 +445,7 @@ class PlayerManagerController extends ClientApiController
                 'uuid' => (string) $request->query('uuid', ''),
                 'is_op' => false,
                 'is_banned' => false,
+                'is_whitelisted' => false,
                 'ban_info' => null,
                 'skin_url' => self::STEVE_SKIN_URL,
                 'avatar_url' => self::STEVE_AVATAR_URL,
@@ -623,6 +646,74 @@ class PlayerManagerController extends ClientApiController
                     $this->sendCommand($server, $cmd);
                     $executedCommands[] = $cmd;
                     $msg = "Player {$cleanPlayer} was killed.";
+                    break;
+
+                case 'starve':
+                    if ($category === 'bedrock') {
+                        $cmd = "effect {$cmdTarget} hunger 10 255";
+                    } else {
+                        $cmd = "effect give {$cmdTarget} minecraft:hunger 10 255";
+                    }
+                    $this->sendCommand($server, $cmd);
+                    $executedCommands[] = $cmd;
+                    $msg = "Starve effect applied to {$cleanPlayer}.";
+                    break;
+
+                case 'teleport':
+                case 'tp':
+                    $x = $request->input('x');
+                    $y = $request->input('y');
+                    $z = $request->input('z');
+                    $dest = $request->input('target');
+                    if (!empty($dest)) {
+                        $cmd = "tp {$cmdTarget} {$dest}";
+                    } elseif ($x !== null && $y !== null && $z !== null) {
+                        $cmd = "tp {$cmdTarget} {$x} {$y} {$z}";
+                    } else {
+                        return response()->json(['error' => 'Coordinates or destination required.'], 400);
+                    }
+                    $this->sendCommand($server, $cmd);
+                    $executedCommands[] = $cmd;
+                    $msg = "Teleported {$cleanPlayer}.";
+                    break;
+
+                case 'whitelist':
+                    $enable = (bool) $request->input('enable', true);
+                    $cmd = $enable ? "whitelist add {$cleanPlayer}" : "whitelist remove {$cleanPlayer}";
+                    $this->sendCommand($server, $cmd);
+                    $executedCommands[] = $cmd;
+                    $msg = $enable ? "Player {$cleanPlayer} added to whitelist." : "Player {$cleanPlayer} removed from whitelist.";
+                    break;
+
+                case 'delete_player_data':
+                    $targets = (array) $request->input('targets', []);
+                    $properties = $this->readServerProperties($server, $category);
+                    $levelName = !empty($properties['level-name']) ? trim((string)$properties['level-name']) : 'world';
+
+                    if (in_array('experience', $targets)) {
+                        $cmd = "xp set {$cmdTarget} 0 levels";
+                        try { $this->sendCommand($server, $cmd); $executedCommands[] = $cmd; } catch (Throwable $e) {}
+                    }
+                    if (in_array('inventory', $targets)) {
+                        $cmd = "clear {$cmdTarget}";
+                        try { $this->sendCommand($server, $cmd); $executedCommands[] = $cmd; } catch (Throwable $e) {}
+                    }
+                    if (in_array('playerdata', $targets) && !empty($uuid)) {
+                        try {
+                            $this->fileRepository->setServer($server)->deleteFile("{$levelName}/playerdata/{$uuid}.dat");
+                        } catch (Throwable $e) {}
+                    }
+                    if (in_array('stats', $targets) && !empty($uuid)) {
+                        try {
+                            $this->fileRepository->setServer($server)->deleteFile("{$levelName}/stats/{$uuid}.json");
+                        } catch (Throwable $e) {}
+                    }
+                    if (in_array('advancements', $targets) && !empty($uuid)) {
+                        try {
+                            $this->fileRepository->setServer($server)->deleteFile("{$levelName}/advancements/{$uuid}.json");
+                        } catch (Throwable $e) {}
+                    }
+                    $msg = "Selected player data deleted for {$cleanPlayer}.";
                     break;
 
                 case 'gamemode':
@@ -1246,15 +1337,13 @@ class PlayerManagerController extends ClientApiController
     {
         $levelName = !empty($levelName) ? $levelName : 'world';
         $cacheKey = "ptero:pm:{$server->id}:pdata_map";
-        return Cache::remember($cacheKey, 20, function () use ($server, $levelName) {
+        return Cache::remember($cacheKey, 15, function () use ($server, $levelName) {
             $possibleDirs = [
                 "/{$levelName}/playerdata",
-                "/world/playerdata",
-                "/playerdata",
-                "/{$levelName}_nether/playerdata",
-                "/worlds/{$levelName}/playerdata",
-                "/worlds/world/playerdata",
             ];
+            if ($levelName !== 'world') {
+                $possibleDirs[] = '/world/playerdata';
+            }
 
             foreach ($possibleDirs as $dir) {
                 try {
@@ -1481,6 +1570,18 @@ class PlayerManagerController extends ClientApiController
                             $result['pos'] = array_map(fn($v) => round((float) $v, 1), $root['Pos']);
                         }
 
+                        if (!empty($root['LastDeathLocation']) && is_array($root['LastDeathLocation'])) {
+                            $deathLoc = $root['LastDeathLocation'];
+                            $dim = $deathLoc['dimension'] ?? 'minecraft:overworld';
+                            $pos = $deathLoc['pos'] ?? null;
+                            if (is_array($pos) && count($pos) >= 3) {
+                                $result['last_death_location'] = [
+                                    'dimension' => (string) $dim,
+                                    'pos' => [round((float) $pos[0], 1), round((float) $pos[1], 1), round((float) $pos[2], 1)],
+                                ];
+                            }
+                        }
+
                         if (!empty($root['Inventory']) && is_array($root['Inventory'])) {
                             $result['inventory'] = $this->formatItemList($root['Inventory']);
                         }
@@ -1518,6 +1619,193 @@ class PlayerManagerController extends ClientApiController
         if (preg_match('/lastAccountName:\s*[\'"]?([^\r\n\'"]+)[\'"]?/i', $yaml, $m)) {
             $result['last_known_name'] = trim($m[1]);
         }
+    }
+
+    /**
+     * Read player statistics file from world/stats/<uuid>.json (PlayTime, kills, deaths, mined blocks, items used, entities killed).
+     */
+    private function readPlayerStats(Server $server, string $playerUuid, string $levelName = 'world'): array
+    {
+        $default = [
+            'play_time_seconds' => 0,
+            'play_time_formatted' => '0 minutes',
+            'player_kills' => 0,
+            'deaths' => 0,
+            'mob_kills' => 0,
+            'kdr' => '0.00',
+            'distance_travelled' => [
+                'walked' => 0,
+                'sprinted' => 0,
+                'crouched' => 0,
+                'fallen' => 0,
+                'climbed' => 0,
+                'walked_under_water' => 0,
+                'walked_on_water' => 0,
+            ],
+            'blocks_broken' => [],
+            'items_used' => [],
+            'entities_killed' => [],
+        ];
+
+        if (empty($playerUuid)) return $default;
+
+        $cleanUuid = strtolower(trim($playerUuid));
+        $cacheKey = "ptero:pm:{$server->id}:stats:{$cleanUuid}";
+
+        return Cache::remember($cacheKey, 8, function () use ($server, $cleanUuid, $levelName, $default) {
+            $files = [
+                "/{$levelName}/stats/{$cleanUuid}.json",
+            ];
+            if ($levelName !== 'world') {
+                $files[] = "/world/stats/{$cleanUuid}.json";
+            }
+            $noDash = str_replace('-', '', $cleanUuid);
+            if ($noDash !== $cleanUuid) {
+                $files[] = "/{$levelName}/stats/{$noDash}.json";
+            }
+
+            $raw = null;
+            foreach ($files as $f) {
+                try {
+                    $c = $this->fileRepository->setServer($server)->getContent($f);
+                    if (!empty($c)) {
+                        $raw = $c;
+                        break;
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            if (empty($raw)) return $default;
+
+            $json = json_decode($raw, true);
+            if (!is_array($json) || empty($json['stats'])) return $default;
+
+            $stats = $json['stats'];
+            $custom = $stats['minecraft:custom'] ?? [];
+
+            // Playtime: 20 ticks = 1 second
+            $ticks = (int) ($custom['minecraft:play_time'] ?? ($custom['minecraft:total_world_time'] ?? 0));
+            $seconds = (int) ($ticks / 20);
+            $hours = floor($seconds / 3600);
+            $minutes = floor(($seconds % 3600) / 60);
+            $formattedTime = ($hours > 0) ? "{$hours}h {$minutes}m" : "{$minutes} minutes";
+
+            $pKills = (int) ($custom['minecraft:player_kills'] ?? 0);
+            $deaths = (int) ($custom['minecraft:deaths'] ?? 0);
+            $mobKills = (int) ($custom['minecraft:mob_kills'] ?? 0);
+            $kdr = ($deaths > 0) ? number_format($pKills / $deaths, 2) : number_format($pKills, 2);
+
+            // Distances (cm to blocks: 100 cm = 1 block)
+            $dist = [
+                'walked' => round(((int) ($custom['minecraft:walk_one_cm'] ?? 0)) / 100),
+                'sprinted' => round(((int) ($custom['minecraft:sprint_one_cm'] ?? 0)) / 100),
+                'crouched' => round(((int) ($custom['minecraft:crouch_one_cm'] ?? 0)) / 100),
+                'fallen' => round(((int) ($custom['minecraft:fall_one_cm'] ?? 0)) / 100),
+                'climbed' => round(((int) ($custom['minecraft:climb_one_cm'] ?? 0)) / 100),
+                'walked_under_water' => round(((int) ($custom['minecraft:walk_under_water_one_cm'] ?? 0)) / 100),
+                'walked_on_water' => round(((int) ($custom['minecraft:walk_on_water_one_cm'] ?? 0)) / 100),
+            ];
+
+            // Blocks broken (minecraft:mined)
+            $blocksBroken = [];
+            if (!empty($stats['minecraft:mined']) && is_array($stats['minecraft:mined'])) {
+                foreach ($stats['minecraft:mined'] as $id => $count) {
+                    $clean = str_replace('minecraft:', '', (string) $id);
+                    $name = ucwords(str_replace('_', ' ', $clean));
+                    $blocksBroken[] = [
+                        'id' => (string) $id,
+                        'clean_id' => $clean,
+                        'name' => $name,
+                        'count' => (int) $count,
+                    ];
+                }
+                usort($blocksBroken, fn($a, $b) => $b['count'] <=> $a['count']);
+            }
+
+            // Items used (minecraft:used)
+            $itemsUsed = [];
+            if (!empty($stats['minecraft:used']) && is_array($stats['minecraft:used'])) {
+                foreach ($stats['minecraft:used'] as $id => $count) {
+                    $clean = str_replace('minecraft:', '', (string) $id);
+                    $name = ucwords(str_replace('_', ' ', $clean));
+                    $itemsUsed[] = [
+                        'id' => (string) $id,
+                        'clean_id' => $clean,
+                        'name' => $name,
+                        'count' => (int) $count,
+                    ];
+                }
+                usort($itemsUsed, fn($a, $b) => $b['count'] <=> $a['count']);
+            }
+
+            // Entities killed (minecraft:killed)
+            $entitiesKilled = [];
+            if (!empty($stats['minecraft:killed']) && is_array($stats['minecraft:killed'])) {
+                foreach ($stats['minecraft:killed'] as $id => $count) {
+                    $clean = str_replace('minecraft:', '', (string) $id);
+                    $name = ucwords(str_replace('_', ' ', $clean));
+                    $entitiesKilled[] = [
+                        'id' => (string) $id,
+                        'clean_id' => $clean,
+                        'name' => $name,
+                        'count' => (int) $count,
+                    ];
+                }
+                usort($entitiesKilled, fn($a, $b) => $b['count'] <=> $a['count']);
+            }
+
+            return [
+                'play_time_seconds' => $seconds,
+                'play_time_formatted' => $formattedTime,
+                'player_kills' => $pKills,
+                'deaths' => $deaths,
+                'mob_kills' => $mobKills,
+                'kdr' => $kdr,
+                'distance_travelled' => $dist,
+                'blocks_broken' => array_slice($blocksBroken, 0, 30),
+                'items_used' => array_slice($itemsUsed, 0, 30),
+                'entities_killed' => array_slice($entitiesKilled, 0, 30),
+            ];
+        });
+    }
+
+    /**
+     * Read whitelist.json / allowlist.json / white-list.txt.
+     */
+    private function readWhitelist(Server $server): array
+    {
+        $whitelist = [];
+        foreach (['/whitelist.json', '/allowlist.json', '/white-list.txt', '/whitelist.txt'] as $wFile) {
+            try {
+                $raw = $this->fileRepository->setServer($server)->getContent($wFile);
+                if (empty($raw)) continue;
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    foreach ($decoded as $item) {
+                        $name = trim($item['name'] ?? '');
+                        $uuid = trim($item['uuid'] ?? ($item['xuid'] ?? ''));
+                        if (!empty($name)) $whitelist[strtolower($name)] = true;
+                        if (!empty($uuid)) $whitelist[strtolower($uuid)] = true;
+                    }
+                } else {
+                    $lines = explode("\n", str_replace("\r\n", "\n", $raw));
+                    foreach ($lines as $line) {
+                        $trimmed = trim($line);
+                        if (!empty($trimmed) && !str_starts_with($trimmed, '#')) {
+                            $whitelist[strtolower($trimmed)] = true;
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+        return $whitelist;
+    }
+
+    private function isPlayerWhitelisted(string $name, string $uuid, array $whitelist): bool
+    {
+        if (!empty($name) && isset($whitelist[strtolower($name)])) return true;
+        if (!empty($uuid) && isset($whitelist[strtolower($uuid)])) return true;
+        return false;
     }
 
     /**
@@ -1638,35 +1926,26 @@ class PlayerManagerController extends ClientApiController
      */
     private function queryServerStatus(Server $server, int $port, string $category = 'java'): ?array
     {
-        $hosts = [];
-        // Localhost first: responds in < 1ms on panel nodes
-        $hosts[] = '127.0.0.1';
-
-        $allocation = $server->allocation;
-        if ($allocation) {
-            if (!empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
+        $cacheKey = "ptero:pm:{$server->id}:ping_status";
+        return Cache::remember($cacheKey, 4, function () use ($server, $port, $category) {
+            $hosts = ['127.0.0.1'];
+            $allocation = $server->allocation;
+            if ($allocation && !empty($allocation->ip) && $allocation->ip !== '0.0.0.0' && $allocation->ip !== '127.0.0.1') {
                 $hosts[] = $allocation->ip;
             }
-            if (!empty($allocation->alias)) {
-                $hosts[] = $allocation->alias;
-            }
-        }
-        if (!empty($server->node) && !empty($server->node->fqdn)) {
-            $hosts[] = $server->node->fqdn;
-        }
-        $hosts = array_values(array_unique(array_filter($hosts)));
 
-        foreach ($hosts as $host) {
-            if ($category === 'bedrock') {
-                $res = $this->pingBedrockServer($host, $port, 0.25);
-                if ($res !== null) return $res;
-            } else {
-                $res = $this->pingMinecraftServer($host, $port, 0.25);
-                if ($res !== null) return $res;
+            foreach ($hosts as $host) {
+                if ($category === 'bedrock') {
+                    $res = $this->pingBedrockServer($host, $port, 0.15);
+                    if ($res !== null) return $res;
+                } else {
+                    $res = $this->pingMinecraftServer($host, $port, 0.15);
+                    if ($res !== null) return $res;
+                }
             }
-        }
 
-        return null;
+            return null;
+        });
     }
 
     /**
