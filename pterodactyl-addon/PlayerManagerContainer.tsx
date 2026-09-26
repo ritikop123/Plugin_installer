@@ -58,6 +58,18 @@ interface PlayerSummary extends PlayerSkinInfo {
   expires?: string;
   reason?: string;
   expires_on?: string;
+  inventory?: InventoryItem[];
+  ender_chest?: InventoryItem[];
+  stats?: {
+    health: number;
+    food_level: number;
+    level: number;
+    exp: number;
+    game_mode: number;
+    dimension: string;
+    pos: [number, number, number];
+    last_modified?: string | null;
+  };
 }
 
 interface InventoryItem {
@@ -270,8 +282,11 @@ export default function PlayerManagerContainer() {
 
   // Load single player details and inventory
   const loadPlayerDetails = useCallback(
-    async (player: PlayerSummary) => {
-      setLoadingDetail(true);
+    async (player: PlayerSummary, forceLoadingState = false) => {
+      // If player already has pre-fetched data, don't flash spinner
+      if (forceLoadingState || !player.inventory) {
+        setLoadingDetail(true);
+      }
       try {
         const res = await http.get<PlayerDetailResponse>(`/api/client/servers/${uuid}/players/detail`, {
           params: {
@@ -292,10 +307,29 @@ export default function PlayerManagerContainer() {
     [uuid]
   );
 
-  // Open modal for player
+  // Open modal for player (Instant 0ms opening like Aternos!)
   const handleSelectPlayer = (player: PlayerSummary) => {
     setSelectedPlayer(player);
-    setPlayerDetail(null);
+    if (player.inventory !== undefined && player.stats !== undefined) {
+      setPlayerDetail({
+        success: true,
+        name: player.name,
+        uuid: player.uuid,
+        is_op: player.is_op,
+        is_banned: player.is_banned,
+        skin_url: player.skin_url,
+        avatar_url: player.avatar_url,
+        render_3d_url: player.render_3d_url,
+        skin_type: player.skin_type,
+        skin_name: player.skin_name,
+        is_cracked: player.is_cracked,
+        inventory: player.inventory,
+        ender_chest: player.ender_chest || [],
+        stats: player.stats,
+      });
+    } else {
+      setPlayerDetail(null);
+    }
     setInventoryView('inventory');
     loadPlayerDetails(player);
   };
@@ -1299,7 +1333,7 @@ export default function PlayerManagerContainer() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => loadPlayerDetails(selectedPlayer)}
+                        onClick={() => loadPlayerDetails(selectedPlayer, true)}
                         disabled={loadingDetail}
                         className="text-xs px-2.5 py-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 transition-colors flex items-center gap-1.5"
                         title="Reload player inventory data from disk"
@@ -1313,7 +1347,7 @@ export default function PlayerManagerContainer() {
                     </div>
                   </div>
 
-                  {loadingDetail ? (
+                  {loadingDetail && !playerDetail ? (
                     <div className="flex-1 flex flex-col items-center justify-center py-16 text-neutral-400">
                       <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-2xl mb-2 text-primary-400" />
                       <span className="text-xs">Reading playerdata NBT storage...</span>

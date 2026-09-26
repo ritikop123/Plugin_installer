@@ -122,12 +122,17 @@ class PlayerManagerController extends ClientApiController
             $onlineCount = 0;
         }
 
-        // 7. Map online players
+        // 7. Map online players with pre-fetched inventory & stats for instant UI opening (like Aternos)
         $onlinePlayers = [];
+        $onlineNbtMap = [];
         foreach ($mergedOnlineNames as $pName) {
             $uuid = $this->resolvePlayerUuid($pName, $userCache, $slpOnlinePlayers);
             $skinInfo = $this->resolvePlayerSkin($pName, $uuid, $onlineMode);
             $isOp = $this->isPlayerOp($pName, $uuid, $opsList);
+
+            // Pre-fetch player NBT in backend before player card is clicked
+            $nbt = ($category === 'java') ? $this->readPlayerNbtData($server, $pName, $uuid, $levelName) : null;
+            $onlineNbtMap[strtolower($pName)] = $nbt;
 
             $onlinePlayers[] = [
                 'name' => $pName,
@@ -141,6 +146,18 @@ class PlayerManagerController extends ClientApiController
                 'skin_type' => $skinInfo['skin_type'],
                 'skin_name' => $skinInfo['skin_name'],
                 'is_cracked' => $skinInfo['is_cracked'],
+                'inventory' => $nbt['inventory'] ?? [],
+                'ender_chest' => $nbt['ender_chest'] ?? [],
+                'stats' => [
+                    'health' => $nbt['health'] ?? 20.0,
+                    'food_level' => $nbt['food_level'] ?? 20,
+                    'level' => $nbt['level'] ?? 0,
+                    'exp' => $nbt['exp'] ?? 0.0,
+                    'game_mode' => $nbt['game_mode'] ?? 0,
+                    'dimension' => $nbt['dimension'] ?? 'minecraft:overworld',
+                    'pos' => $nbt['pos'] ?? [0, 64, 0],
+                    'last_modified' => $nbt['last_modified'] ?? null,
+                ],
             ];
         }
 
@@ -178,6 +195,7 @@ class PlayerManagerController extends ClientApiController
         // 9. Map all recorded players from usercache + ops + whitelist/allowlist + online
         $rawAll = $this->getAllKnownPlayers($server, $userCache, $opsList, $bannedPlayersRaw, $mergedOnlineNames);
         $allPlayers = [];
+        $prefetchedOfflineCount = 0;
 
         foreach ($rawAll as $uc) {
             $uName = $uc['name'] ?? '';
@@ -187,6 +205,15 @@ class PlayerManagerController extends ClientApiController
             $isBanned = isset($bannedNameMap[strtolower($uName)]);
             $isOp = $this->isPlayerOp($uName, $uUuid, $opsList);
             $skinInfo = $this->resolvePlayerSkin($uName, $uUuid, $onlineMode);
+
+            // Re-use online NBT or pre-fetch top offline players
+            $nbt = null;
+            if ($isOnline && isset($onlineNbtMap[strtolower($uName)])) {
+                $nbt = $onlineNbtMap[strtolower($uName)];
+            } elseif ($prefetchedOfflineCount < 8 && $category === 'java') {
+                $nbt = $this->readPlayerNbtData($server, $uName, $uUuid, $levelName);
+                $prefetchedOfflineCount++;
+            }
 
             $allPlayers[] = [
                 'name' => $uName,
@@ -201,6 +228,18 @@ class PlayerManagerController extends ClientApiController
                 'skin_type' => $skinInfo['skin_type'],
                 'skin_name' => $skinInfo['skin_name'],
                 'is_cracked' => $skinInfo['is_cracked'],
+                'inventory' => $nbt['inventory'] ?? [],
+                'ender_chest' => $nbt['ender_chest'] ?? [],
+                'stats' => [
+                    'health' => $nbt['health'] ?? 20.0,
+                    'food_level' => $nbt['food_level'] ?? 20,
+                    'level' => $nbt['level'] ?? 0,
+                    'exp' => $nbt['exp'] ?? 0.0,
+                    'game_mode' => $nbt['game_mode'] ?? 0,
+                    'dimension' => $nbt['dimension'] ?? 'minecraft:overworld',
+                    'pos' => $nbt['pos'] ?? [0, 64, 0],
+                    'last_modified' => $nbt['last_modified'] ?? null,
+                ],
             ];
         }
 
@@ -1117,89 +1156,252 @@ class PlayerManagerController extends ClientApiController
     /**
      * Read playerdata/<uuid>.dat and extract inventory and player stats using pure PHP NBT parser.
      * Supports offline mode (cracked), online mode (premium), and multi-version item components.
+    /**
+     * Locate and index all playerdata files in the server's world directory.
+     * Caches the file map so all player lookups run in memory (0ms) rather than 42 failed HTTP calls.
      */
-    private function readPlayerNbtData(Server $server, string $playerName, string $playerUuid, string $levelName = 'world'): array
+    private function getPlayerdataFiles(Server $server, string $levelName = 'world'): array
     {
-        $result = [
-            'inventory' => [],
-            'ender_chest' => [],
-            'health' => 20.0,
-            'food_level' => 20,
-            'level' => 0,
-            'exp' => 0.0,
-            'game_mode' => 0,
-            'dimension' => 'minecraft:overworld',
-            'pos' => [0, 64, 0],
-            'last_modified' => null,
-            'last_known_name' => null,
-            'money' => null,
-        ];
+        $cacheKey = "ptero:pm:{$server->id}:pdata_map";
+        return Cache::remember($cacheKey, 20, function () use ($server, $levelName) {
+            $possibleDirs = [
+                "/{$levelName}/playerdata",
+                "/world/playerdata",
+                "/playerdata",
+                "/{$levelName}_nether/playerdata",
+                "/worlds/{$levelName}/playerdata",
+                "/worlds/world/playerdata",
+            ];
 
-        // 1. Gather all candidate UUIDs (online, offline, usercache, clean)
-        $candidates = [];
-        if (!empty($playerUuid)) {
-            $clean = strtolower(trim($playerUuid));
-            $candidates[] = $clean;
-            $noDashes = str_replace('-', '', $clean);
-            if (strlen($noDashes) === 32) {
-                $withDashes = sprintf(
-                    '%s-%s-%s-%s-%s',
-                    substr($noDashes, 0, 8),
-                    substr($noDashes, 8, 4),
-                    substr($noDashes, 12, 4),
-                    substr($noDashes, 16, 4),
-                    substr($noDashes, 20)
-                );
-                $candidates[] = $withDashes;
-                $candidates[] = $noDashes;
-            }
-        }
-
-        if (!empty($playerName)) {
-            $offlineUuid = strtolower($this->generateOfflineUuid($playerName));
-            $candidates[] = $offlineUuid;
-            $candidates[] = str_replace('-', '', $offlineUuid);
-
-            // Also check usercache.json for this player's UUID
-            try {
-                $uc = $this->readUserCache($server);
-                foreach ($uc as $u) {
-                    if (strcasecmp($u['name'] ?? '', $playerName) === 0 && !empty($u['uuid'])) {
-                        $candidates[] = strtolower($u['uuid']);
-                        $candidates[] = str_replace('-', '', strtolower($u['uuid']));
-                    }
-                }
-            } catch (Exception $e) {}
-        }
-
-        $candidates = array_values(array_unique(array_filter($candidates)));
-
-        $possibleDirs = [
-            "/{$levelName}/playerdata",
-            "/world/playerdata",
-            "/playerdata",
-            "/{$levelName}_nether/playerdata",
-            "/{$levelName}_the_end/playerdata",
-            "/worlds/{$levelName}/playerdata",
-            "/worlds/world/playerdata",
-        ];
-
-        $rawBytes = null;
-        foreach ($possibleDirs as $dir) {
-            foreach ($candidates as $cand) {
-                $path = "{$dir}/{$cand}.dat";
+            foreach ($possibleDirs as $dir) {
                 try {
-                    $content = $this->fileRepository->setServer($server)->getContent($path);
-                    if (!empty($content)) {
-                        $rawBytes = $content;
-                        break 2;
+                    $list = $this->fileRepository->setServer($server)->getDirectory($dir);
+                    if (is_array($list) && !empty($list)) {
+                        $map = [];
+                        foreach ($list as $item) {
+                            $filename = $item['name'] ?? '';
+                            if (str_ends_with(strtolower($filename), '.dat')) {
+                                $uuidKey = strtolower(pathinfo($filename, PATHINFO_FILENAME));
+                                $map[$uuidKey] = [
+                                    'path' => "{$dir}/{$filename}",
+                                    'name' => $filename,
+                                    'modified' => $item['modified_at'] ?? null,
+                                ];
+                                $noDash = str_replace('-', '', $uuidKey);
+                                if ($noDash !== $uuidKey) {
+                                    $map[$noDash] = [
+                                        'path' => "{$dir}/{$filename}",
+                                        'name' => $filename,
+                                        'modified' => $item['modified_at'] ?? null,
+                                    ];
+                                }
+                            }
+                        }
+                        if (!empty($map)) {
+                            return [
+                                'dir' => $dir,
+                                'files' => $map,
+                            ];
+                        }
                     }
                 } catch (Exception $e) {}
             }
+
+            return ['dir' => "/{$levelName}/playerdata", 'files' => []];
+        });
+    }
+
+    /**
+     * Robust multi-format NBT decompression.
+     * Handles uncompressed, standard GZIP, raw DEFLATE (header/footer stripped), ZLIB, and raw streams.
+     */
+    private function decompressNbt(string $rawBytes): ?string
+    {
+        if (empty($rawBytes)) return null;
+
+        // 1. If it starts with TAG_Compound (0x0A) and length > 3, it's uncompressed raw NBT
+        if (ord($rawBytes[0]) === 10) {
+            return $rawBytes;
         }
 
-        if (empty($rawBytes)) {
-            // Check Essentials userdata if available
+        // 2. Try standard gzdecode
+        $decompressed = @gzdecode($rawBytes);
+        if ($decompressed !== false && strlen($decompressed) > 0) {
+            return $decompressed;
+        }
+
+        // 3. GZIP with trailing bytes or chunk padding: strip 10-byte GZIP header & 8-byte footer, then gzinflate
+        if (strlen($rawBytes) > 18 && ord($rawBytes[0]) === 0x1f && ord($rawBytes[1]) === 0x8b) {
+            $inflated = @gzinflate(substr($rawBytes, 10, -8));
+            if ($inflated !== false && strlen($inflated) > 0) {
+                return $inflated;
+            }
+        }
+
+        // 4. Try standard ZLIB gzuncompress
+        $decompressed = @gzuncompress($rawBytes);
+        if ($decompressed !== false && strlen($decompressed) > 0) {
+            return $decompressed;
+        }
+
+        // 5. Try raw inflate
+        $decompressed = @gzinflate($rawBytes);
+        if ($decompressed !== false && strlen($decompressed) > 0) {
+            return $decompressed;
+        }
+
+        return null;
+    }
+
+    /**
+     * Read single playerdata NBT file from world/playerdata/ and decode inventory.
+     */
+    private function readPlayerNbtData(Server $server, string $playerName, string $playerUuid, string $levelName = 'world'): array
+    {
+        $cleanName = strtolower(trim($playerName));
+        $cleanUuid = strtolower(trim($playerUuid));
+        $playerKey = "{$cleanName}_{$cleanUuid}";
+        $cacheKey = "ptero:pm:{$server->id}:nbt:{$playerKey}";
+
+        return Cache::remember($cacheKey, 20, function () use ($server, $playerName, $playerUuid, $levelName) {
+            $result = [
+                'inventory' => [],
+                'ender_chest' => [],
+                'health' => 20.0,
+                'food_level' => 20,
+                'level' => 0,
+                'exp' => 0.0,
+                'game_mode' => 0,
+                'dimension' => 'minecraft:overworld',
+                'pos' => [0, 64, 0],
+                'last_modified' => null,
+                'last_known_name' => null,
+                'money' => null,
+            ];
+
+            // 1. Gather all candidate UUIDs (online, offline, usercache, clean)
+            $candidates = [];
+            if (!empty($playerUuid)) {
+                $clean = strtolower(trim($playerUuid));
+                $candidates[] = $clean;
+                $candidates[] = str_replace('-', '', $clean);
+            }
+            if (!empty($playerName)) {
+                $offlineUuid = strtolower($this->generateOfflineUuid($playerName));
+                $candidates[] = $offlineUuid;
+                $candidates[] = str_replace('-', '', $offlineUuid);
+            }
+
+            // 2. Query indexed playerdata files
+            $pData = $this->getPlayerdataFiles($server, $levelName);
+            $fileMap = $pData['files'] ?? [];
+
+            $targetPath = null;
+            foreach ($candidates as $cand) {
+                if (isset($fileMap[$cand])) {
+                    $targetPath = $fileMap[$cand]['path'];
+                    $result['last_modified'] = $fileMap[$cand]['modified'] ?? null;
+                    break;
+                }
+            }
+
+            // Fallback: If only 1 file exists in playerdata, use it
+            if (!$targetPath && !empty($fileMap)) {
+                $uniqueFiles = array_values(array_unique(array_column($fileMap, 'path')));
+                if (count($uniqueFiles) === 1) {
+                    $targetPath = $uniqueFiles[0];
+                }
+            }
+
+            $rawBytes = null;
+            if ($targetPath) {
+                try {
+                    $rawBytes = $this->fileRepository->setServer($server)->getContent($targetPath);
+                } catch (Exception $e) {}
+            }
+
+            // 3. Fallback direct directory check if fileMap missed it
+            if (empty($rawBytes)) {
+                $possibleDirs = [
+                    "/{$levelName}/playerdata",
+                    "/world/playerdata",
+                    "/playerdata",
+                ];
+                foreach ($possibleDirs as $dir) {
+                    foreach ($candidates as $cand) {
+                        try {
+                            $content = $this->fileRepository->setServer($server)->getContent("{$dir}/{$cand}.dat");
+                            if (!empty($content)) {
+                                $rawBytes = $content;
+                                break 2;
+                            }
+                        } catch (Exception $e) {}
+                    }
+                }
+            }
+
+            // 4. Check Essentials userdata if available
+            if (empty($rawBytes)) {
+                foreach ($candidates as $cand) {
+                    try {
+                        $essYaml = $this->fileRepository->setServer($server)->getContent("/plugins/Essentials/userdata/{$cand}.yml");
+                        if (!empty($essYaml)) {
+                            $this->parseEssentialsUserData($essYaml, $result);
+                            break;
+                        }
+                    } catch (Exception $e) {}
+                }
+                return $result;
+            }
+
+            // 5. Multi-compression decompression: GZIP -> Invalidate header -> ZLIB -> DEFLATE -> RAW
+            $decompressed = $this->decompressNbt($rawBytes);
+            if (empty($decompressed)) {
+                return $result;
+            }
+
+            try {
+                $parsedNbt = $this->parseNbt($decompressed);
+                if (!empty($parsedNbt['payload']) && is_array($parsedNbt['payload'])) {
+                    $root = $parsedNbt['payload'];
+
+                    if (!empty($root['bukkit']['lastKnownName'])) {
+                        $result['last_known_name'] = (string) $root['bukkit']['lastKnownName'];
+                    }
+
+                    if (isset($root['Health'])) {
+                        $result['health'] = round((float) $root['Health'], 1);
+                    }
+                    if (isset($root['foodLevel'])) {
+                        $result['food_level'] = (int) $root['foodLevel'];
+                    }
+                    if (isset($root['XpLevel'])) {
+                        $result['level'] = (int) $root['XpLevel'];
+                    }
+                    if (isset($root['XpP'])) {
+                        $result['exp'] = round((float) $root['XpP'], 2);
+                    }
+                    if (isset($root['playerGameType'])) {
+                        $result['game_mode'] = (int) $root['playerGameType'];
+                    }
+                    if (isset($root['Dimension'])) {
+                        $result['dimension'] = (string) $root['Dimension'];
+                    }
+                    if (!empty($root['Pos']) && is_array($root['Pos'])) {
+                        $result['pos'] = array_map(fn($v) => round((float) $v, 1), $root['Pos']);
+                    }
+
+                    if (!empty($root['Inventory']) && is_array($root['Inventory'])) {
+                        $result['inventory'] = $this->formatItemList($root['Inventory']);
+                    }
+
+                    if (!empty($root['EnderItems']) && is_array($root['EnderItems'])) {
+                        $result['ender_chest'] = $this->formatItemList($root['EnderItems']);
+                    }
+                }
+            } catch (Throwable $e) {}
+
+            // Check Essentials for extra stats like money if present
             foreach ($candidates as $cand) {
                 try {
                     $essYaml = $this->fileRepository->setServer($server)->getContent("/plugins/Essentials/userdata/{$cand}.yml");
@@ -1209,74 +1411,9 @@ class PlayerManagerController extends ClientApiController
                     }
                 } catch (Exception $e) {}
             }
+
             return $result;
-        }
-
-        // Multi-compression decompression: GZIP -> ZLIB -> DEFLATE -> RAW
-        $decompressed = @gzdecode($rawBytes);
-        if ($decompressed === false) {
-            $decompressed = @gzuncompress($rawBytes);
-        }
-        if ($decompressed === false) {
-            $decompressed = @gzinflate($rawBytes);
-        }
-        if ($decompressed === false) {
-            $decompressed = $rawBytes;
-        }
-
-        try {
-            $parsedNbt = $this->parseNbt($decompressed);
-            if (!empty($parsedNbt['payload']) && is_array($parsedNbt['payload'])) {
-                $root = $parsedNbt['payload'];
-
-                if (!empty($root['bukkit']['lastKnownName'])) {
-                    $result['last_known_name'] = (string) $root['bukkit']['lastKnownName'];
-                }
-
-                if (isset($root['Health'])) {
-                    $result['health'] = round((float) $root['Health'], 1);
-                }
-                if (isset($root['foodLevel'])) {
-                    $result['food_level'] = (int) $root['foodLevel'];
-                }
-                if (isset($root['XpLevel'])) {
-                    $result['level'] = (int) $root['XpLevel'];
-                }
-                if (isset($root['XpP'])) {
-                    $result['exp'] = round((float) $root['XpP'], 2);
-                }
-                if (isset($root['playerGameType'])) {
-                    $result['game_mode'] = (int) $root['playerGameType'];
-                }
-                if (isset($root['Dimension'])) {
-                    $result['dimension'] = (string) $root['Dimension'];
-                }
-                if (!empty($root['Pos']) && is_array($root['Pos'])) {
-                    $result['pos'] = array_map(fn($v) => round((float) $v, 1), $root['Pos']);
-                }
-
-                if (!empty($root['Inventory']) && is_array($root['Inventory'])) {
-                    $result['inventory'] = $this->formatItemList($root['Inventory']);
-                }
-
-                if (!empty($root['EnderItems']) && is_array($root['EnderItems'])) {
-                    $result['ender_chest'] = $this->formatItemList($root['EnderItems']);
-                }
-            }
-        } catch (Throwable $e) {}
-
-        // Check Essentials for extra stats like money if present
-        foreach ($candidates as $cand) {
-            try {
-                $essYaml = $this->fileRepository->setServer($server)->getContent("/plugins/Essentials/userdata/{$cand}.yml");
-                if (!empty($essYaml)) {
-                    $this->parseEssentialsUserData($essYaml, $result);
-                    break;
-                }
-            } catch (Exception $e) {}
-        }
-
-        return $result;
+        });
     }
 
     /**
@@ -1745,9 +1882,11 @@ class PlayerManagerController extends ClientApiController
      */
     public function detectServerSoftware(Server $server): array
     {
-        // 1. Check software manifest (written by SoftwareInstaller)
-        try {
-            $rawManifest = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
+        $cacheKey = "ptero:pm:{$server->id}:soft_detect";
+        return Cache::remember($cacheKey, 180, function () use ($server) {
+            // 1. Check software manifest (written by SoftwareInstaller)
+            try {
+                $rawManifest = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
             $manifest = json_decode($rawManifest, true);
             if (is_array($manifest) && !empty($manifest['software'])) {
                 $softId = strtoupper($manifest['software']);
@@ -2234,5 +2373,6 @@ class PlayerManagerController extends ClientApiController
             'config_file' => '/server.properties',
             'source' => 'default',
         ];
+        });
     }
 }
