@@ -1141,26 +1141,39 @@ export default function PlayerManagerContainer() {
                           {/* Left Column: 4 Armor Slots + Offhand Slot */}
                           <div className="flex flex-col gap-2">
                             <InventorySlot
-                              item={getItemAtSlot(playerDetail?.inventory || [], 103)}
+                              item={
+                                getItemAtSlot(playerDetail?.inventory || [], 103) ||
+                                getItemAtSlot(playerDetail?.inventory || [], 39)
+                              }
                               placeholder="helmet"
                             />
                             <InventorySlot
-                              item={getItemAtSlot(playerDetail?.inventory || [], 102)}
+                              item={
+                                getItemAtSlot(playerDetail?.inventory || [], 102) ||
+                                getItemAtSlot(playerDetail?.inventory || [], 38)
+                              }
                               placeholder="chestplate"
                             />
                             <InventorySlot
-                              item={getItemAtSlot(playerDetail?.inventory || [], 101)}
+                              item={
+                                getItemAtSlot(playerDetail?.inventory || [], 101) ||
+                                getItemAtSlot(playerDetail?.inventory || [], 37)
+                              }
                               placeholder="leggings"
                             />
                             <InventorySlot
-                              item={getItemAtSlot(playerDetail?.inventory || [], 100)}
+                              item={
+                                getItemAtSlot(playerDetail?.inventory || [], 100) ||
+                                getItemAtSlot(playerDetail?.inventory || [], 36)
+                              }
                               placeholder="boots"
                             />
                             <div className="pt-2">
                               <InventorySlot
                                 item={
+                                  getItemAtSlot(playerDetail?.inventory || [], 150) ||
                                   getItemAtSlot(playerDetail?.inventory || [], -106) ||
-                                  getItemAtSlot(playerDetail?.inventory || [], 150)
+                                  getItemAtSlot(playerDetail?.inventory || [], 40)
                                 }
                                 placeholder="shield"
                               />
@@ -1486,8 +1499,8 @@ export default function PlayerManagerContainer() {
                             >
                               <div className="flex items-center gap-1.5 truncate">
                                 <img
-                                  src={`https://api.minecraftitems.xyz/api/item/${b.clean_id}`}
-                                  alt={b.name}
+                                  src={`https://static.minecraftitemids.com/32/${b.clean_id}.png`}
+                                  alt=""
                                   className="w-4 h-4 object-contain flex-shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src =
@@ -1546,8 +1559,8 @@ export default function PlayerManagerContainer() {
                             >
                               <div className="flex items-center gap-1.5 truncate">
                                 <img
-                                  src={`https://api.minecraftitems.xyz/api/item/${item.clean_id}`}
-                                  alt={item.name}
+                                  src={`https://static.minecraftitemids.com/32/${item.clean_id}.png`}
+                                  alt=""
                                   className="w-4 h-4 object-contain flex-shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src =
@@ -1973,12 +1986,13 @@ function InventorySlot({
     setFallbackIndex(0);
   }, [item?.clean_id]);
 
-  // Available fallback texture sources (handles items, blocks, and slabs)
+  // Available fallback texture sources (Primary: static.minecraftitemids.com 64px official Minecraft inventory sprites)
   const textureSources = useMemo(() => {
     if (!item) return [];
     const id = item.clean_id;
     return [
-      `https://api.minecraftitems.xyz/api/item/${id}`,
+      `https://static.minecraftitemids.com/64/${id}.png`,
+      `https://static.minecraftitemids.com/32/${id}.png`,
       `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/items/${id}.png`,
       `https://raw.githubusercontent.com/Owen1212055/minecraft-assets-renders/master/renders/blocks/${id}.png`,
       `https://assets.mcasset.cloud/1.20.4/assets/minecraft/textures/item/${id}.png`,
@@ -2004,7 +2018,7 @@ function InventorySlot({
         <>
           <img
             src={currentImgSrc}
-            alt={item.name}
+            alt=""
             className="w-7 h-7 sm:w-8 sm:h-8 object-contain pointer-events-none drop-shadow"
             style={{ imageRendering: 'pixelated' }}
             onError={handleImgError}

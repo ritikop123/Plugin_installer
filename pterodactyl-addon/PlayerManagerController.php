@@ -300,12 +300,16 @@ class PlayerManagerController extends ClientApiController
                 }
             }
 
-            // If fresh requested: Flush RAM to disk and bust caches
-            if ($forceFresh && $category === 'java') {
+            // Always flush RAM to disk so equipped armor and newly acquired items are saved
+            if ($category === 'java') {
                 try {
                     $this->sendCommand($server, 'save-all');
-                    usleep(150000); // 150ms
+                    usleep(120000); // 120ms
                 } catch (Throwable $e) {}
+            }
+
+            // If fresh requested: bust caches
+            if ($forceFresh && $category === 'java') {
                 $cleanName = strtolower(trim($playerName));
                 $cleanUuid = strtolower(trim($playerUuid));
                 Cache::forget("ptero:pm:{$server->id}:nbt:{$cleanName}_{$cleanUuid}");
@@ -1491,6 +1495,68 @@ class PlayerManagerController extends ClientApiController
                             $result['inventory'] = $this->formatItemList($root['Inventory']);
                         }
 
+                        // Support Minecraft 1.20.5+ / 1.21+ equipment compound
+                        $equip = $root['equipment'] ?? ($root['Equipment'] ?? null);
+                        if (is_array($equip)) {
+                            $equipMap = [
+                                'head' => 103,
+                                'armor.head' => 103,
+                                'helmet' => 103,
+                                'chest' => 102,
+                                'armor.chest' => 102,
+                                'chestplate' => 102,
+                                'legs' => 101,
+                                'armor.legs' => 101,
+                                'leggings' => 101,
+                                'feet' => 100,
+                                'armor.feet' => 100,
+                                'boots' => 100,
+                                'offhand' => 150,
+                                'weapon.offhand' => 150,
+                            ];
+                            $existingSlots = array_column($result['inventory'], 'slot');
+                            foreach ($equipMap as $eqKey => $eqSlot) {
+                                if (isset($equip[$eqKey]) && is_array($equip[$eqKey]) && !in_array($eqSlot, $existingSlots)) {
+                                    $itemData = $equip[$eqKey];
+                                    $itemData['Slot'] = $eqSlot;
+                                    $formatted = $this->formatItemList([$itemData]);
+                                    if (!empty($formatted)) {
+                                        $result['inventory'][] = $formatted[0];
+                                        $existingSlots[] = $eqSlot;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Support ArmorItems list ([0 => boots, 1 => leggings, 2 => chestplate, 3 => helmet])
+                        if (!empty($root['ArmorItems']) && is_array($root['ArmorItems'])) {
+                            $armorSlots = [100, 101, 102, 103];
+                            $existingSlots = array_column($result['inventory'], 'slot');
+                            foreach ($root['ArmorItems'] as $aIdx => $aItem) {
+                                if (is_array($aItem) && isset($armorSlots[$aIdx]) && !in_array($armorSlots[$aIdx], $existingSlots)) {
+                                    $aItem['Slot'] = $armorSlots[$aIdx];
+                                    $formatted = $this->formatItemList([$aItem]);
+                                    if (!empty($formatted)) {
+                                        $result['inventory'][] = $formatted[0];
+                                        $existingSlots[] = $armorSlots[$aIdx];
+                                    }
+                                }
+                            }
+                        }
+
+                        // Support HandItems list ([0 => main hand, 1 => offhand])
+                        if (!empty($root['HandItems']) && is_array($root['HandItems'])) {
+                            $existingSlots = array_column($result['inventory'], 'slot');
+                            if (isset($root['HandItems'][1]) && is_array($root['HandItems'][1]) && !in_array(150, $existingSlots)) {
+                                $ohItem = $root['HandItems'][1];
+                                $ohItem['Slot'] = 150;
+                                $formatted = $this->formatItemList([$ohItem]);
+                                if (!empty($formatted)) {
+                                    $result['inventory'][] = $formatted[0];
+                                }
+                            }
+                        }
+
                         if (!empty($root['EnderItems']) && is_array($root['EnderItems'])) {
                             $result['ender_chest'] = $this->formatItemList($root['EnderItems']);
                         }
@@ -1719,10 +1785,18 @@ class PlayerManagerController extends ClientApiController
             }
             if ($slot === null) continue;
 
-            if ($slot < 0) {
-                // E.g. offhand is -106 -> maps to 150
+            if ($slot === -106 || $slot === 150) {
+                $slot = 150;
+            } elseif ($slot < 0) {
                 $slot = 256 + $slot;
             }
+
+            // Map Bukkit / Spigot armor and offhand slots to standard slots
+            if ($slot === 36) $slot = 100; // boots
+            elseif ($slot === 37) $slot = 101; // leggings
+            elseif ($slot === 38) $slot = 102; // chestplate
+            elseif ($slot === 39) $slot = 103; // helmet
+            elseif ($slot === 40) $slot = 150; // offhand
 
             $id = (string) ($item['id'] ?? ($item['Id'] ?? 'minecraft:air'));
             if ($id === 'minecraft:air' || $id === 'air') continue;
