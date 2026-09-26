@@ -10,6 +10,7 @@ $files = [
     "routes/api-client.php",
     "app/Console/Kernel.php",
     "app/Models/Server.php",
+    "resources/scripts/api/server/getServer.ts",
 ];
 
 foreach ($files as $file) {

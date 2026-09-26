@@ -40,25 +40,19 @@ const ServerExpiryCard: React.FC = () => {
             setPlanPrice((server as any).plan_price);
         }
 
-        // Fetch fresh details from options API endpoint
-        http.get(`/api/client/servers/${uuid}/options`)
+        // Fetch fresh details instantly from subscription API endpoint (fast DB query, no Wings delay)
+        http.get(`/api/client/servers/${uuid}/subscription`)
             .then(({ data }) => {
-                if (data.expire_at !== undefined) setExpireAt(data.expire_at);
-                if (data.plan_name !== undefined) setPlanName(data.plan_name);
-                if (data.plan_price !== undefined) setPlanPrice(data.plan_price);
+                const sub = data?.data || data;
+                const exp = data.expire_at || sub.expires_at || sub.expire_at;
+                const pName = data.plan_name || sub.product;
+                const pPrice = data.plan_price || (sub.price?.amount && sub.price.amount !== "N/A" ? (sub.price.amount + (sub.price.currency ? " " + sub.price.currency : "")) : null);
+
+                if (exp !== undefined) setExpireAt(exp || null);
+                if (pName && pName !== "N/A") setPlanName(pName);
+                if (pPrice && pPrice !== "N/A") setPlanPrice(pPrice);
             })
-            .catch(() => {
-                http.get(`/api/client/servers/${uuid}/subscription`)
-                    .then(({ data }) => {
-                        const sub = data?.data || data;
-                        if (sub.expires_at) setExpireAt(sub.expires_at);
-                        if (sub.product && sub.product !== "N/A") setPlanName(sub.product);
-                        if (sub.price?.amount && sub.price.amount !== "N/A") {
-                            setPlanPrice(sub.price.amount + (sub.price.currency ? " " + sub.price.currency : ""));
-                        }
-                    })
-                    .catch(() => {});
-            });
+            .catch(() => {});
     }, [uuid]);
 
     // Format Expiration Date & Time

@@ -225,15 +225,26 @@ class OptionsController extends ClientApiController
             }
         }
 
+        $expireStr = !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null;
+        $planStr = $server->plan_name ?: 'N/A';
+        $priceStr = $server->plan_price ?: 'N/A';
+
         return response()->json([
+            'success' => true,
+            'expire_at' => $expireStr,
+            'plan_name' => $planStr,
+            'plan_price' => $priceStr,
             'data' => [
                 'status' => $server->isSuspended() ? 'suspended' : 'active',
-                'expires_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
-                'product' => $server->plan_name ?: 'N/A',
+                'expires_at' => $expireStr,
+                'expire_at' => $expireStr,
+                'product' => $planStr,
+                'plan_name' => $planStr,
                 'price' => [
-                    'amount' => $server->plan_price ?: 'N/A',
+                    'amount' => $priceStr,
                     'currency' => '',
                 ],
+                'plan_price' => $priceStr,
                 'serviceLink' => '',
                 'invoice' => [
                     'pending' => false,

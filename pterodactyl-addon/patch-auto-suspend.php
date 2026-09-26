@@ -268,3 +268,35 @@ PATCH;
         file_put_contents($modelFile, $c);
     }
 }
+
+// Patch 10: resources/scripts/api/server/getServer.ts (Map expire_at and plan attributes directly into ServerContext)
+$getServerFile = "resources/scripts/api/server/getServer.ts";
+if (file_exists($getServerFile)) {
+    $c = file_get_contents($getServerFile);
+    $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
+
+    $interfacePatch = <<<'PATCH'
+/* >>> ARIX AUTO SUSPENSION START >>> */
+    expire_at?: string | null;
+    plan_name?: string | null;
+    plan_price?: string | null;
+    /* <<< ARIX AUTO SUSPENSION END <<< */
+PATCH;
+
+    $mappingPatch = <<<'MAPPING'
+/* >>> ARIX AUTO SUSPENSION START >>> */
+    expire_at: data.expire_at || null,
+    plan_name: data.plan_name || null,
+    plan_price: data.plan_price || null,
+    /* <<< ARIX AUTO SUSPENSION END <<< */
+MAPPING;
+
+    if (strpos($c, 'isSuspended: boolean;') !== false) {
+        $c = preg_replace('/(isSuspended:\\s*boolean;\\s*)/', "$1    " . $interfacePatch . "\n", $c, 1);
+    }
+    if (strpos($c, 'isSuspended: data.is_suspended,') !== false) {
+        $c = preg_replace('/(isSuspended:\\s*data\\.is_suspended,\\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    }
+    file_put_contents($getServerFile, $c);
+}
+
