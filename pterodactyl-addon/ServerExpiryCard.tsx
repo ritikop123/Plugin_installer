@@ -52,7 +52,16 @@ const ServerExpiryCard: React.FC = () => {
                 if (pName && pName !== "N/A") setPlanName(pName);
                 if (pPrice && pPrice !== "N/A") setPlanPrice(pPrice);
             })
-            .catch(() => {});
+            .catch(() => {
+                // Secondary fallback to /options
+                http.get(`/api/client/servers/${uuid}/options`)
+                    .then(({ data }) => {
+                        if (data.expire_at !== undefined) setExpireAt(data.expire_at || null);
+                        if (data.plan_name && data.plan_name !== "N/A") setPlanName(data.plan_name);
+                        if (data.plan_price && data.plan_price !== "N/A") setPlanPrice(data.plan_price);
+                    })
+                    .catch(() => {});
+            });
     }, [uuid]);
 
     // Format Expiration Date & Time

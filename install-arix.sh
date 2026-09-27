@@ -763,6 +763,10 @@ fetch_addon_file "ServerSuspensionWarningNotification.php" "app/Notifications/Se
 mkdir -p "resources/scripts/components/server"
 fetch_addon_file "ServerExpiryCard.tsx" "resources/scripts/components/server/ServerExpiryCard.tsx"
 
+# Ensure OptionsController.php is downloaded (powers /subscription endpoint)
+mkdir -p "app/Http/Controllers/Api/Client/Servers"
+fetch_addon_file "OptionsController.php" "app/Http/Controllers/Api/Client/Servers/OptionsController.php"
+
 # Run database migration
 echo -e "${CYAN}[*] Running database migration for auto-suspension and plan details...${NC}"
 php artisan migrate --force

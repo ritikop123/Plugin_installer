@@ -180,7 +180,7 @@ PATCH;
     file_put_contents($serversCtrlFile, $c);
 }
 
-// Patch 6: app/Transformers/Api/Client/ServerTransformer.php (Expose attributes to ServerContext & Instant auto-suspend check)
+// Patch 6: app/Transformers/Api/Client/ServerTransformer.php (Expose attributes to ServerContext)
 $transformerFile = "app/Transformers/Api/Client/ServerTransformer.php";
 if (file_exists($transformerFile)) {
     $c = file_get_contents($transformerFile);
@@ -193,45 +193,26 @@ if (file_exists($transformerFile)) {
             'plan_price' => $server->plan_price ?? null,
             /* <<< ARIX AUTO SUSPENSION END <<< */
 PATCH;
-    $checkPatch = <<<'CHECK'
-/* >>> ARIX AUTO SUSPENSION CHECK START >>> */
-        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== \Pterodactyl\Models\Server::STATUS_SUSPENDED) {
-            try {
-                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
-                $server->refresh();
-            } catch (\Throwable $e) {
-                try {
-                    $server->status = \Pterodactyl\Models\Server::STATUS_SUSPENDED;
-                    $server->save();
-                } catch (\Throwable $ex) {}
-            }
-        }
-        /* <<< ARIX AUTO SUSPENSION CHECK END <<< */
-
-CHECK;
-    if (strpos($c, 'public function transform(Server $server): array') !== false) {
-        $c = preg_replace('/(public function transform\\(Server \\$server\\): array\\s*\\{)/', "$1\n        " . $checkPatch, $c, 1);
-    }
     if (strpos($c, "'egg_features' => $server->egg->inherit_features,") !== false) {
         $c = preg_replace('/(\\x27egg_features\\x27 => \\$server->egg->inherit_features,\\s*)/', "$1" . $patch . "\n", $c, 1);
+        file_put_contents($transformerFile, $c);
     }
-    file_put_contents($transformerFile, $c);
 }
 
-// Patch 7: routes/api-client.php (Register /subscription endpoint for Arix theme widgets)
+// Patch 7: routes/api-client.php (Register /subscription endpoint for Arix theme widgets & ServerExpiryCard)
 $routesApiFile = "routes/api-client.php";
 if (file_exists($routesApiFile)) {
     $c = file_get_contents($routesApiFile);
     $c = preg_replace("/\\/\\*\\s*>>>\\s*ARIX AUTO SUSPENSION START\\s*>>>\\s*\\*\\/.*?\\/\\*\\s*<<<\\s*ARIX AUTO SUSPENSION END\\s*<<<\\s*\\*\\/\\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-        Route::get('/subscription', [\Pterodactyl\Http\Controllers\Api\Client\Servers\OptionsController::class, 'subscription']);
-        /* <<< ARIX AUTO SUSPENSION END <<< */
+Route::group(['prefix' => '/servers/{server}'], function () {
+    Route::get('/subscription', [\Pterodactyl\Http\Controllers\Api\Client\Servers\OptionsController::class, 'subscription']);
+});
+/* <<< ARIX AUTO SUSPENSION END <<< */
 PATCH;
-    if (strpos($c, "'/options', [Servers\\OptionsController::class, 'index']") !== false) {
-        $c = preg_replace('/(Route::get\\(\\x27\\/options\\x27,\\s*\\[Servers\\\\OptionsController::class,\\s*\\x27index\\x27\\]\\);\\s*)/', "$1" . $patch . "\n        ", $c, 1);
-        file_put_contents($routesApiFile, $c);
-    }
+    $c = rtrim($c) . "\n\n" . $patch . "\n";
+    file_put_contents($routesApiFile, $c);
 }
 
 // Patch 8: app/Console/Kernel.php
@@ -285,9 +266,9 @@ PATCH;
 
     $mappingPatch = <<<'MAPPING'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-    expire_at: data.expire_at || null,
-    plan_name: data.plan_name || null,
-    plan_price: data.plan_price || null,
+    expire_at: (data as any).expire_at || null,
+    plan_name: (data as any).plan_name || null,
+    plan_price: (data as any).plan_price || null,
     /* <<< ARIX AUTO SUSPENSION END <<< */
 MAPPING;
 
