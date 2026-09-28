@@ -39,7 +39,7 @@ if (is_dir($baseDir)) {
         $content = preg_replace("/\{?\/\*\s*>>>\s*ARIX DASHBOARD CARD START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX DASHBOARD CARD END\s*<<<\s*\*\/\}?\s*/s", "", $content);
 
         // Ensure Import
-        $importStatement = "/* >>> ARIX DASHBOARD CARD START >>> */\nimport ServerExpiryCard from \x27@/components/server/ServerExpiryCard\x27;\n/* <<< ARIX DASHBOARD CARD END <<< */\n";
+        $importStatement = "/* >>> ARIX DASHBOARD CARD START >>> */\nimport ServerExpiryCard from '@/components/server/ServerExpiryCard';\n/* <<< ARIX DASHBOARD CARD END <<< */\n";
         if (strpos($content, "import ServerExpiryCard") === false) {
             $content = $importStatement . $content;
         }
@@ -103,9 +103,10 @@ foreach ($scanDirs as $dir) {
             if (isset($checkedFiles[$filePath])) continue;
             $checkedFiles[$filePath] = true;
 
-            // Skip badge component and server expiry card
+            // Skip badge component, server expiry card, and modals/search
             if (strpos($filePath, "ServerExpiryBadge") !== false) continue;
             if (strpos($filePath, "ServerExpiryCard") !== false) continue;
+            if (strpos($filePath, "search") !== false || strpos($filePath, "Search") !== false || strpos($filePath, "Modal") !== false) continue;
 
             $c = file_get_contents($filePath);
             $original = $c;
@@ -119,6 +120,8 @@ foreach ($scanDirs as $dir) {
             $c = preg_replace("/<ServerExpiryBadge[^>]*\/>\s*/s", "", $c);
             // Remove empty braces after server.name
             $c = preg_replace("/(\{\s*(?:server|data|srv|item|s)\??\.name\s*\})[\s\r\n]*\{\s*[\r\n\s]*\}/s", "$1", $c);
+            // Clean up any literal \x27 escapes if present
+            $c = str_replace('\x27', "'", $c);
             // Remove import
             $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
 
@@ -143,14 +146,15 @@ foreach ($scanDirs as $dir) {
                     $pos = $matches[1][1];
                     $len = strlen($targetStr);
 
-                    $badge = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className={\x27ml-2 align-middle inline-flex\x27} />';
+                    // Standard double quotes for className - 100% valid JSX without any hex escape issues
+                    $badge = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className="ml-2 align-middle inline-flex" />';
 
                     // Replace only this exact instance
                     $c = substr_replace($c, $badge, $pos, $len);
 
                     // Add clean import at the top
                     if (strpos($c, "import ServerExpiryBadge") === false) {
-                        $import = "import ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n";
+                        $import = "import ServerExpiryBadge from '@/components/dashboard/ServerExpiryBadge';\n";
                         $c = $import . $c;
                     }
 
