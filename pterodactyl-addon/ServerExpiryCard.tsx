@@ -10,6 +10,11 @@ import {
     faCreditCard,
     faExclamationTriangle,
     faCheckCircle,
+    faEdit,
+    faTimes,
+    faSave,
+    faSpinner,
+    faInfinity,
 } from "@fortawesome/free-solid-svg-icons";
 
 const ServerExpiryCard: React.FC = () => {
@@ -25,11 +30,44 @@ const ServerExpiryCard: React.FC = () => {
     const [planPrice, setPlanPrice] = useState<string | null>(
         (server as any)?.plan_price || null
     );
+    const [canEdit, setCanEdit] = useState<boolean>(false);
+
+    // Edit Modal State
+    const [editModalOpen, setEditModalOpen] = useState<boolean>(false);
+    const [editPlanName, setEditPlanName] = useState<string>("");
+    const [editPlanPrice, setEditPlanPrice] = useState<string>("");
+    const [editExpireAt, setEditExpireAt] = useState<string>("");
+    const [saving, setSaving] = useState<boolean>(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+
+    // Intelligent auto-detected hardware plan from server limits (so card NEVER looks empty or shows N/A)
+    const autoPlanName = useMemo(() => {
+        if (!server?.limits) return "Standard Server Plan";
+        const mem =
+            server.limits.memory === 0
+                ? "Unlimited RAM"
+                : server.limits.memory >= 1024
+                ? `${(server.limits.memory / 1024).toFixed(server.limits.memory % 1024 === 0 ? 0 : 1)} GB RAM`
+                : `${server.limits.memory} MB RAM`;
+        const cpu =
+            server.limits.cpu === 0
+                ? "Unlimited CPU"
+                : server.limits.cpu % 100 === 0
+                ? `${server.limits.cpu / 100} vCPU Core${server.limits.cpu / 100 > 1 ? "s" : ""}`
+                : `${server.limits.cpu}% CPU`;
+        const disk =
+            !server.limits.disk || server.limits.disk === 0
+                ? ""
+                : server.limits.disk >= 1024
+                ? ` • ${(server.limits.disk / 1024).toFixed(server.limits.disk % 1024 === 0 ? 0 : 1)} GB SSD`
+                : ` • ${server.limits.disk} MB SSD`;
+        return `${mem} • ${cpu}${disk}`;
+    }, [server?.limits]);
 
     useEffect(() => {
         if (!uuid) return;
 
-        // Sync with ServerContext if present
+        // Sync initial state with ServerContext if present
         if ((server as any)?.expire_at !== undefined && (server as any)?.expire_at !== null) {
             setExpireAt((server as any).expire_at);
         }
@@ -40,17 +78,18 @@ const ServerExpiryCard: React.FC = () => {
             setPlanPrice((server as any).plan_price);
         }
 
-        // Fetch fresh details instantly from subscription API endpoint (fast DB query, no Wings delay)
+        // Fetch fresh details from subscription API endpoint
         http.get(`/api/client/servers/${uuid}/subscription`)
             .then(({ data }) => {
                 const sub = data?.data || data;
-                const exp = data.expire_at || sub.expires_at || sub.expire_at;
+                const exp = data.expire_at !== undefined ? data.expire_at : (sub.expires_at || sub.expire_at);
                 const pName = data.plan_name || sub.product;
                 const pPrice = data.plan_price || (sub.price?.amount && sub.price.amount !== "N/A" ? (sub.price.amount + (sub.price.currency ? " " + sub.price.currency : "")) : null);
 
                 if (exp !== undefined) setExpireAt(exp || null);
                 if (pName && pName !== "N/A") setPlanName(pName);
                 if (pPrice && pPrice !== "N/A") setPlanPrice(pPrice);
+                if (data.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
             })
             .catch(() => {
                 // Secondary fallback to /options
@@ -64,9 +103,60 @@ const ServerExpiryCard: React.FC = () => {
             });
     }, [uuid]);
 
+    // Open Edit Modal with current values
+    const handleOpenEdit = () => {
+        setEditPlanName(planName && planName !== "N/A" ? planName : "");
+        setEditPlanPrice(planPrice && planPrice !== "N/A" ? planPrice : "");
+        if (expireAt) {
+            try {
+                const d = new Date(expireAt);
+                const isoLocal = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 16);
+                setEditExpireAt(isoLocal);
+            } catch {
+                setEditExpireAt("");
+            }
+        } else {
+            setEditExpireAt("");
+        }
+        setSaveError(null);
+        setEditModalOpen(true);
+    };
+
+    // Save changes via API
+    const handleSavePlan = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!uuid) return;
+        setSaving(true);
+        setSaveError(null);
+
+        try {
+            const payload: any = {
+                plan_name: editPlanName.trim() || null,
+                plan_price: editPlanPrice.trim() || null,
+                expire_at: editExpireAt ? new Date(editExpireAt).toISOString() : null,
+            };
+
+            const { data } = await http.post(`/api/client/servers/${uuid}/subscription`, payload);
+            setPlanName(data.plan_name || payload.plan_name);
+            setPlanPrice(data.plan_price || payload.plan_price);
+            setExpireAt(data.expire_at || payload.expire_at);
+            setEditModalOpen(false);
+        } catch (err: any) {
+            setSaveError(
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
+                "Failed to update plan details. Please check your permissions or input."
+            );
+        } finally {
+            setSaving(false);
+        }
+    };
+
     // Format Expiration Date & Time
     const formattedExpiry = useMemo(() => {
-        if (!expireAt) return "N/A";
+        if (!expireAt) return "Permanent (Lifetime)";
         try {
             const d = new Date(expireAt);
             if (isNaN(d.getTime())) return String(expireAt);
@@ -86,15 +176,15 @@ const ServerExpiryCard: React.FC = () => {
     const status = useMemo(() => {
         if (!expireAt) {
             return {
-                tier: "none",
-                label: "NO EXPIRATION",
-                badgeClass: "bg-white/10 text-gray-300 border border-white/15",
-                dotClass: "bg-gray-400",
+                tier: "lifetime",
+                label: "LIFETIME ACTIVE",
+                badgeClass: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+                dotClass: "bg-emerald-400",
                 cardBorder: "",
                 expiryBoxClass: "bg-black/20 border border-white/10",
-                expiryTextClass: "text-white",
-                expiryIconClass: "text-arix",
-                relativeText: "Lifetime / No suspension date set",
+                expiryTextClass: "text-emerald-400 font-bold",
+                expiryIconClass: "text-emerald-400",
+                relativeText: "Permanent server • No auto-suspension scheduled",
                 warning: null,
             };
         }
@@ -178,11 +268,16 @@ const ServerExpiryCard: React.FC = () => {
         };
     }, [expireAt, formattedExpiry]);
 
+    const displayPlanName = planName && planName !== "N/A" ? planName : autoPlanName;
+    const isCustomPlan = Boolean(planName && planName !== "N/A");
+    const displayPlanPrice = planPrice && planPrice !== "N/A" ? planPrice : "Free / Included";
+    const isCustomPrice = Boolean(planPrice && planPrice !== "N/A");
+
     return (
         <div
             className={`bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-6 transition-all duration-300 ${status.cardBorder}`}
         >
-            {/* Header: Title & Status Badge */}
+            {/* Header: Title & Status Badge / Edit Button */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 mb-5 border-b border-gray-600/60">
                 <div className="flex items-center gap-3.5">
                     <div className="w-11 h-11 rounded-component bg-arix text-white flex items-center justify-center shadow">
@@ -198,13 +293,25 @@ const ServerExpiryCard: React.FC = () => {
                     </div>
                 </div>
 
-                <div>
+                <div className="flex items-center gap-2.5">
                     <span
                         className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider ${status.badgeClass}`}
                     >
                         <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
                         {status.label}
                     </span>
+
+                    {canEdit && (
+                        <button
+                            type="button"
+                            onClick={handleOpenEdit}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all shadow-sm"
+                            title="Edit server plan and expiration details (Admin)"
+                        >
+                            <FontAwesomeIcon icon={faEdit} className="text-xs" />
+                            <span>Edit Plan</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -231,10 +338,10 @@ const ServerExpiryCard: React.FC = () => {
                         <span>Plan Name</span>
                     </div>
                     <div className="text-lg font-bold text-white tracking-tight">
-                        {planName || "N/A"}
+                        {displayPlanName}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                        Assigned server plan tier
+                        {isCustomPlan ? "Assigned server plan tier" : "Allocated hardware resources"}
                     </div>
                 </div>
 
@@ -245,10 +352,10 @@ const ServerExpiryCard: React.FC = () => {
                         <span>Plan Price</span>
                     </div>
                     <div className="text-lg font-bold text-white tracking-tight">
-                        {planPrice || "N/A"}
+                        {displayPlanPrice}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                        Recurring subscription cost
+                        {isCustomPrice ? "Recurring subscription cost" : "Active hosting plan tier"}
                     </div>
                 </div>
             </div>
@@ -271,6 +378,129 @@ const ServerExpiryCard: React.FC = () => {
                     <div>
                         <span className="font-semibold">{status.warning.title}: </span>
                         <span>{status.warning.message}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Admin Quick Edit Modal */}
+            {editModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-[#1e232d] border border-neutral-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-5 py-4 bg-[#171b23] border-b border-neutral-800">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-arix/20 text-arix flex items-center justify-center">
+                                    <FontAwesomeIcon icon={faEdit} className="text-sm" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-white">Edit Server Plan & Expiration</h3>
+                                    <p className="text-xs text-gray-400">Configure billing and suspension details (Admin Only)</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setEditModalOpen(false)}
+                                className="text-gray-400 hover:text-white p-1.5 rounded-lg transition-colors"
+                            >
+                                <FontAwesomeIcon icon={faTimes} className="text-lg" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body Form */}
+                        <form onSubmit={handleSavePlan} className="p-5 space-y-4">
+                            {saveError && (
+                                <div className="p-3 bg-red-500/15 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2">
+                                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 shrink-0" />
+                                    <span>{saveError}</span>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">
+                                    Plan Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editPlanName}
+                                    onChange={(e) => setEditPlanName(e.target.value)}
+                                    placeholder={`e.g. Starter 4GB, Diamond VIP (Default: ${autoPlanName})`}
+                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">
+                                    Custom plan tier title shown on the dashboard. Leave empty to auto-detect from hardware specs.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">
+                                    Plan Price
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editPlanPrice}
+                                    onChange={(e) => setEditPlanPrice(e.target.value)}
+                                    placeholder="e.g. $10.00/mo, ₹499/mo, Free"
+                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">
+                                    Billing rate shown on the card. Leave empty to display "Free / Included".
+                                </p>
+                            </div>
+
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                                        Expiration Date & Time
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditExpireAt("")}
+                                        className="text-xs text-arix hover:underline flex items-center gap-1 font-medium"
+                                    >
+                                        <FontAwesomeIcon icon={faInfinity} className="text-xs" />
+                                        <span>Set Lifetime (No Expiry)</span>
+                                    </button>
+                                </div>
+                                <input
+                                    type="datetime-local"
+                                    value={editExpireAt}
+                                    onChange={(e) => setEditExpireAt(e.target.value)}
+                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors [color-scheme:dark]"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">
+                                    Automated suspension triggers on this date. Clear or leave empty for permanent lifetime server.
+                                </p>
+                            </div>
+
+                            {/* Modal Footer Actions */}
+                            <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditModalOpen(false)}
+                                    disabled={saving}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="px-5 py-2 rounded-xl text-xs font-semibold bg-arix hover:bg-arix/90 text-white transition-all shadow flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {saving ? (
+                                        <>
+                                            <FontAwesomeIcon icon={faSpinner} className="fa-spin" />
+                                            <span>Saving...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FontAwesomeIcon icon={faSave} />
+                                            <span>Save Plan Details</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

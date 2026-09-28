@@ -163,25 +163,42 @@ class OptionsController extends ClientApiController
                     $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
                 } catch (Throwable $ex) {}
             }
+            $autoPlanName = null;
+                if (!empty($server->memory)) {
+                    $mem = ($server->memory >= 1024)
+                        ? (($server->memory % 1024 === 0) ? ($server->memory / 1024) : round($server->memory / 1024, 1)) . ' GB RAM'
+                        : $server->memory . ' MB RAM';
+                    $cpu = (!empty($server->cpu))
+                        ? (($server->cpu % 100 === 0) ? ($server->cpu / 100) . ' vCPU Cores' : $server->cpu . '% CPU')
+                        : 'Shared CPU';
+                    $disk = (!empty($server->disk))
+                        ? (($server->disk >= 1024) ? (' • ' . round($server->disk / 1024, 1) . ' GB SSD') : (' • ' . $server->disk . ' MB SSD'))
+                        : '';
+                    $autoPlanName = "{$mem} • {$cpu}{$disk}";
+                } elseif ($server->egg && !empty($server->egg->name)) {
+                    $autoPlanName = $server->egg->name . ' Plan';
+                }
 
-            return response()->json([
-                'success' => true,
-                'software' => $software,
-                'address' => $address,
-                'port' => $port,
-                'server_name' => $server->name,
-                'server_description' => $server->description ?? '',
-                'has_custom_icon' => $hasCustomIcon,
-                'icon_data' => $iconData,
-                'default_icon' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
-                'default_motd' => self::DEFAULT_MOTD,
-                'file_exists' => $fileExists,
-                'properties' => $properties,
-                'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
-                'is_suspended' => $server->isSuspended(),
-                'plan_name' => $server->plan_name ?? null,
-                'plan_price' => $server->plan_price ?? null,
-            ]);
+                return response()->json([
+                    'success' => true,
+                    'software' => $software,
+                    'address' => $address,
+                    'port' => $port,
+                    'server_name' => $server->name,
+                    'server_description' => $server->description ?? '',
+                    'has_custom_icon' => $hasCustomIcon,
+                    'icon_data' => $iconData,
+                    'default_icon' => 'data:image/png;base64,' . self::DEFAULT_ICON_BASE64,
+                    'default_motd' => self::DEFAULT_MOTD,
+                    'file_exists' => $fileExists,
+                    'properties' => $properties,
+                    'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
+                    'is_suspended' => $server->isSuspended(),
+                    'plan_name' => $server->plan_name ?: ($autoPlanName ?: 'Standard Server Plan'),
+                    'custom_plan_name' => $server->plan_name,
+                    'plan_price' => $server->plan_price ?: 'Free / Included',
+                    'custom_plan_price' => $server->plan_price,
+                ]);
         } catch (Throwable $e) {
             Log::error('[OptionsController] index error: ' . $e->getMessage());
             return response()->json([
@@ -226,14 +243,37 @@ class OptionsController extends ClientApiController
         }
 
         $expireStr = !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null;
-        $planStr = $server->plan_name ?: 'N/A';
-        $priceStr = $server->plan_price ?: 'N/A';
+
+        // Auto-detect hardware resource tier if custom plan name is unset
+        $autoPlanName = null;
+        if (!empty($server->memory)) {
+            $mem = ($server->memory >= 1024)
+                ? (($server->memory % 1024 === 0) ? ($server->memory / 1024) : round($server->memory / 1024, 1)) . ' GB RAM'
+                : $server->memory . ' MB RAM';
+            $cpu = (!empty($server->cpu))
+                ? (($server->cpu % 100 === 0) ? ($server->cpu / 100) . ' vCPU Cores' : $server->cpu . '% CPU')
+                : 'Shared CPU';
+            $disk = (!empty($server->disk))
+                ? (($server->disk >= 1024) ? (' • ' . round($server->disk / 1024, 1) . ' GB SSD') : (' • ' . $server->disk . ' MB SSD'))
+                : '';
+            $autoPlanName = "{$mem} • {$cpu}{$disk}";
+        } elseif ($server->egg && !empty($server->egg->name)) {
+            $autoPlanName = $server->egg->name . ' Plan';
+        }
+
+        $planStr = $server->plan_name ?: ($autoPlanName ?: 'Standard Server Plan');
+        $priceStr = $server->plan_price ?: 'Free / Included';
+        $isRootAdmin = (bool) ($request->user() && $request->user()->root_admin);
 
         return response()->json([
             'success' => true,
+            'can_edit' => $isRootAdmin,
             'expire_at' => $expireStr,
             'plan_name' => $planStr,
+            'custom_plan_name' => $server->plan_name,
             'plan_price' => $priceStr,
+            'custom_plan_price' => $server->plan_price,
+            'is_lifetime' => empty($server->expire_at),
             'data' => [
                 'status' => $server->isSuspended() ? 'suspended' : 'active',
                 'expires_at' => $expireStr,
@@ -251,6 +291,41 @@ class OptionsController extends ClientApiController
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Update server plan & expiration details (Admin only).
+     * POST /api/client/servers/{server}/subscription
+     */
+    public function updateSubscription(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user() || !$request->user()->root_admin) {
+            return response()->json(['error' => 'You do not have permission to modify plan and expiration settings.'], 403);
+        }
+
+        if ($request->has('expire_at')) {
+            try {
+                $newExpire = $request->filled('expire_at') ? \Carbon\Carbon::parse($request->input('expire_at')) : null;
+                $server->expire_at = $newExpire;
+                if (is_null($newExpire) || ($server->expiration_warning_sent_at && $newExpire->isAfter(\Carbon\Carbon::now()->addDays(3)))) {
+                    $server->expiration_warning_sent_at = null;
+                }
+            } catch (\Throwable $e) {
+                return response()->json(['error' => 'Invalid expiration date format.'], 422);
+            }
+        }
+
+        if ($request->has('plan_name')) {
+            $server->plan_name = $request->input('plan_name') ?: null;
+        }
+
+        if ($request->has('plan_price')) {
+            $server->plan_price = $request->input('plan_price') ?: null;
+        }
+
+        $server->save();
+
+        return $this->subscription($request, $server);
     }
 
     /**

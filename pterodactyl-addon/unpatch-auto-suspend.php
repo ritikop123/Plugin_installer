@@ -6,6 +6,7 @@ $files = [
     "resources/views/admin/servers/view/details.blade.php",
     "app/Http/Controllers/Admin/Servers/CreateServerController.php",
     "app/Http/Controllers/Admin/ServersController.php",
+    "app/Http/Controllers/Admin/Servers/ServerBuildController.php",
     "app/Transformers/Api/Client/ServerTransformer.php",
     "routes/api-client.php",
     "app/Console/Kernel.php",
