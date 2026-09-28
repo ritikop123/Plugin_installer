@@ -8,7 +8,7 @@ interface Props {
 }
 
 const ServerExpiryBadge: React.FC<Props> = ({ expireAt, className = '' }) => {
-    if (!expireAt) return null;
+    if (!expireAt || expireAt === 'N/A' || expireAt === 'null' || expireAt === 'undefined') return null;
 
     const badge = useMemo(() => {
         try {

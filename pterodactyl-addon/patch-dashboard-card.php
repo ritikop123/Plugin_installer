@@ -1,7 +1,7 @@
 <?php
 
 // patch-dashboard-card.php:
-// 1. Injects ServerExpiryCard into the Server Dashboard directly beneath stat cards.
+// 1. Injects ServerExpiryCard into the Server Console/Dashboard directly beneath stat cards.
 // 2. Injects ServerExpiryBadge next to server name on the main Dashboard Server Cards/Rows.
 
 // -------------------------------------------------------------
@@ -86,14 +86,27 @@ CONSOLE_JSX;
 // --------------------------------------------------------------------------------------
 // PART 2: Injects ServerExpiryBadge next to server name on Dashboard Server Card / Row
 // --------------------------------------------------------------------------------------
-$dashDir = "resources/scripts/components/dashboard";
-if (is_dir($dashDir)) {
-    $dashFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dashDir));
-    foreach ($dashFiles as $file) {
+$scanDirs = [
+    "resources/scripts/components/dashboard",
+    "resources/scripts/components/arix",
+    "resources/scripts/components",
+];
+
+$checkedFiles = [];
+
+foreach ($scanDirs as $dir) {
+    if (!is_dir($dir)) continue;
+
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+    foreach ($iterator as $file) {
         if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
-            $filePath = $file->getPathname();
-            // Skip the badge component itself
+            $filePath = realpath($file->getPathname()) ?: $file->getPathname();
+            if (isset($checkedFiles[$filePath])) continue;
+            $checkedFiles[$filePath] = true;
+
+            // Skip badge component and server expiry card
             if (strpos($filePath, "ServerExpiryBadge") !== false) continue;
+            if (strpos($filePath, "ServerExpiryCard") !== false) continue;
 
             $c = file_get_contents($filePath);
 
@@ -103,31 +116,36 @@ if (is_dir($dashDir)) {
 
             $badgePatched = false;
 
-            if (strpos($c, "{server.name}") !== false) {
-                // Ensure import
-                if (strpos($c, "import ServerExpiryBadge") === false) {
-                    $import = "/* >>> ARIX SERVER EXPIRY BADGE START >>> */\nimport ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n/* <<< ARIX SERVER EXPIRY BADGE END <<< */\n";
-                    $c = $import . $c;
-                }
+            // Target files: Contains "Manage server" or "Manage Server" or "Move folder" OR is inside a dashboard folder
+            $isTarget = (
+                strpos($c, "Manage server") !== false ||
+                strpos($c, "Manage Server") !== false ||
+                strpos($c, "Move folder") !== false ||
+                strpos($filePath, "dashboard") !== false ||
+                strpos($filePath, "ServerRow") !== false ||
+                strpos($filePath, "ServerCard") !== false
+            );
 
-                $badgeJsx = '{server.name}{/* >>> ARIX SERVER EXPIRY BADGE START >>> */}<ServerExpiryBadge expireAt={(server as any).expire_at || (server as any).expireAt} className={"ml-2"} />{/* <<< ARIX SERVER EXPIRY BADGE END <<< */}';
-                $c = preg_replace('/\{server\.name\}/', $badgeJsx, $c, 1);
-                $badgePatched = true;
-            } elseif (strpos($c, "{data.name}") !== false && (strpos($c, "Manage server") !== false || strpos($c, "Manage Server") !== false || strpos($c, "server") !== false)) {
-                // Ensure import
-                if (strpos($c, "import ServerExpiryBadge") === false) {
-                    $import = "/* >>> ARIX SERVER EXPIRY BADGE START >>> */\nimport ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n/* <<< ARIX SERVER EXPIRY BADGE END <<< */\n";
-                    $c = $import . $c;
-                }
+            if ($isTarget && (strpos($c, ".name") !== false || strpos($c, "{name}") !== false)) {
+                // Find server name pattern: e.g. {server.name}, {server?.name}, {data.name}, {data?.name}, {srv.name}, {item.name}, {s.name}
+                if (preg_match('/(\{\s*(server|data|srv|item|s)\??\.name\s*\})/', $c, $matches)) {
+                    $targetStr = $matches[1];
+                    $varName = $matches[2];
 
-                $badgeJsx = '{data.name}{/* >>> ARIX SERVER EXPIRY BADGE START >>> */}<ServerExpiryBadge expireAt={(data as any).expire_at || (data as any).expireAt} className={"ml-2"} />{/* <<< ARIX SERVER EXPIRY BADGE END <<< */}';
-                $c = preg_replace('/\{data\.name\}/', $badgeJsx, $c, 1);
-                $badgePatched = true;
+                    if (strpos($c, "import ServerExpiryBadge") === false) {
+                        $import = "/* >>> ARIX SERVER EXPIRY BADGE START >>> */\nimport ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n/* <<< ARIX SERVER EXPIRY BADGE END <<< */\n";
+                        $c = $import . $c;
+                    }
+
+                    $badgeJsx = $targetStr . "\n{/* >>> ARIX SERVER EXPIRY BADGE START >>> */}\n<ServerExpiryBadge expireAt={(" . $varName . " as any)?.expire_at || (" . $varName . " as any)?.expireAt} className={\"ml-2 inline-flex align-middle\"} />\n{/* <<< ARIX SERVER EXPIRY BADGE END <<< */}";
+                    $c = str_replace($targetStr, $badgeJsx, $c);
+                    $badgePatched = true;
+                }
             }
 
             if ($badgePatched) {
                 file_put_contents($filePath, $c);
-                echo "[✓] Injected ServerExpiryBadge next to server name in $filePath\n";
+                echo "[✓] Injected ServerExpiryBadge next to server name in: $filePath\n";
             }
         }
     }
