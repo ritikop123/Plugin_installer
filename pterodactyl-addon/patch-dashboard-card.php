@@ -93,6 +93,7 @@ $scanDirs = [
 
 $checkedFiles = [];
 
+// STEP 2A: Clean up ALL files in dashboard & arix folders first (including SearchModal etc.)
 foreach ($scanDirs as $dir) {
     if (!is_dir($dir)) continue;
 
@@ -103,10 +104,9 @@ foreach ($scanDirs as $dir) {
             if (isset($checkedFiles[$filePath])) continue;
             $checkedFiles[$filePath] = true;
 
-            // Skip badge component, server expiry card, and modals/search
-            if (strpos($filePath, "ServerExpiryBadge") !== false) continue;
-            if (strpos($filePath, "ServerExpiryCard") !== false) continue;
-            if (strpos($filePath, "search") !== false || strpos($filePath, "Search") !== false || strpos($filePath, "Modal") !== false) continue;
+            // Skip badge component and server expiry card themselves
+            if (strpos($filePath, "ServerExpiryBadge.tsx") !== false) continue;
+            if (strpos($filePath, "ServerExpiryCard.tsx") !== false) continue;
 
             $c = file_get_contents($filePath);
             $original = $c;
@@ -125,19 +125,46 @@ foreach ($scanDirs as $dir) {
             // Remove import
             $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
 
-            $badgePatched = false;
+            if ($c !== $original) {
+                file_put_contents($filePath, $c);
+                echo "[✓] Cleaned up previous patch in: $filePath\n";
+            }
+        }
+    }
+}
 
-            // 2. Identify server card/row files:
-            $isTarget = (
-                strpos($filePath, "dashboard") !== false ||
-                strpos($filePath, "arix") !== false ||
-                strpos($filePath, "ServerRow") !== false ||
-                strpos($filePath, "ServerCard") !== false ||
-                strpos($filePath, "CardBanner") !== false
+// STEP 2B: Inject ServerExpiryBadge ONLY into actual server card/row components
+$checkedCardFiles = [];
+
+foreach ($scanDirs as $dir) {
+    if (!is_dir($dir)) continue;
+
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+    foreach ($iterator as $file) {
+        if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
+            $filePath = realpath($file->getPathname()) ?: $file->getPathname();
+            if (isset($checkedCardFiles[$filePath])) continue;
+            $checkedCardFiles[$filePath] = true;
+
+            // Target ONLY card layout components, NEVER search/modals/containers
+            $isCardFile = (
+                (strpos($filePath, "ServerCard") !== false ||
+                 strpos($filePath, "CardBanner") !== false ||
+                 strpos($filePath, "ServerRow") !== false ||
+                 strpos($filePath, "LinearCard") !== false ||
+                 strpos($filePath, "NormalCard") !== false) &&
+                strpos($filePath, "Search") === false &&
+                strpos($filePath, "search") === false &&
+                strpos($filePath, "Modal") === false &&
+                strpos($filePath, "Container") === false
             );
 
-            if ($isTarget && (strpos($c, ".name") !== false || strpos($c, "{name}") !== false)) {
-                // Match {server.name} NOT preceded by = (so it only matches JSX child text, never attributes like title={server.name})
+            if (!$isCardFile) continue;
+
+            $c = file_get_contents($filePath);
+
+            if (strpos($c, ".name") !== false || strpos($c, "{name}") !== false) {
+                // Match {server.name} NOT preceded by = (JSX child text only, never attributes)
                 $pattern = '/(?<!=)\s*(\{\s*(server|data|srv|item|s)\??\.name\s*\})/';
 
                 if (preg_match($pattern, $c, $matches, PREG_OFFSET_CAPTURE)) {
@@ -158,16 +185,8 @@ foreach ($scanDirs as $dir) {
                         $c = $import . $c;
                     }
 
-                    $badgePatched = true;
-                }
-            }
-
-            if ($badgePatched || $c !== $original) {
-                file_put_contents($filePath, $c);
-                if ($badgePatched) {
+                    file_put_contents($filePath, $c);
                     echo "[✓] Injected ServerExpiryBadge next to server name in: $filePath\n";
-                } else {
-                    echo "[✓] Cleaned up previous patch in: $filePath\n";
                 }
             }
         }
