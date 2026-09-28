@@ -40,30 +40,6 @@ const ServerExpiryCard: React.FC = () => {
     const [saving, setSaving] = useState<boolean>(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
-    // Intelligent auto-detected hardware plan from server limits (so card NEVER looks empty or shows N/A)
-    const autoPlanName = useMemo(() => {
-        if (!server?.limits) return "Standard Server Plan";
-        const mem =
-            server.limits.memory === 0
-                ? "Unlimited RAM"
-                : server.limits.memory >= 1024
-                ? `${(server.limits.memory / 1024).toFixed(server.limits.memory % 1024 === 0 ? 0 : 1)} GB RAM`
-                : `${server.limits.memory} MB RAM`;
-        const cpu =
-            server.limits.cpu === 0
-                ? "Unlimited CPU"
-                : server.limits.cpu % 100 === 0
-                ? `${server.limits.cpu / 100} vCPU Core${server.limits.cpu / 100 > 1 ? "s" : ""}`
-                : `${server.limits.cpu}% CPU`;
-        const disk =
-            !server.limits.disk || server.limits.disk === 0
-                ? ""
-                : server.limits.disk >= 1024
-                ? ` • ${(server.limits.disk / 1024).toFixed(server.limits.disk % 1024 === 0 ? 0 : 1)} GB SSD`
-                : ` • ${server.limits.disk} MB SSD`;
-        return `${mem} • ${cpu}${disk}`;
-    }, [server?.limits]);
-
     useEffect(() => {
         if (!uuid) return;
 
@@ -156,7 +132,7 @@ const ServerExpiryCard: React.FC = () => {
 
     // Format Expiration Date & Time
     const formattedExpiry = useMemo(() => {
-        if (!expireAt) return "Permanent (Lifetime)";
+        if (!expireAt) return "N/A";
         try {
             const d = new Date(expireAt);
             if (isNaN(d.getTime())) return String(expireAt);
@@ -176,15 +152,15 @@ const ServerExpiryCard: React.FC = () => {
     const status = useMemo(() => {
         if (!expireAt) {
             return {
-                tier: "lifetime",
-                label: "LIFETIME ACTIVE",
-                badgeClass: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
-                dotClass: "bg-emerald-400",
+                tier: "none",
+                label: "NO EXPIRATION",
+                badgeClass: "bg-white/10 text-gray-300 border border-white/15",
+                dotClass: "bg-gray-400",
                 cardBorder: "",
                 expiryBoxClass: "bg-black/20 border border-white/10",
-                expiryTextClass: "text-emerald-400 font-bold",
-                expiryIconClass: "text-emerald-400",
-                relativeText: "Permanent server • No auto-suspension scheduled",
+                expiryTextClass: "text-white",
+                expiryIconClass: "text-arix",
+                relativeText: "Lifetime / No suspension date set",
                 warning: null,
             };
         }
@@ -268,10 +244,8 @@ const ServerExpiryCard: React.FC = () => {
         };
     }, [expireAt, formattedExpiry]);
 
-    const displayPlanName = planName && planName !== "N/A" ? planName : autoPlanName;
-    const isCustomPlan = Boolean(planName && planName !== "N/A");
-    const displayPlanPrice = planPrice && planPrice !== "N/A" ? planPrice : "Free / Included";
-    const isCustomPrice = Boolean(planPrice && planPrice !== "N/A");
+    const displayPlanName = planName && planName !== "N/A" ? planName : "N/A";
+    const displayPlanPrice = planPrice && planPrice !== "N/A" ? planPrice : "N/A";
 
     return (
         <div
@@ -341,7 +315,7 @@ const ServerExpiryCard: React.FC = () => {
                         {displayPlanName}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                        {isCustomPlan ? "Assigned server plan tier" : "Allocated hardware resources"}
+                        Assigned server plan tier
                     </div>
                 </div>
 
@@ -355,7 +329,7 @@ const ServerExpiryCard: React.FC = () => {
                         {displayPlanPrice}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                        {isCustomPrice ? "Recurring subscription cost" : "Active hosting plan tier"}
+                        Recurring subscription cost
                     </div>
                 </div>
             </div>
@@ -423,11 +397,11 @@ const ServerExpiryCard: React.FC = () => {
                                     type="text"
                                     value={editPlanName}
                                     onChange={(e) => setEditPlanName(e.target.value)}
-                                    placeholder={`e.g. Starter 4GB, Diamond VIP (Default: ${autoPlanName})`}
+                                    placeholder="e.g. Starter 4GB, Diamond VIP (Leave empty for N/A)"
                                     className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
-                                    Custom plan tier title shown on the dashboard. Leave empty to auto-detect from hardware specs.
+                                    Custom plan tier title shown on the dashboard (shows N/A if empty).
                                 </p>
                             </div>
 
@@ -439,11 +413,11 @@ const ServerExpiryCard: React.FC = () => {
                                     type="text"
                                     value={editPlanPrice}
                                     onChange={(e) => setEditPlanPrice(e.target.value)}
-                                    placeholder="e.g. $10.00/mo, ₹499/mo, Free"
+                                    placeholder="e.g. $10.00/mo, ₹499/mo, Free (Leave empty for N/A)"
                                     className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
-                                    Billing rate shown on the card. Leave empty to display "Free / Included".
+                                    Billing rate shown on the card (shows N/A if empty).
                                 </p>
                             </div>
 

@@ -163,22 +163,6 @@ class OptionsController extends ClientApiController
                     $this->fileRepository->setServer($server)->putContent('/server-icon.png', $defaultBytes);
                 } catch (Throwable $ex) {}
             }
-            $autoPlanName = null;
-                if (!empty($server->memory)) {
-                    $mem = ($server->memory >= 1024)
-                        ? (($server->memory % 1024 === 0) ? ($server->memory / 1024) : round($server->memory / 1024, 1)) . ' GB RAM'
-                        : $server->memory . ' MB RAM';
-                    $cpu = (!empty($server->cpu))
-                        ? (($server->cpu % 100 === 0) ? ($server->cpu / 100) . ' vCPU Cores' : $server->cpu . '% CPU')
-                        : 'Shared CPU';
-                    $disk = (!empty($server->disk))
-                        ? (($server->disk >= 1024) ? (' • ' . round($server->disk / 1024, 1) . ' GB SSD') : (' • ' . $server->disk . ' MB SSD'))
-                        : '';
-                    $autoPlanName = "{$mem} • {$cpu}{$disk}";
-                } elseif ($server->egg && !empty($server->egg->name)) {
-                    $autoPlanName = $server->egg->name . ' Plan';
-                }
-
                 return response()->json([
                     'success' => true,
                     'software' => $software,
@@ -194,10 +178,8 @@ class OptionsController extends ClientApiController
                     'properties' => $properties,
                     'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
                     'is_suspended' => $server->isSuspended(),
-                    'plan_name' => $server->plan_name ?: ($autoPlanName ?: 'Standard Server Plan'),
-                    'custom_plan_name' => $server->plan_name,
-                    'plan_price' => $server->plan_price ?: 'Free / Included',
-                    'custom_plan_price' => $server->plan_price,
+                    'plan_name' => $server->plan_name ?? null,
+                    'plan_price' => $server->plan_price ?? null,
                 ]);
         } catch (Throwable $e) {
             Log::error('[OptionsController] index error: ' . $e->getMessage());
@@ -243,37 +225,16 @@ class OptionsController extends ClientApiController
         }
 
         $expireStr = !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null;
-
-        // Auto-detect hardware resource tier if custom plan name is unset
-        $autoPlanName = null;
-        if (!empty($server->memory)) {
-            $mem = ($server->memory >= 1024)
-                ? (($server->memory % 1024 === 0) ? ($server->memory / 1024) : round($server->memory / 1024, 1)) . ' GB RAM'
-                : $server->memory . ' MB RAM';
-            $cpu = (!empty($server->cpu))
-                ? (($server->cpu % 100 === 0) ? ($server->cpu / 100) . ' vCPU Cores' : $server->cpu . '% CPU')
-                : 'Shared CPU';
-            $disk = (!empty($server->disk))
-                ? (($server->disk >= 1024) ? (' • ' . round($server->disk / 1024, 1) . ' GB SSD') : (' • ' . $server->disk . ' MB SSD'))
-                : '';
-            $autoPlanName = "{$mem} • {$cpu}{$disk}";
-        } elseif ($server->egg && !empty($server->egg->name)) {
-            $autoPlanName = $server->egg->name . ' Plan';
-        }
-
-        $planStr = $server->plan_name ?: ($autoPlanName ?: 'Standard Server Plan');
-        $priceStr = $server->plan_price ?: 'Free / Included';
+        $planStr = $server->plan_name ?: 'N/A';
+        $priceStr = $server->plan_price ?: 'N/A';
         $isRootAdmin = (bool) ($request->user() && $request->user()->root_admin);
 
         return response()->json([
             'success' => true,
             'can_edit' => $isRootAdmin,
             'expire_at' => $expireStr,
-            'plan_name' => $planStr,
-            'custom_plan_name' => $server->plan_name,
-            'plan_price' => $priceStr,
-            'custom_plan_price' => $server->plan_price,
-            'is_lifetime' => empty($server->expire_at),
+            'plan_name' => $server->plan_name ?? null,
+            'plan_price' => $server->plan_price ?? null,
             'data' => [
                 'status' => $server->isSuspended() ? 'suspended' : 'active',
                 'expires_at' => $expireStr,
