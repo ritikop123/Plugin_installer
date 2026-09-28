@@ -35,7 +35,7 @@ if (is_dir($baseDir)) {
         $content = file_get_contents($dashboardFile);
 
         // Clean up any existing patch
-        $content = preg_replace("/\/\*\s*>>>\s*ARIX DASHBOARD CARD START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX DASHBOARD CARD END\s*<<<\s*\*\/\s*/s", "", $content);
+        $content = preg_replace("/\/\*\s*>>>\s*ARIX DASHBOARD CARD START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX DASHBOARD CARD END\s*<<<\s*\*\/\s*/s", "", $content);
         $content = preg_replace("/\{?\/\*\s*>>>\s*ARIX DASHBOARD CARD START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX DASHBOARD CARD END\s*<<<\s*\*\/\}?\s*/s", "", $content);
 
         // Ensure Import
@@ -89,7 +89,6 @@ CONSOLE_JSX;
 $scanDirs = [
     "resources/scripts/components/dashboard",
     "resources/scripts/components/arix",
-    "resources/scripts/components",
 ];
 
 $checkedFiles = [];
@@ -109,43 +108,59 @@ foreach ($scanDirs as $dir) {
             if (strpos($filePath, "ServerExpiryCard") !== false) continue;
 
             $c = file_get_contents($filePath);
+            $original = $c;
 
-            // Clean up any previous badge patch
-            $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
+            // 1. Comprehensive Cleanup of any previous badge patches or corrupted tags
+            $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
             $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\}?\s*/s", "", $c);
+            $c = preg_replace("/<ServerExpiryBadge[^>]*\/>\s*/s", "", $c);
+            $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
+            $c = preg_replace("/(\{\s*(?:server|data|srv|item|s)\??\.name\s*\})\s*\{\s*\}/s", "$1", $c);
 
             $badgePatched = false;
 
-            // Target files: Contains "Manage server" or "Manage Server" or "Move folder" OR is inside a dashboard folder
+            // 2. Identify server card/row files:
             $isTarget = (
-                strpos($c, "Manage server") !== false ||
-                strpos($c, "Manage Server") !== false ||
-                strpos($c, "Move folder") !== false ||
                 strpos($filePath, "dashboard") !== false ||
+                strpos($filePath, "arix") !== false ||
                 strpos($filePath, "ServerRow") !== false ||
-                strpos($filePath, "ServerCard") !== false
+                strpos($filePath, "ServerCard") !== false ||
+                strpos($filePath, "CardBanner") !== false
             );
 
             if ($isTarget && (strpos($c, ".name") !== false || strpos($c, "{name}") !== false)) {
-                // Find server name pattern: e.g. {server.name}, {server?.name}, {data.name}, {data?.name}, {srv.name}, {item.name}, {s.name}
-                if (preg_match('/(\{\s*(server|data|srv|item|s)\??\.name\s*\})/', $c, $matches)) {
+                // Match ONLY JSX text expressions where server name is followed by a closing tag
+                // e.g. {server.name}</p> or {server.name}</span> or {server.name}</h1> or {server.name}</CardAnimator>
+                // This prevents injecting into attributes like title={server.name} or key={server.name}
+                $pattern = '/(\{\s*(server|data|srv|item|s)\??\.name\s*\})([\s\r\n]*<\/(?:p|h[1-6]|span|div|a|CardAnimator)>)/';
+
+                if (preg_match($pattern, $c, $matches)) {
                     $targetStr = $matches[1];
                     $varName = $matches[2];
+                    $closingTag = $matches[3];
 
+                    // Clean inline badge insertion - valid JSX, no newlines or comments inside JSX element
+                    $badgeJsx = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className={\x27ml-2 align-middle inline-flex\x27} />' . $closingTag;
+
+                    $c = preg_replace($pattern, $badgeJsx, $c, 1);
+
+                    // Add clean import at the top
                     if (strpos($c, "import ServerExpiryBadge") === false) {
-                        $import = "/* >>> ARIX SERVER EXPIRY BADGE START >>> */\nimport ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n/* <<< ARIX SERVER EXPIRY BADGE END <<< */\n";
+                        $import = "import ServerExpiryBadge from \x27@/components/dashboard/ServerExpiryBadge\x27;\n";
                         $c = $import . $c;
                     }
 
-                    $badgeJsx = $targetStr . "\n{/* >>> ARIX SERVER EXPIRY BADGE START >>> */}\n<ServerExpiryBadge expireAt={(" . $varName . " as any)?.expire_at || (" . $varName . " as any)?.expireAt} className={\"ml-2 inline-flex align-middle\"} />\n{/* <<< ARIX SERVER EXPIRY BADGE END <<< */}";
-                    $c = str_replace($targetStr, $badgeJsx, $c);
                     $badgePatched = true;
                 }
             }
 
-            if ($badgePatched) {
+            if ($badgePatched || $c !== $original) {
                 file_put_contents($filePath, $c);
-                echo "[✓] Injected ServerExpiryBadge next to server name in: $filePath\n";
+                if ($badgePatched) {
+                    echo "[✓] Injected ServerExpiryBadge next to server name in: $filePath\n";
+                } else {
+                    echo "[✓] Cleaned up previous patch in: $filePath\n";
+                }
             }
         }
     }
