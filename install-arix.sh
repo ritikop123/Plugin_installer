@@ -763,6 +763,10 @@ fetch_addon_file "ServerSuspensionWarningNotification.php" "app/Notifications/Se
 mkdir -p "resources/scripts/components/server"
 fetch_addon_file "ServerExpiryCard.tsx" "resources/scripts/components/server/ServerExpiryCard.tsx"
 
+# Download Server Expiry Badge component for Dashboard Server Cards
+mkdir -p "resources/scripts/components/dashboard"
+fetch_addon_file "ServerExpiryBadge.tsx" "resources/scripts/components/dashboard/ServerExpiryBadge.tsx"
+
 # Ensure OptionsController.php is downloaded (powers /subscription endpoint)
 mkdir -p "app/Http/Controllers/Api/Client/Servers"
 fetch_addon_file "OptionsController.php" "app/Http/Controllers/Api/Client/Servers/OptionsController.php"

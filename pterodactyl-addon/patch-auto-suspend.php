@@ -227,10 +227,14 @@ if (file_exists($transformerFile)) {
             'plan_price' => $server->plan_price ?? null,
             /* <<< ARIX AUTO SUSPENSION END <<< */
 PATCH;
-    if (strpos($c, "'egg_features' => $server->egg->inherit_features,") !== false) {
-        $c = preg_replace('/(\x27egg_features\x27 => \$server->egg->inherit_features,\s*)/', "$1" . $patch . "\n", $c, 1);
-        file_put_contents($transformerFile, $c);
+    if (strpos($c, "'egg_features'") !== false) {
+        $c = preg_replace('/(\x27egg_features\x27[^\n]+,\s*)/', "$1" . $patch . "\n", $c, 1);
+    } elseif (strpos($c, "'is_suspended'") !== false) {
+        $c = preg_replace('/(\x27is_suspended\x27[^\n]+,\s*)/', "$1" . $patch . "\n", $c, 1);
+    } elseif (strpos($c, "'uuid'") !== false) {
+        $c = preg_replace('/(\x27uuid\x27[^\n]+,\s*)/', "$1" . $patch . "\n", $c, 1);
     }
+    file_put_contents($transformerFile, $c);
 }
 
 // Patch 7: routes/api-client.php (Register /subscription endpoints for Arix theme widgets & ServerExpiryCard)
@@ -315,3 +319,26 @@ MAPPING;
     }
     file_put_contents($getServerFile, $c);
 }
+
+// Patch 11: resources/scripts/api/getServers.ts (Map expire_at in dashboard server list API)
+$getServersFile = "resources/scripts/api/getServers.ts";
+if (file_exists($getServersFile)) {
+    $c = file_get_contents($getServersFile);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO SUSPENSION START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO SUSPENSION END\s*<<<\s*\*\/\s*/s", "", $c);
+
+    $mappingPatch = <<<'MAPPING'
+/* >>> ARIX AUTO SUSPENSION START >>> */
+    expire_at: (data as any).expire_at || null,
+    plan_name: (data as any).plan_name || null,
+    plan_price: (data as any).plan_price || null,
+    /* <<< ARIX AUTO SUSPENSION END <<< */
+MAPPING;
+
+    if (strpos($c, 'isSuspended: data.is_suspended,') !== false) {
+        $c = preg_replace('/(isSuspended:\s*data\.is_suspended,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    } elseif (strpos($c, 'status: data.status,') !== false) {
+        $c = preg_replace('/(status:\s*data\.status,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    }
+    file_put_contents($getServersFile, $c);
+}
+

@@ -12,6 +12,7 @@ $files = [
     "app/Console/Kernel.php",
     "app/Models/Server.php",
     "resources/scripts/api/server/getServer.ts",
+    "resources/scripts/api/getServers.ts",
 ];
 
 foreach ($files as $file) {
