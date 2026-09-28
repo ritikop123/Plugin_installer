@@ -32,14 +32,20 @@ foreach ($scanDirs as $dir) {
             $path = $file->getPathname();
             if (strpos($path, "ServerExpiryBadge.tsx") !== false) continue;
             $c = file_get_contents($path);
-            if (strpos($c, "ServerExpiryBadge") !== false || strpos($c, "ARIX SERVER EXPIRY BADGE") !== false) {
+            if (strpos($c, "ServerExpiryBadge") !== false || strpos($c, "ARIX SERVER EXPIRY BADGE") !== false || strpos($c, "ServerUptime") !== false) {
                 $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
                 $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\}?\s*/s", "", $c);
                 $c = preg_replace("/<ServerExpiryBadge[^>]*\/>\s*/s", "", $c);
                 $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
                 $c = preg_replace("/(\{\s*(?:server|data|srv|item|s)\??\.name\s*\})\s*\{\s*\}/s", "$1", $c);
+
+                $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER UPTIME START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX SERVER UPTIME END\s*<<<\s*\*\/\s*/s", "", $c);
+                $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX SERVER UPTIME START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX SERVER UPTIME END\s*<<<\s*\*\/\}?\s*/s", "", $c);
+                $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
+                $c = preg_replace("/import\s+ServerUptime\s+from\s+[^;]+;\s*/s", "", $c);
+
                 file_put_contents($path, $c);
-                echo "[✓] Reverted ServerExpiryBadge patch in $path\n";
+                echo "[✓] Reverted dashboard card patches in $path\n";
             }
         }
     }

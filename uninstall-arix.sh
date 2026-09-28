@@ -57,6 +57,8 @@ rm -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" 2>/d
 rm -f "app/Console/Commands/AutoSuspendServersCommand.php" 2>/dev/null || true
 rm -f "app/Notifications/ServerSuspensionWarningNotification.php" 2>/dev/null || true
 rm -f "resources/scripts/components/server/ServerExpiryCard.tsx" 2>/dev/null || true
+rm -f "resources/scripts/components/dashboard/ServerExpiryBadge.tsx" 2>/dev/null || true
+rm -f "resources/scripts/components/dashboard/ServerUptime.tsx" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php" 2>/dev/null || true
 
