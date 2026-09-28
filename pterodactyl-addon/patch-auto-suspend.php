@@ -334,10 +334,14 @@ if (file_exists($getServersFile)) {
     /* <<< ARIX AUTO SUSPENSION END <<< */
 MAPPING;
 
-    if (strpos($c, 'isSuspended: data.is_suspended,') !== false) {
-        $c = preg_replace('/(isSuspended:\s*data\.is_suspended,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
-    } elseif (strpos($c, 'status: data.status,') !== false) {
-        $c = preg_replace('/(status:\s*data\.status,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    if (strpos($c, 'isSuspended') !== false && preg_match('/(isSuspended:[^\n]+,\s*)/', $c)) {
+        $c = preg_replace('/(isSuspended:[^\n]+,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    } elseif (strpos($c, 'status:') !== false && preg_match('/(status:[^\n]+,\s*)/', $c)) {
+        $c = preg_replace('/(status:[^\n]+,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    } elseif (strpos($c, 'uuid:') !== false && preg_match('/(uuid:[^\n]+,\s*)/', $c)) {
+        $c = preg_replace('/(uuid:[^\n]+,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    } elseif (strpos($c, 'name:') !== false && preg_match('/(name:[^\n]+,\s*)/', $c)) {
+        $c = preg_replace('/(name:[^\n]+,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
     }
     file_put_contents($getServersFile, $c);
 }

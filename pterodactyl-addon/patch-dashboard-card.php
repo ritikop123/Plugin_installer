@@ -111,11 +111,16 @@ foreach ($scanDirs as $dir) {
             $original = $c;
 
             // 1. Comprehensive Cleanup of any previous badge patches or corrupted tags
-            $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
-            $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\}?\s*/s", "", $c);
+            // Remove JSX commented badge block (with outer braces { ... })
+            $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START[\s\S]*?ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
+            // Remove JS commented block (without outer braces)
+            $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER EXPIRY BADGE START[\s\S]*?ARIX SERVER EXPIRY BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
+            // Remove standalone ServerExpiryBadge tags
             $c = preg_replace("/<ServerExpiryBadge[^>]*\/>\s*/s", "", $c);
+            // Remove empty braces after server.name
+            $c = preg_replace("/(\{\s*(?:server|data|srv|item|s)\??\.name\s*\})[\s\r\n]*\{\s*[\r\n\s]*\}/s", "$1", $c);
+            // Remove import
             $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
-            $c = preg_replace("/(\{\s*(?:server|data|srv|item|s)\??\.name\s*\})\s*\{\s*\}/s", "$1", $c);
 
             $badgePatched = false;
 
@@ -129,20 +134,19 @@ foreach ($scanDirs as $dir) {
             );
 
             if ($isTarget && (strpos($c, ".name") !== false || strpos($c, "{name}") !== false)) {
-                // Match ONLY JSX text expressions where server name is followed by a closing tag
-                // e.g. {server.name}</p> or {server.name}</span> or {server.name}</h1> or {server.name}</CardAnimator>
-                // This prevents injecting into attributes like title={server.name} or key={server.name}
-                $pattern = '/(\{\s*(server|data|srv|item|s)\??\.name\s*\})([\s\r\n]*<\/(?:p|h[1-6]|span|div|a|CardAnimator)>)/';
+                // Match {server.name} NOT preceded by = (so it only matches JSX child text, never attributes like title={server.name})
+                $pattern = '/(?<!=)\s*(\{\s*(server|data|srv|item|s)\??\.name\s*\})/';
 
-                if (preg_match($pattern, $c, $matches)) {
-                    $targetStr = $matches[1];
-                    $varName = $matches[2];
-                    $closingTag = $matches[3];
+                if (preg_match($pattern, $c, $matches, PREG_OFFSET_CAPTURE)) {
+                    $targetStr = $matches[1][0];
+                    $varName = $matches[2][0];
+                    $pos = $matches[1][1];
+                    $len = strlen($targetStr);
 
-                    // Clean inline badge insertion - valid JSX, no newlines or comments inside JSX element
-                    $badgeJsx = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className={\x27ml-2 align-middle inline-flex\x27} />' . $closingTag;
+                    $badge = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className={\x27ml-2 align-middle inline-flex\x27} />';
 
-                    $c = preg_replace($pattern, $badgeJsx, $c, 1);
+                    // Replace only this exact instance
+                    $c = substr_replace($c, $badge, $pos, $len);
 
                     // Add clean import at the top
                     if (strpos($c, "import ServerExpiryBadge") === false) {
