@@ -2,8 +2,8 @@
 
 // patch-dashboard-card.php:
 // 1. Injects ServerExpiryCard into the Server Console/Dashboard directly beneath stat cards.
-// 2. Injects ServerExpiryBadge next to server name on Dashboard Server Cards & Server Console Header.
-// 3. Injects ServerUptime next to Disk stat on Dashboard Server Cards & Server Console Header.
+// 2. Injects ServerExpiryBadge next to server name on Dashboard Cards (marked area) & Server Console Header.
+// 3. Injects ServerUptime next to Disk stat ONLY on Server Console Header (NEVER on outer dashboard cards).
 
 // -------------------------------------------------------------
 // PART 1: Injects ServerExpiryCard into Server Console Container
@@ -122,7 +122,7 @@ function isServerCardOrBannerFile($filePath, $content) {
 }
 
 // --------------------------------------------------------------------------------------
-// PART 2: Injects ServerExpiryBadge next to server name on Dashboard Cards & Server Header
+// PART 2: Injects ServerExpiryBadge next to server name on Dashboard Cards (marked area) & Server Header
 // --------------------------------------------------------------------------------------
 $scanDirs = [
     "resources/scripts/components/dashboard",
@@ -160,7 +160,7 @@ foreach ($scanDirs as $dir) {
             $c = str_replace('\x27', "'", $c);
             $c = preg_replace("/import\s+ServerExpiryBadge\s+from\s+[^;]+;\s*/s", "", $c);
 
-            // Cleanup any previous ServerUptime patches
+            // Cleanup any previous ServerUptime patches across all files
             $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX SERVER UPTIME START[\s\S]*?ARIX SERVER UPTIME END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
             $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER UPTIME START[\s\S]*?ARIX SERVER UPTIME END\s*<<<\s*\*\/\s*/s", "", $c);
             $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
@@ -174,7 +174,7 @@ foreach ($scanDirs as $dir) {
     }
 }
 
-// STEP 2B: Inject ServerExpiryBadge into card and banner components
+// STEP 2B: Inject ServerExpiryBadge into card and banner components (in the marked area next to server name)
 $checkedCardFiles = [];
 
 foreach ($scanDirs as $dir) {
@@ -201,8 +201,9 @@ foreach ($scanDirs as $dir) {
                     $pos = $matches[1][1];
                     $len = strlen($targetStr);
 
-                    // Standard double quotes for className - 100% valid JSX without any hex escape issues
-                    $badge = $targetStr . ' <ServerExpiryBadge expireAt={(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt} className="ml-2 align-middle inline-flex" />';
+                    // Robust prop lookup checking flat property, camelCase, and attributes object
+                    $expireAtProp = '(' . $varName . ' as any)?.expire_at || (' . $varName . ' as any)?.expireAt || (' . $varName . ' as any)?.attributes?.expire_at || (' . $varName . ' as any)?.attributes?.expireAt';
+                    $badge = $targetStr . ' <ServerExpiryBadge expireAt={' . $expireAtProp . '} className="ml-2 align-middle inline-flex" />';
 
                     // Replace only this exact instance
                     $c = substr_replace($c, $badge, $pos, $len);
@@ -222,11 +223,16 @@ foreach ($scanDirs as $dir) {
 }
 
 // --------------------------------------------------------------------------------------
-// PART 3: Injects ServerUptime next to Disk stat on Dashboard Cards & Server Header
+// PART 3: Injects ServerUptime next to Disk stat ONLY on Server Console Header
+// (EXCLUDES outer dashboard cards per user request)
 // --------------------------------------------------------------------------------------
 $checkedUptimeFiles = [];
+$serverHeaderDirs = [
+    "resources/scripts/components/server",
+    "resources/scripts/components/arix",
+];
 
-foreach ($scanDirs as $dir) {
+foreach ($serverHeaderDirs as $dir) {
     if (!is_dir($dir)) continue;
 
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
@@ -235,6 +241,11 @@ foreach ($scanDirs as $dir) {
             $filePath = realpath($file->getPathname()) ?: $file->getPathname();
             if (isset($checkedUptimeFiles[$filePath])) continue;
             $checkedUptimeFiles[$filePath] = true;
+
+            // NEVER inject uptime into outer dashboard cards!
+            if (strpos($filePath, "components/dashboard") !== false) continue;
+            if (strpos($filePath, "StatGraphs") !== false) continue;
+            if (strpos($filePath, "StatBlock") !== false) continue;
 
             $c = file_get_contents($filePath);
 
@@ -299,7 +310,7 @@ foreach ($scanDirs as $dir) {
                 }
 
                 file_put_contents($filePath, $c);
-                echo "[✓] Injected ServerUptime next to disk stat in: $filePath\n";
+                echo "[✓] Injected ServerUptime next to disk stat in server console header: $filePath\n";
             }
         }
     }

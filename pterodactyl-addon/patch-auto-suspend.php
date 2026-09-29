@@ -222,7 +222,7 @@ if (file_exists($transformerFile)) {
     $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO SUSPENSION CHECK START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO SUSPENSION CHECK END\s*<<<\s*\*\/\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-            'expire_at' => !empty($server->expire_at) ? (is_string($server->expire_at) ? $server->expire_at : $server->expire_at->toIso8601String()) : null,
+            'expire_at' => !empty($server->expire_at) ? (\Carbon\Carbon::parse($server->expire_at)->toIso8601String()) : null,
             'plan_name' => $server->plan_name ?? null,
             'plan_price' => $server->plan_price ?? null,
             /* <<< ARIX AUTO SUSPENSION END <<< */
@@ -328,9 +328,9 @@ if (file_exists($getServersFile)) {
 
     $mappingPatch = <<<'MAPPING'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-    expire_at: (data as any).expire_at || null,
-    plan_name: (data as any).plan_name || null,
-    plan_price: (data as any).plan_price || null,
+    expire_at: (data as any)?.expire_at || (data as any)?.attributes?.expire_at || null,
+    plan_name: (data as any)?.plan_name || (data as any)?.attributes?.plan_name || null,
+    plan_price: (data as any)?.plan_price || (data as any)?.attributes?.plan_price || null,
     /* <<< ARIX AUTO SUSPENSION END <<< */
 MAPPING;
 

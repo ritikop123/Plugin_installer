@@ -813,11 +813,24 @@ fi
 # Ensure web server has read/execute permissions to all built assets
 chmod -R 755 public
 
-# 14. Clear Laravel Caches
-echo -e "${CYAN}[*] Clearing Laravel route, view, and config caches...${NC}"
-php artisan route:clear
-php artisan view:clear
-php artisan config:clear
+# 14. Comprehensive Cache Clearing & Cache Busting
+echo -e "${CYAN}[*] Clearing all application and view caches...${NC}"
+php artisan optimize:clear 2>/dev/null || true
+php artisan view:clear 2>/dev/null || true
+php artisan config:clear 2>/dev/null || true
+php artisan route:clear 2>/dev/null || true
+php artisan cache:clear 2>/dev/null || true
+
+# Flush PHP OPcache so PHP-FPM immediately serves updated ServerTransformer.php
+echo -e "${CYAN}[*] Flushing PHP OPcache & reloading web servers...${NC}"
+systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || systemctl reload php8.1-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
+systemctl reload nginx 2>/dev/null || systemctl reload apache2 2>/dev/null || true
+
+# Touch wrapper.blade.php to bust Blade view compiler cache
+WRAPPER_FILE="resources/views/templates/wrapper.blade.php"
+if [ -f "$WRAPPER_FILE" ]; then
+  touch "$WRAPPER_FILE" 2>/dev/null || true
+fi
 
 chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
 

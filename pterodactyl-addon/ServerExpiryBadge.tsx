@@ -12,14 +12,15 @@ const ServerExpiryBadge: React.FC<Props> = ({ expireAt, className = '' }) => {
 
     const badge = useMemo(() => {
         try {
-            const expiryTime = new Date(expireAt).getTime();
+            const normalizedDate = typeof expireAt === 'string' ? expireAt.replace(' ', 'T') : expireAt;
+            const expiryTime = new Date(normalizedDate).getTime();
             if (isNaN(expiryTime)) return null;
 
             const now = Date.now();
             const diffMs = expiryTime - now;
             const diffHours = diffMs / (1000 * 60 * 60);
 
-            const formattedDate = new Date(expireAt).toLocaleDateString(undefined, {
+            const formattedDate = new Date(normalizedDate).toLocaleDateString(undefined, {
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
