@@ -14,7 +14,7 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
     const rawStatus = propStatus !== undefined ? propStatus : (stats?.status ?? stats?.state);
 
     const formatted = useMemo(() => {
-        const isRunning = rawStatus === 'running';
+        const isRunning = rawStatus === 'running' || (!rawStatus && typeof rawUptime === 'number' && rawUptime > 0);
 
         if (!isRunning || !rawUptime || typeof rawUptime !== 'number' || rawUptime <= 0) {
             if (rawStatus === 'starting') {

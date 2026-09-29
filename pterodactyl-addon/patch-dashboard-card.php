@@ -2,8 +2,8 @@
 
 // patch-dashboard-card.php:
 // 1. Injects ServerExpiryCard into the Server Console/Dashboard directly beneath stat cards.
-// 2. Injects ServerExpiryBadge next to server name on the main Dashboard Server Cards/Rows.
-// 3. Injects ServerUptime next to Disk stat on the Dashboard Server Card / Row.
+// 2. Injects ServerExpiryBadge next to server name on Dashboard Server Cards & Server Console Header.
+// 3. Injects ServerUptime next to Disk stat on Dashboard Server Cards & Server Console Header.
 
 // -------------------------------------------------------------
 // PART 1: Injects ServerExpiryCard into Server Console Container
@@ -85,16 +85,55 @@ CONSOLE_JSX;
 }
 
 // --------------------------------------------------------------------------------------
-// PART 2: Injects ServerExpiryBadge next to server name on Dashboard Server Card / Row
+// HELPER: Detect if a file is an outer or inner server card / banner
+// --------------------------------------------------------------------------------------
+function isServerCardOrBannerFile($filePath, $content) {
+    if (strpos($filePath, "ServerExpiryBadge.tsx") !== false) return false;
+    if (strpos($filePath, "ServerExpiryCard.tsx") !== false) return false;
+    if (strpos($filePath, "ServerUptime.tsx") !== false) return false;
+    if (strpos($filePath, "StatGraphs") !== false) return false;
+    if (strpos($filePath, "StatBlock") !== false) return false;
+    if (strpos($filePath, "Search") !== false) return false;
+    if (strpos($filePath, "search") !== false) return false;
+    if (strpos($filePath, "Modal") !== false) return false;
+
+    // Check by filename
+    $byName = (
+        strpos($filePath, "ServerCard") !== false ||
+        strpos($filePath, "CardBanner") !== false ||
+        strpos($filePath, "ServerRow") !== false ||
+        strpos($filePath, "LinearCard") !== false ||
+        strpos($filePath, "NormalCard") !== false ||
+        strpos($filePath, "ServerDetailsBlock") !== false ||
+        strpos($filePath, "ServerDetails") !== false ||
+        strpos($filePath, "ServerBanner") !== false ||
+        strpos($filePath, "ServerHeader") !== false ||
+        strpos($filePath, "DetailsBlock") !== false
+    );
+
+    if ($byName) return true;
+
+    // Check by content: contains disk usage AND server info
+    $hasDisk = preg_match('/(?:limits\??\.disk|stats\??\.disk|disk_bytes|diskLimit)/', $content);
+    if (!$hasDisk) return false;
+
+    $isCard = preg_match('/(?:allocations|server\.name|srv\.name|data\.name|PowerButtons|start)/i', $content);
+    return (bool) $isCard;
+}
+
+// --------------------------------------------------------------------------------------
+// PART 2: Injects ServerExpiryBadge next to server name on Dashboard Cards & Server Header
 // --------------------------------------------------------------------------------------
 $scanDirs = [
     "resources/scripts/components/dashboard",
+    "resources/scripts/components/server",
     "resources/scripts/components/arix",
+    "resources/scripts/routers",
 ];
 
 $checkedFiles = [];
 
-// STEP 2A: Clean up ALL files in dashboard & arix folders first
+// STEP 2A: Clean up ALL files in target folders first
 foreach ($scanDirs as $dir) {
     if (!is_dir($dir)) continue;
 
@@ -135,7 +174,7 @@ foreach ($scanDirs as $dir) {
     }
 }
 
-// STEP 2B: Inject ServerExpiryBadge ONLY into actual server card/row components
+// STEP 2B: Inject ServerExpiryBadge into card and banner components
 $checkedCardFiles = [];
 
 foreach ($scanDirs as $dir) {
@@ -148,22 +187,9 @@ foreach ($scanDirs as $dir) {
             if (isset($checkedCardFiles[$filePath])) continue;
             $checkedCardFiles[$filePath] = true;
 
-            // Target ONLY card layout components, NEVER search/modals/containers
-            $isCardFile = (
-                (strpos($filePath, "ServerCard") !== false ||
-                 strpos($filePath, "CardBanner") !== false ||
-                 strpos($filePath, "ServerRow") !== false ||
-                 strpos($filePath, "LinearCard") !== false ||
-                 strpos($filePath, "NormalCard") !== false) &&
-                strpos($filePath, "Search") === false &&
-                strpos($filePath, "search") === false &&
-                strpos($filePath, "Modal") === false &&
-                strpos($filePath, "Container") === false
-            );
-
-            if (!$isCardFile) continue;
-
             $c = file_get_contents($filePath);
+
+            if (!isServerCardOrBannerFile($filePath, $c)) continue;
 
             if (strpos($c, ".name") !== false || strpos($c, "{name}") !== false) {
                 // Match {server.name} NOT preceded by = (JSX child text only, never attributes)
@@ -196,7 +222,7 @@ foreach ($scanDirs as $dir) {
 }
 
 // --------------------------------------------------------------------------------------
-// PART 3: Injects ServerUptime next to Disk stat on Dashboard Server Card / Row
+// PART 3: Injects ServerUptime next to Disk stat on Dashboard Cards & Server Header
 // --------------------------------------------------------------------------------------
 $checkedUptimeFiles = [];
 
@@ -210,21 +236,9 @@ foreach ($scanDirs as $dir) {
             if (isset($checkedUptimeFiles[$filePath])) continue;
             $checkedUptimeFiles[$filePath] = true;
 
-            $isCardFile = (
-                (strpos($filePath, "ServerCard") !== false ||
-                 strpos($filePath, "CardBanner") !== false ||
-                 strpos($filePath, "ServerRow") !== false ||
-                 strpos($filePath, "LinearCard") !== false ||
-                 strpos($filePath, "NormalCard") !== false) &&
-                strpos($filePath, "Search") === false &&
-                strpos($filePath, "search") === false &&
-                strpos($filePath, "Modal") === false &&
-                strpos($filePath, "Container") === false
-            );
-
-            if (!$isCardFile) continue;
-
             $c = file_get_contents($filePath);
+
+            if (!isServerCardOrBannerFile($filePath, $c)) continue;
 
             // Locate disk usage patterns
             $pattern = '/(?:limits\??\.disk|stats\??\.disk|disk_bytes|diskLimit)/';
@@ -244,7 +258,12 @@ foreach ($scanDirs as $dir) {
 
             // Determine stats variable name
             $statsVar = 'stats';
-            if (strpos($c, 'stats?.') === false && strpos($c, 'stats.') === false && strpos($c, 'serverStats') !== false) {
+            if (preg_match('/([a-zA-Z0-9_$]+)\??\.disk/', $c, $statVarMatch)) {
+                $candidate = $statVarMatch[1];
+                if ($candidate !== 'limits' && $candidate !== 'server' && $candidate !== 'srv') {
+                    $statsVar = $candidate;
+                }
+            } elseif (strpos($c, 'stats?.') === false && strpos($c, 'stats.') === false && strpos($c, 'serverStats') !== false) {
                 $statsVar = 'serverStats';
             }
 

@@ -21,7 +21,9 @@ if (is_dir($baseDir)) {
 // Revert Part 2: ServerExpiryBadge in dashboard/arix cards
 $scanDirs = [
     "resources/scripts/components/dashboard",
+    "resources/scripts/components/server",
     "resources/scripts/components/arix",
+    "resources/scripts/routers",
 ];
 
 foreach ($scanDirs as $dir) {
