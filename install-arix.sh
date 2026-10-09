@@ -650,6 +650,9 @@ fi
 # 12. Install Auto Suspension, Expiration & Plan Details System
 echo -e "${CYAN}[*] Setting up Server Auto-Suspension, Expiration & Plan Details system...${NC}"
 
+# Write migration for persistent, searchable server support IDs.
+fetch_addon_file "migrations/2026_10_09_000002_add_support_id_to_servers_table.php" "database/migrations/2026_10_09_000002_add_support_id_to_servers_table.php"
+
 # Write migration 1: auto suspension & plan details
 cat << 'MIGRATE_0_EOF' > "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php"
 <?php
@@ -770,14 +773,23 @@ fetch_addon_file "ServerExpiryBadge.tsx" "resources/scripts/components/dashboard
 fetch_addon_file "ServerExpiryBadge.tsx" "resources/scripts/components/server/ServerExpiryBadge.tsx"
 fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/dashboard/ServerUptime.tsx"
 fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/server/ServerUptime.tsx"
+fetch_addon_file "ServerSupportId.tsx" "resources/scripts/components/server/ServerSupportId.tsx"
 
 # Ensure OptionsController.php is downloaded (powers /subscription endpoint)
 mkdir -p "app/Http/Controllers/Api/Client/Servers"
 fetch_addon_file "OptionsController.php" "app/Http/Controllers/Api/Client/Servers/OptionsController.php"
 
 # Run database migration
-echo -e "${CYAN}[*] Running database migration for auto-suspension and plan details...${NC}"
+echo -e "${CYAN}[*] Running database migrations for auto-suspension, plan details, and server support IDs...${NC}"
 php artisan migrate --force
+
+# Apply support ID generation, API mapping, and Admin search/display patches.
+echo -e "${CYAN}[*] Applying persistent server support ID patches...${NC}"
+rm -f "/tmp/ptero_patch_support_id.php"
+fetch_addon_file "patch-support-id.php" "/tmp/ptero_patch_support_id.php"
+
+php /tmp/ptero_patch_support_id.php
+rm -f /tmp/ptero_patch_support_id.php
 
 # Apply patches for Admin views & controllers
 echo -e "${CYAN}[*] Applying auto-suspension & plan detail patches to Admin panel...${NC}"

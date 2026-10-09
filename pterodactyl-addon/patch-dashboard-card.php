@@ -3,7 +3,7 @@
 // patch-dashboard-card.php:
 // 1. Injects ServerExpiryCard into the Server Console/Dashboard directly beneath stat cards.
 // 2. Injects ServerExpiryBadge next to server name on Dashboard Cards (marked area) & Server Console Header.
-// 3. Injects ServerUptime next to Disk stat ONLY on Server Console Header (NEVER on outer dashboard cards).
+// 3. Injects ServerUptime and ServerSupportId next to Disk stat on the Server Console Header.
 
 // -------------------------------------------------------------
 // PART 1: Injects ServerExpiryCard into Server Console Container
@@ -165,6 +165,8 @@ foreach ($scanDirs as $dir) {
             $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER UPTIME START[\s\S]*?ARIX SERVER UPTIME END\s*<<<\s*\*\/\s*/s", "", $c);
             $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
             $c = preg_replace("/import\s+ServerUptime\s+from\s+[^;]+;\s*/s", "", $c);
+            $c = preg_replace("/<ServerSupportId[^>]*\/>\s*/s", "", $c);
+            $c = preg_replace("/import\s+ServerSupportId\s+from\s+[^;]+;\s*/s", "", $c);
 
             if ($c !== $original) {
                 file_put_contents($filePath, $c);
@@ -295,7 +297,7 @@ foreach ($serverHeaderDirs as $dir) {
                     $hasGap = preg_match('/(?:gap-|space-x-)/', $beforeDisk);
                     $classNameProp = $hasGap ? '' : ' className="ml-4"';
 
-                    $uptimeJsx = ' <ServerUptime stats={' . $statsVar . '}' . $classNameProp . ' />';
+                    $uptimeJsx = ' <ServerUptime stats={' . $statsVar . '}' . $classNameProp . ' /> <ServerSupportId' . $classNameProp . ' />';
 
                     $c = substr($c, 0, $insertOffset) . $uptimeJsx . substr($c, $insertOffset);
                     $modified = true;
@@ -306,6 +308,10 @@ foreach ($serverHeaderDirs as $dir) {
                 // Add clean import at the top
                 if (strpos($c, "import ServerUptime") === false) {
                     $import = "import ServerUptime from '@/components/dashboard/ServerUptime';\n";
+                    $c = $import . $c;
+                }
+                if (strpos($c, "import ServerSupportId") === false) {
+                    $import = "import ServerSupportId from '@/components/server/ServerSupportId';\n";
                     $c = $import . $c;
                 }
 

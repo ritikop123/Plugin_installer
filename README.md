@@ -8,8 +8,11 @@ A native, secure suite of Minecraft server management addons built specifically 
 - ⚙️ **Software Installer**: Switch Minecraft server software (Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Folia, etc.) with build selection and optional server file wipe.
 - 🎛️ **Server Options & Properties**: Visual `server.properties` manager with authentic Minecraft multiplayer server banner, unchangeable server address badge with copy button, live MOTD color code editor & in-game preview, instant auto-save on every change, default Sagarmatha Hosting logo auto-seeding, 1-click .zip resource pack uploader, and expiration notice banners.
 - ⏱️ **Admin Auto-Suspension & 3-Day Notice System**: Native expiration date scheduling on server creation and details, background auto-suspension via `ptero:auto-suspend`, and courteous 3-day notice emails sent to server owners.
+- 🆔 **Server Support IDs**: Every server receives a persistent unique support ID shown in its console header and searchable in **Admin → Servers**.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
+
+Support IDs use the format `SUP-` followed by the server UUID without hyphens. Admins can search the full support ID in the Admin → Servers search box to locate the server.
 
 ---
 
