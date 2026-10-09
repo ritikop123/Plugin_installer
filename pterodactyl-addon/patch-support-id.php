@@ -50,9 +50,6 @@ if (preg_match('/(protected static function booted\(\)\s*(?::\s*void)?\s*\{)/', 
 } else {
     fwrite(STDERR, "[!] Could not locate the Server model boot method or class declaration.\n");
     exit(1);
-} else {
-    fwrite(STDERR, "[!] Could not locate the Server model class declaration.\n");
-    exit(1);
 }
 
 if (file_put_contents($serverModelFile, $content) === false) {
