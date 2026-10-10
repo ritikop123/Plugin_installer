@@ -56,10 +56,20 @@ class OptionsController extends ClientApiController
         }
 
         // Auto-suspend expired server immediately if past expiration date
-        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== Server::STATUS_SUSPENDED) {
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast()) {
+            if ($server->status !== Server::STATUS_SUSPENDED) {
+                try {
+                    app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
+                } catch (Throwable $e) {}
+            }
+
+            // Force-verify: guarantee DB status is suspended regardless of toggle outcome
             try {
-                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
                 $server->refresh();
+                if ($server->status !== Server::STATUS_SUSPENDED) {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                }
             } catch (Throwable $e) {
                 try {
                     $server->status = Server::STATUS_SUSPENDED;
@@ -180,6 +190,7 @@ class OptionsController extends ClientApiController
                     'is_suspended' => $server->isSuspended(),
                     'plan_name' => $server->plan_name ?? null,
                     'plan_price' => $server->plan_price ?? null,
+                    'can_edit' => (bool) ($request->user() && $request->user()->root_admin),
                 ]);
         } catch (Throwable $e) {
             Log::error('[OptionsController] index error: ' . $e->getMessage());
@@ -200,6 +211,7 @@ class OptionsController extends ClientApiController
                 'is_suspended' => $server->isSuspended(),
                 'plan_name' => null,
                 'plan_price' => null,
+                'can_edit' => (bool) ($request->user() && $request->user()->root_admin),
                 'error' => $e->getMessage(),
             ]);
         }
@@ -212,10 +224,20 @@ class OptionsController extends ClientApiController
     public function subscription(Request $request, Server $server): JsonResponse
     {
         // Auto-suspend expired server immediately if past expiration date
-        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== Server::STATUS_SUSPENDED) {
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast()) {
+            if ($server->status !== Server::STATUS_SUSPENDED) {
+                try {
+                    app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
+                } catch (Throwable $e) {}
+            }
+
+            // Force-verify: guarantee DB status is suspended regardless of toggle outcome
             try {
-                app(\Pterodactyl\Services\Servers\SuspensionService::class)->toggle($server, \Pterodactyl\Services\Servers\SuspensionService::ACTION_SUSPEND);
                 $server->refresh();
+                if ($server->status !== Server::STATUS_SUSPENDED) {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                }
             } catch (Throwable $e) {
                 try {
                     $server->status = Server::STATUS_SUSPENDED;
@@ -285,6 +307,7 @@ class OptionsController extends ClientApiController
         }
 
         $server->save();
+        $server->refresh();
 
         return $this->subscription($request, $server);
     }

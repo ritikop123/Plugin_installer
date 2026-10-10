@@ -93,6 +93,9 @@ export default function ModInstallerContainer() {
   // Tabs: 'browse' | 'installed'
   const [activeTab, setActiveTab] = useState<'browse' | 'installed'>('browse');
 
+  // Provider State: 'modrinth' | 'curseforge'
+  const [selectedProvider, setSelectedProvider] = useState<'modrinth' | 'curseforge'>('modrinth');
+
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState<string>('');
@@ -265,6 +268,7 @@ export default function ModInstallerContainer() {
     try {
       const res = await http.get(`/api/client/servers/${uuid}/mods`, {
         params: {
+          provider: selectedProvider,
           query: debouncedQuery,
           loader: selectedLoader,
           game_version: selectedVersion,
@@ -286,13 +290,13 @@ export default function ModInstallerContainer() {
         setTotalHits(0);
       }
     } catch (err: unknown) {
-      setCatalogError(httpErrorToHuman(err) || 'Failed to load mods from Modrinth.');
+      setCatalogError(httpErrorToHuman(err) || `Failed to load mods from ${selectedProvider === 'curseforge' ? 'CurseForge' : 'Modrinth'}.`);
       setMods([]);
       setTotalHits(0);
     } finally {
       setLoadingMods(false);
     }
-  }, [uuid, debouncedQuery, selectedLoader, selectedVersion, selectedSort, page]);
+  }, [uuid, selectedProvider, debouncedQuery, selectedLoader, selectedVersion, selectedSort, page]);
 
   useEffect(() => {
     if (activeTab === 'browse') {
@@ -315,10 +319,11 @@ export default function ModInstallerContainer() {
     setModalType('all');
 
     const modId = mod.project_id || mod.id || mod.slug;
+    const provider = (mod as any).provider || selectedProvider;
 
     try {
       const res = await http.get<ModVersion[]>(`/api/client/servers/${uuid}/mods/versions`, {
-        params: { mod: modId },
+        params: { mod: modId, provider },
       });
 
       if (Array.isArray(res.data)) {
@@ -427,7 +432,7 @@ export default function ModInstallerContainer() {
               Minecraft Mods Installer
             </h1>
             <p className={'text-sm text-neutral-400 mt-1'}>
-              Discover and install Forge, Fabric, NeoForge, and Quilt mods from Modrinth directly into your server.
+              Discover and install Forge, Fabric, NeoForge, and Quilt mods from Modrinth and CurseForge directly into your server.
             </p>
           </div>
 
@@ -564,6 +569,61 @@ export default function ModInstallerContainer() {
               </div>
             </div>
 
+            {/* Provider Source Selector Bar (Modrinth, CurseForge) */}
+            <div className={'flex flex-wrap items-center gap-2.5 mb-6 p-2.5 bg-neutral-800/40 border border-neutral-700/50 rounded-xl'}>
+              <span className={'text-xs font-semibold uppercase tracking-wider text-neutral-400 px-2'}>
+                Source:
+              </span>
+
+              {/* Modrinth */}
+              <button
+                type={'button'}
+                onClick={() => {
+                  if (selectedProvider !== 'modrinth') {
+                    setSelectedProvider('modrinth');
+                    setPage(1);
+                  }
+                }}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer border ${
+                  selectedProvider === 'modrinth'
+                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/70 shadow-md shadow-emerald-500/10'
+                    : 'bg-neutral-900/80 text-neutral-400 border-neutral-700/70 hover:text-neutral-200 hover:border-neutral-600'
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-emerald-400 shrink-0" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12.252 0c-4.48 0-8.318 2.502-10.252 6.188L6.47 8.78A7.777 7.777 0 0 1 12.25 4.44c4.27 0 7.75 3.48 7.75 7.75 0 2.22-.94 4.23-2.45 5.65l4.47 2.59A12.18 12.18 0 0 0 24.5 12.19C24.5 5.46 19.02 0 12.25 0zM0 12.19a12.18 12.18 0 0 0 2.47 7.37l4.47-2.58A7.777 7.777 0 0 1 4.49 12.19c0-1.77.59-3.41 1.6-4.73L1.62 4.87A12.18 12.18 0 0 0 0 12.19zm12.25 4.44c-2.42 0-4.39-1.97-4.39-4.39 0-.41.06-.8.17-1.17l-4.47-2.58c-.68 1.15-1.07 2.48-1.07 3.75 0 5.27 4.28 9.55 9.55 9.55 2.16 0 4.16-.72 5.76-1.93l-4.47-2.58a4.35 4.35 0 0 1-1.08.35z"/>
+                </svg>
+                <span>Modrinth</span>
+                {selectedProvider === 'modrinth' && (
+                  <span className={'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5'} />
+                )}
+              </button>
+
+              {/* CurseForge */}
+              <button
+                type={'button'}
+                onClick={() => {
+                  if (selectedProvider !== 'curseforge') {
+                    setSelectedProvider('curseforge');
+                    setPage(1);
+                  }
+                }}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer border ${
+                  selectedProvider === 'curseforge'
+                    ? 'bg-orange-950/70 text-orange-300 border-orange-500/70 shadow-md shadow-orange-500/10'
+                    : 'bg-neutral-900/80 text-neutral-400 border-neutral-700/70 hover:text-neutral-200 hover:border-neutral-600'
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-orange-500 shrink-0" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M18.87 9.87c-.3-1.63-1.15-3.08-2.39-4.14-.14-.12-.35-.04-.37.15-.22 2.08-.88 3.53-2.14 4.81-1.46 1.49-3.23 2.19-3.23 4.88 0 1.95 1.58 3.53 3.53 3.53 2.76 0 4.87-2.38 4.87-5.18 0-1.49-.44-2.83-1.27-4.05zm-5.84-8.8C10.74 3.03 9.4 5.92 9.4 8.78c0 1.25.32 2.43.88 3.47.08.15 0 .34-.16.37-1.1.25-2.07.87-2.83 1.73-1.07 1.21-1.67 2.78-1.67 4.47 0 3.86 3.14 7 7 7 4.14 0 7.5-3.36 7.5-7.5 0-3.6-2.22-6.68-5.38-7.97-.17-.07-.24-.26-.16-.42.92-1.8 1.15-3.79.62-5.78-.05-.18-.26-.26-.38-.13-1.06 1.15-2.09 2.5-2.82 4.02-.08.16-.3.18-.4.04-.64-.9-1.08-1.95-1.29-3.07-.03-.17-.23-.25-.37-.14z"/>
+                </svg>
+                <span>CurseForge</span>
+                {selectedProvider === 'curseforge' && (
+                  <span className={'w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse ml-0.5'} />
+                )}
+              </button>
+            </div>
+
             {/* Error Message */}
             {catalogError && (
               <div className={'p-4 bg-red-900/40 border border-red-500/40 rounded-xl text-red-200 text-sm mb-6 flex items-center justify-between'}>
@@ -584,7 +644,7 @@ export default function ModInstallerContainer() {
             {loadingMods ? (
               <div className={'flex flex-col items-center justify-center py-24 text-neutral-400 gap-3'}>
                 <FontAwesomeIcon icon={faSpinner} spin className={'text-3xl text-cyan-400'} />
-                <span className={'text-sm font-medium'}>Searching verified mods on Modrinth...</span>
+                <span className={'text-sm font-medium'}>Searching verified mods on {selectedProvider === 'curseforge' ? 'CurseForge' : 'Modrinth'}...</span>
               </div>
             ) : mods.length === 0 ? (
               <div className={'text-center py-20 bg-neutral-800/40 border border-neutral-700/40 rounded-xl text-neutral-400'}>

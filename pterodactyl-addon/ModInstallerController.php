@@ -3,6 +3,7 @@
 namespace Pterodactyl\Http\Controllers\Api\Client\Servers;
 
 use Exception;
+use Throwable;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 class ModInstallerController extends ClientApiController
 {
     private const MODRINTH_API = 'https://api.modrinth.com/v2/';
+    private const CURSE_API = 'https://api.curse.tools/v1/cf/';
     private const USER_AGENT = 'Arix-Mod-Installer/1.0.0 (https://github.com/ritikop123/Plugin_installer)';
 
     protected Client $httpClient;
@@ -26,7 +28,6 @@ class ModInstallerController extends ClientApiController
         parent::__construct();
         $this->fileRepository = $fileRepository;
         $this->httpClient = new Client([
-            'base_uri' => self::MODRINTH_API,
             'headers' => [
                 'User-Agent' => self::USER_AGENT,
                 'Accept' => 'application/json',
@@ -37,7 +38,7 @@ class ModInstallerController extends ClientApiController
     }
 
     /**
-     * Search mods from public Modrinth API.
+     * Search mods from Modrinth or CurseForge.
      * GET /api/client/servers/{server}/mods
      */
     public function index(Request $request, Server $server): JsonResponse
@@ -46,20 +47,27 @@ class ModInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        $query = $request->query('query', '');
-        $loader = $request->query('loader', 'all');
-        $gameVersion = $request->query('game_version', 'all');
-        $sortBy = $request->query('sort_by', 'downloads');
+        $provider = strtolower(trim((string) $request->query('provider', 'modrinth')));
+        $query = trim((string) $request->query('query', ''));
+        $loader = strtolower(trim((string) $request->query('loader', 'all')));
+        $gameVersion = trim((string) $request->query('game_version', 'all'));
+        $sortBy = trim((string) $request->query('sort_by', 'downloads'));
         $page = max(1, (int) $request->query('page', 1));
         $limit = 21;
+
+        if ($provider === 'curseforge' || $provider === 'curse') {
+            return $this->searchCurseForgeMods($query, $loader, $gameVersion, $page, $limit);
+        }
+
+        return $this->searchModrinthMods($query, $loader, $gameVersion, $sortBy, $page, $limit);
+    }
+
+    protected function searchModrinthMods(string $query, string $loader, string $gameVersion, string $sortBy, int $page, int $limit): JsonResponse
+    {
         $offset = ($page - 1) * $limit;
-
         $facets = [];
-
-        // 1. Must be a mod
         $facets[] = ['project_type:mod'];
 
-        // 2. Filter mod loaders (Fabric, Forge, NeoForge, Quilt)
         if ($loader !== 'all' && !empty($loader)) {
             $facets[] = ["categories:{$loader}"];
         } else {
@@ -71,13 +79,12 @@ class ModInstallerController extends ClientApiController
             ];
         }
 
-        // 3. Filter Minecraft game version
         if ($gameVersion !== 'all' && !empty($gameVersion)) {
             $facets[] = ["versions:{$gameVersion}"];
         }
 
         $params = [
-            'query' => trim($query),
+            'query' => $query,
             'limit' => $limit,
             'offset' => $offset,
             'index' => in_array($sortBy, ['downloads', 'relevance', 'updated', 'newest']) ? $sortBy : 'downloads',
@@ -88,31 +95,84 @@ class ModInstallerController extends ClientApiController
         }
 
         try {
-            $response = $this->httpClient->get('search', [
-                'query' => $params,
+            $response = $this->httpClient->get(self::MODRINTH_API . 'search', ['query' => $params]);
+            $data = json_decode($response->getBody()->getContents(), true);
+            $hits = $data['hits'] ?? [];
+            foreach ($hits as &$h) {
+                $h['provider'] = 'modrinth';
+            }
+            return response()->json([
+                'hits' => $hits,
+                'total_hits' => $data['total_hits'] ?? count($hits),
+                'provider' => 'modrinth',
             ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Modrinth API error: ' . $e->getMessage()], 502);
+        }
+    }
 
-            $statusCode = $response->getStatusCode();
-            if ($statusCode >= 400) {
-                return response()->json([
-                    'error' => 'Modrinth API error',
-                    'status' => $statusCode,
-                ], 502);
+    protected function searchCurseForgeMods(string $query, string $loader, string $gameVersion, int $page, int $limit): JsonResponse
+    {
+        try {
+            $offset = ($page - 1) * $limit;
+            $params = [
+                'gameId' => 432,
+                'classId' => 6, // Minecraft Mods
+                'index' => $offset,
+                'pageSize' => $limit,
+                'sortField' => 2, // Popularity
+                'sortOrder' => 'desc',
+            ];
+
+            if (!empty($query)) {
+                $params['searchFilter'] = $query;
+            }
+            if (!empty($gameVersion) && $gameVersion !== 'all') {
+                $params['gameVersion'] = $gameVersion;
+            }
+            if (!empty($loader) && $loader !== 'all') {
+                $loaderMap = ['forge' => 1, 'cauldron' => 2, 'liteloader' => 3, 'fabric' => 4, 'quilt' => 5, 'neoforge' => 6];
+                if (isset($loaderMap[$loader])) {
+                    $params['modLoaderType'] = $loaderMap[$loader];
+                }
             }
 
-            $data = json_decode($response->getBody()->getContents(), true);
-            return response()->json($data ?: ['hits' => [], 'total_hits' => 0]);
-        } catch (GuzzleException $e) {
+            $response = $this->httpClient->get(self::CURSE_API . 'mods/search', ['query' => $params]);
+            $raw = json_decode($response->getBody()->getContents(), true);
+            $items = $raw['data'] ?? [];
+            $total = $raw['pagination']['totalCount'] ?? count($items);
+            $hits = [];
+
+            foreach ($items as $item) {
+                $hits[] = [
+                    'project_id' => (string) $item['id'],
+                    'id' => (string) $item['id'],
+                    'slug' => $item['slug'] ?? (string) $item['id'],
+                    'title' => $item['name'] ?? 'Minecraft Mod',
+                    'author' => !empty($item['authors'][0]['name']) ? $item['authors'][0]['name'] : 'CurseForge',
+                    'description' => $item['summary'] ?? '',
+                    'categories' => array_values(array_filter(array_map(fn($c) => strtolower($c['name'] ?? ''), $item['categories'] ?? []))),
+                    'versions' => [],
+                    'downloads' => (int) ($item['downloadCount'] ?? 0),
+                    'follows' => (int) ($item['thumbsUpCount'] ?? 0),
+                    'icon_url' => $item['logo']['thumbnailUrl'] ?? $item['logo']['url'] ?? null,
+                    'provider' => 'curseforge',
+                ];
+            }
+
             return response()->json([
-                'error' => 'Failed to connect to Modrinth API',
-                'message' => $e->getMessage(),
-            ], 502);
+                'hits' => $hits,
+                'total_hits' => $total,
+                'provider' => 'curseforge',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'CurseForge API error: ' . $e->getMessage()], 502);
         }
     }
 
     /**
      * Get versions for a specific mod.
-     * GET /api/client/servers/{server}/mods/versions?mod=<project_id>
+     * GET /api/client/servers/{server}/mods/versions?mod=<project_id>&provider=<provider>
      */
     public function versions(Request $request, Server $server): JsonResponse
     {
@@ -120,26 +180,67 @@ class ModInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
-        $modId = $request->query('mod', $request->query('plugin', ''));
-        if (empty($modId) || !preg_match('/^[a-zA-Z0-9_\-]+$/', $modId)) {
+        $modId = trim((string) $request->query('mod', $request->query('plugin', '')));
+        $provider = strtolower(trim((string) $request->query('provider', 'modrinth')));
+
+        if (empty($modId)) {
             return response()->json(['error' => 'Valid mod ID or slug is required.'], 400);
         }
 
-        try {
-            $response = $this->httpClient->get("project/{$modId}/version");
-            $statusCode = $response->getStatusCode();
+        if ($provider === 'curseforge' || $provider === 'curse') {
+            try {
+                $response = $this->httpClient->get(self::CURSE_API . "mods/{$modId}/files", [
+                    'query' => ['pageSize' => 20],
+                ]);
+                $raw = json_decode($response->getBody()->getContents(), true);
+                $items = $raw['data'] ?? [];
+                $versions = [];
 
-            if ($statusCode >= 400) {
-                return response()->json(['error' => 'Failed to retrieve mod versions from Modrinth.'], 502);
+                foreach ($items as $f) {
+                    $downloadUrl = $f['downloadUrl'] ?? null;
+                    $fileId = (string) $f['id'];
+                    $fileName = $f['fileName'] ?? "mod-{$fileId}.jar";
+
+                    if (empty($downloadUrl) && strlen($fileId) > 4) {
+                        $part1 = substr($fileId, 0, 4);
+                        $part2 = substr($fileId, 4);
+                        $downloadUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
+                    }
+
+                    if (empty($downloadUrl)) continue;
+
+                    $versions[] = [
+                        'id' => $fileId,
+                        'name' => $f['displayName'] ?? $fileName,
+                        'version_number' => $f['displayName'] ?? $fileId,
+                        'game_versions' => $f['gameVersions'] ?? ['Any'],
+                        'version_type' => ($f['releaseType'] ?? 1) === 1 ? 'release' : 'beta',
+                        'loaders' => ['forge', 'fabric', 'neoforge', 'quilt'],
+                        'date_published' => $f['fileDate'] ?? null,
+                        'files' => [
+                            [
+                                'url' => $downloadUrl,
+                                'filename' => $fileName,
+                                'primary' => true,
+                                'size' => $f['fileLength'] ?? 0,
+                            ],
+                        ],
+                        'provider' => 'curseforge',
+                    ];
+                }
+
+                return response()->json($versions);
+            } catch (Throwable $e) {
+                return response()->json(['error' => 'CurseForge files error: ' . $e->getMessage()], 502);
             }
+        }
 
+        try {
+            $response = $this->httpClient->get(self::MODRINTH_API . "project/{$modId}/version");
             $data = json_decode($response->getBody()->getContents(), true);
             return response()->json(is_array($data) ? $data : []);
-        } catch (GuzzleException $e) {
-            return response()->json([
-                'error' => 'Failed to connect to Modrinth API',
-                'message' => $e->getMessage(),
-            ], 502);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Modrinth API error: ' . $e->getMessage()], 502);
         }
     }
 
@@ -154,7 +255,7 @@ class ModInstallerController extends ClientApiController
         }
 
         try {
-            $response = $this->httpClient->get('tag/game_version');
+            $response = $this->httpClient->get(self::MODRINTH_API . 'tag/game_version');
             if ($response->getStatusCode() === 200) {
                 $data = json_decode($response->getBody()->getContents(), true);
                 if (is_array($data)) {
@@ -164,9 +265,7 @@ class ModInstallerController extends ClientApiController
                     return response()->json($releases);
                 }
             }
-        } catch (Exception $e) {
-            // Ignore tag fetch failure and return empty list
-        }
+        } catch (Exception $e) {}
 
         return response()->json([]);
     }
@@ -216,7 +315,7 @@ class ModInstallerController extends ClientApiController
         $url = (string) $request->input('url', '');
         $filename = (string) $request->input('filename', '');
 
-        // 1. Validate URL: HTTPS & Modrinth CDN only
+        // 1. Validate URL
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
             return response()->json(['error' => 'Invalid file download URL.'], 400);
         }
@@ -227,7 +326,18 @@ class ModInstallerController extends ClientApiController
         }
 
         $host = strtolower($parsedUrl['host'] ?? '');
-        $allowedHosts = ['cdn.modrinth.com', 'api.modrinth.com'];
+        $allowedHosts = [
+            'cdn.modrinth.com',
+            'api.modrinth.com',
+            'edge.forgecdn.net',
+            'mediafilez.forgecdn.net',
+            'media.forgecdn.net',
+            'curseforge.com',
+            'api.curse.tools',
+            'github.com',
+            'objects.githubusercontent.com',
+        ];
+
         $isAllowedHost = false;
         foreach ($allowedHosts as $allowed) {
             if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
@@ -237,7 +347,7 @@ class ModInstallerController extends ClientApiController
         }
 
         if (!$isAllowedHost) {
-            return response()->json(['error' => 'Untrusted download host. Only Modrinth CDN URLs are allowed.'], 400);
+            return response()->json(['error' => "Untrusted download host ({$host}). Only verified mod CDN URLs are allowed."], 400);
         }
 
         // 2. Validate Filename
@@ -258,14 +368,12 @@ class ModInstallerController extends ClientApiController
         }
 
         try {
-            // 3. Ensure the /mods directory exists in the container
+            // 3. Ensure the /mods directory exists
             try {
                 $this->fileRepository->setServer($server)->createDirectory('mods', '/');
-            } catch (Exception $e) {
-                // Folder already exists, continue
-            }
+            } catch (Exception $e) {}
 
-            // 4. Command Wings to pull the file directly into /mods
+            // 4. Pull directly into /mods
             $this->fileRepository->setServer($server)->pull(
                 $url,
                 '/mods',

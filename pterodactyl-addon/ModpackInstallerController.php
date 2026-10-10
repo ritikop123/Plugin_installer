@@ -18,6 +18,7 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 class ModpackInstallerController extends ClientApiController
 {
     private const MODRINTH_API = 'https://api.modrinth.com/v2/';
+    private const CURSE_API = 'https://api.curse.tools/v1/cf/';
     private const USER_AGENT = 'Arix-Modpack-Installer/1.0.0 (https://github.com/ritikop123/Plugin_installer)';
     private const MANIFEST_FILE = '/.pterodactyl-modpack.json';
 
@@ -29,7 +30,6 @@ class ModpackInstallerController extends ClientApiController
         parent::__construct();
         $this->fileRepository = $fileRepository;
         $this->httpClient = new Client([
-            'base_uri' => self::MODRINTH_API,
             'headers' => [
                 'User-Agent' => self::USER_AGENT,
                 'Accept' => 'application/json',
@@ -40,7 +40,7 @@ class ModpackInstallerController extends ClientApiController
     }
 
     /**
-     * Search modpacks from public Modrinth API.
+     * Search modpacks from Modrinth or CurseForge.
      * GET /api/client/servers/{server}/modpacks
      */
     public function index(Request $request, Server $server): JsonResponse
@@ -49,6 +49,7 @@ class ModpackInstallerController extends ClientApiController
             throw new AuthorizationException();
         }
 
+        $provider = strtolower(trim((string) $request->query('provider', 'modrinth')));
         $query = (string) $request->query('query', '');
         $loader = strtolower(trim((string) $request->query('loader', 'all')));
         $gameVersion = trim((string) $request->query('version', $request->query('game_version', 'all')));
@@ -58,22 +59,71 @@ class ModpackInstallerController extends ClientApiController
         $limit = min(50, max(1, (int) $request->query('limit', 20)));
         $offset = ($page - 1) * $limit;
 
-        $facets = [];
+        if ($provider === 'curseforge' || $provider === 'curse') {
+            try {
+                $params = [
+                    'gameId' => 432,
+                    'classId' => 4471, // Minecraft Modpacks
+                    'index' => $offset,
+                    'pageSize' => $limit,
+                    'sortField' => 2, // Popularity
+                    'sortOrder' => 'desc',
+                ];
+                if (!empty($query)) {
+                    $params['searchFilter'] = $query;
+                }
+                if (!empty($gameVersion) && $gameVersion !== 'all') {
+                    $params['gameVersion'] = $gameVersion;
+                }
+                if (!empty($loader) && $loader !== 'all') {
+                    $loaderMap = ['forge' => 1, 'cauldron' => 2, 'liteloader' => 3, 'fabric' => 4, 'quilt' => 5, 'neoforge' => 6];
+                    if (isset($loaderMap[$loader])) {
+                        $params['modLoaderType'] = $loaderMap[$loader];
+                    }
+                }
 
-        // 1. Must be a modpack
+                $response = $this->httpClient->get(self::CURSE_API . 'mods/search', ['query' => $params]);
+                $raw = json_decode($response->getBody()->getContents(), true);
+                $items = $raw['data'] ?? [];
+                $total = $raw['pagination']['totalCount'] ?? count($items);
+                $hits = [];
+
+                foreach ($items as $item) {
+                    $hits[] = [
+                        'project_id' => (string) $item['id'],
+                        'id' => (string) $item['id'],
+                        'slug' => $item['slug'] ?? (string) $item['id'],
+                        'title' => $item['name'] ?? 'Modpack',
+                        'author' => !empty($item['authors'][0]['name']) ? $item['authors'][0]['name'] : 'CurseForge',
+                        'description' => $item['summary'] ?? '',
+                        'categories' => array_values(array_filter(array_map(fn($c) => strtolower($c['name'] ?? ''), $item['categories'] ?? []))),
+                        'versions' => [],
+                        'downloads' => (int) ($item['downloadCount'] ?? 0),
+                        'follows' => (int) ($item['thumbsUpCount'] ?? 0),
+                        'icon_url' => $item['logo']['thumbnailUrl'] ?? $item['logo']['url'] ?? null,
+                        'provider' => 'curseforge',
+                    ];
+                }
+
+                return response()->json([
+                    'hits' => $hits,
+                    'total_hits' => $total,
+                    'provider' => 'curseforge',
+                ]);
+            } catch (Throwable $e) {
+                return response()->json(['error' => 'CurseForge API error: ' . $e->getMessage()], 502);
+            }
+        }
+
+        $facets = [];
         $facets[] = ['project_type:modpack'];
 
-        // 2. Mod Loaders
         if (!empty($loader) && $loader !== 'all' && in_array($loader, ['fabric', 'forge', 'neoforge', 'quilt'])) {
             $facets[] = ["categories:{$loader}"];
         }
-
-        // 3. Minecraft Version
         if (!empty($gameVersion) && $gameVersion !== 'all') {
             $facets[] = ["versions:{$gameVersion}"];
         }
-
-        // 4. Category
         if (!empty($category) && $category !== 'all') {
             $facets[] = ["categories:{$category}"];
         }
@@ -90,7 +140,7 @@ class ModpackInstallerController extends ClientApiController
         }
 
         try {
-            $response = $this->httpClient->get('search', [
+            $response = $this->httpClient->get(self::MODRINTH_API . 'search', [
                 'query' => $params,
             ]);
 
@@ -103,7 +153,15 @@ class ModpackInstallerController extends ClientApiController
             }
 
             $data = json_decode($response->getBody()->getContents(), true);
-            return response()->json($data ?: ['hits' => [], 'total_hits' => 0]);
+            $hits = $data['hits'] ?? [];
+            foreach ($hits as &$h) {
+                $h['provider'] = 'modrinth';
+            }
+            return response()->json([
+                'hits' => $hits,
+                'total_hits' => $data['total_hits'] ?? count($hits),
+                'provider' => 'modrinth',
+            ]);
         } catch (Throwable $e) {
             return response()->json([
                 'error' => 'Failed to connect to Modrinth API',
@@ -114,7 +172,7 @@ class ModpackInstallerController extends ClientApiController
 
     /**
      * Get versions for a specific modpack.
-     * GET /api/client/servers/{server}/modpacks/versions?project_id=<id>&loader=<loader>&version=<mc_ver>
+     * GET /api/client/servers/{server}/modpacks/versions?project_id=<id>&loader=<loader>&version=<mc_ver>&provider=<provider>
      */
     public function versions(Request $request, Server $server): JsonResponse
     {
@@ -123,11 +181,60 @@ class ModpackInstallerController extends ClientApiController
         }
 
         $projectId = trim((string) $request->query('project_id', $request->query('mod', $request->query('id', ''))));
+        $provider = strtolower(trim((string) $request->query('provider', 'modrinth')));
         $loader = strtolower(trim((string) $request->query('loader', '')));
         $gameVersion = trim((string) $request->query('version', $request->query('game_version', '')));
 
-        if (empty($projectId) || !preg_match('/^[a-zA-Z0-9_-]+$/', $projectId)) {
+        if (empty($projectId)) {
             return response()->json(['error' => 'Valid project ID is required.'], 400);
+        }
+
+        if ($provider === 'curseforge' || $provider === 'curse') {
+            try {
+                $response = $this->httpClient->get(self::CURSE_API . "mods/{$projectId}/files", [
+                    'query' => ['pageSize' => 20],
+                ]);
+                $raw = json_decode($response->getBody()->getContents(), true);
+                $items = $raw['data'] ?? [];
+                $versions = [];
+
+                foreach ($items as $f) {
+                    $downloadUrl = $f['downloadUrl'] ?? null;
+                    $fileId = (string) $f['id'];
+                    $fileName = $f['fileName'] ?? "modpack-{$fileId}.zip";
+
+                    if (empty($downloadUrl) && strlen($fileId) > 4) {
+                        $part1 = substr($fileId, 0, 4);
+                        $part2 = substr($fileId, 4);
+                        $downloadUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
+                    }
+
+                    if (empty($downloadUrl)) continue;
+
+                    $versions[] = [
+                        'id' => $fileId,
+                        'name' => $f['displayName'] ?? $fileName,
+                        'version_number' => $f['displayName'] ?? $fileId,
+                        'game_versions' => $f['gameVersions'] ?? ['Any'],
+                        'version_type' => ($f['releaseType'] ?? 1) === 1 ? 'release' : 'beta',
+                        'loaders' => ['forge', 'fabric', 'neoforge'],
+                        'date_published' => $f['fileDate'] ?? null,
+                        'files' => [
+                            [
+                                'url' => $downloadUrl,
+                                'filename' => $fileName,
+                                'primary' => true,
+                                'size' => $f['fileLength'] ?? 0,
+                            ],
+                        ],
+                        'provider' => 'curseforge',
+                    ];
+                }
+
+                return response()->json($versions);
+            } catch (Throwable $e) {
+                return response()->json(['error' => 'CurseForge modpack files error: ' . $e->getMessage()], 502);
+            }
         }
 
         $query = [];
@@ -139,7 +246,7 @@ class ModpackInstallerController extends ClientApiController
         }
 
         try {
-            $response = $this->httpClient->get("project/{$projectId}/version", [
+            $response = $this->httpClient->get(self::MODRINTH_API . "project/{$projectId}/version", [
                 'query' => $query,
             ]);
 
@@ -333,37 +440,43 @@ class ModpackInstallerController extends ClientApiController
 
         $versionId = trim((string) $request->input('version_id', ''));
         $wipeMode = trim((string) $request->input('wipe_mode', 'mods_and_configs'));
+        $archiveUrl = trim((string) $request->input('archive_url', ''));
+        $provider = strtolower(trim((string) $request->input('provider', 'modrinth')));
 
-        if (empty($versionId) || !preg_match('/^[a-zA-Z0-9_-]+$/', $versionId)) {
-            return response()->json(['error' => 'Valid version ID is required.'], 400);
+        if (empty($versionId) && empty($archiveUrl)) {
+            return response()->json(['error' => 'Valid version ID or archive URL is required.'], 400);
         }
 
-        try {
-            // 1. Fetch version metadata from Modrinth
-            $verRes = $this->httpClient->get("version/{$versionId}");
-            if ($verRes->getStatusCode() !== 200) {
-                return response()->json(['error' => 'Failed to fetch version metadata from Modrinth.'], 400);
-            }
+        $mrpackUrl = null;
 
-            $verData = json_decode($verRes->getBody()->getContents(), true);
-            $files = $verData['files'] ?? [];
+        if (!empty($archiveUrl) && filter_var($archiveUrl, FILTER_VALIDATE_URL) && str_starts_with($archiveUrl, 'https://')) {
+            $mrpackUrl = $archiveUrl;
+        } else {
+            try {
+                // 1. Fetch version metadata from Modrinth
+                $verRes = $this->httpClient->get("version/{$versionId}");
+                if ($verRes->getStatusCode() === 200) {
+                    $verData = json_decode($verRes->getBody()->getContents(), true);
+                    $files = $verData['files'] ?? [];
 
-            $mrpackUrl = null;
-            foreach ($files as $f) {
-                $fn = strtolower($f['filename'] ?? '');
-                if (str_ends_with($fn, '.mrpack')) {
-                    $mrpackUrl = $f['url'] ?? null;
-                    break;
+                    foreach ($files as $f) {
+                        $fn = strtolower($f['filename'] ?? '');
+                        if (str_ends_with($fn, '.mrpack') || str_ends_with($fn, '.zip')) {
+                            $mrpackUrl = $f['url'] ?? null;
+                            break;
+                        }
+                    }
+
+                    if (!$mrpackUrl && !empty($files[0]['url'])) {
+                        $mrpackUrl = $files[0]['url'];
+                    }
                 }
-            }
+            } catch (Throwable $e) {}
+        }
 
-            if (!$mrpackUrl && !empty($files[0]['url'])) {
-                $mrpackUrl = $files[0]['url'];
-            }
-
-            if (!$mrpackUrl || !filter_var($mrpackUrl, FILTER_VALIDATE_URL)) {
-                return response()->json(['error' => 'No valid modpack archive (.mrpack) found for this version.'], 400);
-            }
+        if (!$mrpackUrl || !filter_var($mrpackUrl, FILTER_VALIDATE_URL)) {
+            return response()->json(['error' => 'No valid modpack archive (.mrpack or .zip) found for this version.'], 400);
+        }
 
             // 2. Perform Wipe if requested
             if ($wipeMode === 'full_server') {

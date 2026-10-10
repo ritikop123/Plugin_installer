@@ -45,6 +45,8 @@ foreach ($scanDirs as $dir) {
                 $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX SERVER UPTIME START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX SERVER UPTIME END\s*<<<\s*\*\/\}?\s*/s", "", $c);
                 $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
                 $c = preg_replace("/import\s+ServerUptime\s+from\s+[^;]+;\s*/s", "", $c);
+                $c = preg_replace("/<ServerSupportId[^>]*\/>\s*/s", "", $c);
+                $c = preg_replace("/import\s+ServerSupportId\s+from\s+[^;]+;\s*/s", "", $c);
 
                 file_put_contents($path, $c);
                 echo "[✓] Reverted dashboard card patches in $path\n";

@@ -58,22 +58,23 @@ const ServerExpiryCard: React.FC = () => {
         http.get(`/api/client/servers/${uuid}/subscription`)
             .then(({ data }) => {
                 const sub = data?.data || data;
-                const exp = data.expire_at !== undefined ? data.expire_at : (sub.expires_at || sub.expire_at);
-                const pName = data.plan_name || sub.product;
-                const pPrice = data.plan_price || (sub.price?.amount && sub.price.amount !== "N/A" ? (sub.price.amount + (sub.price.currency ? " " + sub.price.currency : "")) : null);
+                const exp = data?.expire_at !== undefined ? data.expire_at : (sub?.expires_at ?? sub?.expire_at);
+                const pName = data?.plan_name ?? sub?.product;
+                const pPrice = data?.plan_price ?? (sub?.price?.amount && sub.price.amount !== "N/A" ? (sub.price.amount + (sub.price.currency ? " " + sub.price.currency : "")) : null);
 
                 if (exp !== undefined) setExpireAt(exp || null);
-                if (pName && pName !== "N/A") setPlanName(pName);
-                if (pPrice && pPrice !== "N/A") setPlanPrice(pPrice);
-                if (data.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
+                if (pName !== undefined) setPlanName(pName && pName !== "N/A" ? pName : null);
+                if (pPrice !== undefined) setPlanPrice(pPrice && pPrice !== "N/A" ? pPrice : null);
+                if (data?.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
             })
             .catch(() => {
                 // Secondary fallback to /options
                 http.get(`/api/client/servers/${uuid}/options`)
                     .then(({ data }) => {
                         if (data.expire_at !== undefined) setExpireAt(data.expire_at || null);
-                        if (data.plan_name && data.plan_name !== "N/A") setPlanName(data.plan_name);
-                        if (data.plan_price && data.plan_price !== "N/A") setPlanPrice(data.plan_price);
+                        if (data.plan_name !== undefined) setPlanName(data.plan_name && data.plan_name !== "N/A" ? data.plan_name : null);
+                        if (data.plan_price !== undefined) setPlanPrice(data.plan_price && data.plan_price !== "N/A" ? data.plan_price : null);
+                        if (data.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
                     })
                     .catch(() => {});
             });
@@ -115,9 +116,9 @@ const ServerExpiryCard: React.FC = () => {
             };
 
             const { data } = await http.post(`/api/client/servers/${uuid}/subscription`, payload);
-            setPlanName(data.plan_name || payload.plan_name);
-            setPlanPrice(data.plan_price || payload.plan_price);
-            setExpireAt(data.expire_at || payload.expire_at);
+            setPlanName(data.plan_name ?? payload.plan_name);
+            setPlanPrice(data.plan_price ?? payload.plan_price);
+            setExpireAt(data.expire_at ?? payload.expire_at);
             setEditModalOpen(false);
         } catch (err: any) {
             setSaveError(

@@ -168,6 +168,14 @@ if (file_exists($serversCtrlFile)) {
             $server->plan_price = $request->input("plan_price") ?: null;
         }
         $server->save();
+
+        // Re-enforce suspension if server is still expired (prevent save from clearing status)
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== \Pterodactyl\Models\Server::STATUS_SUSPENDED) {
+            try {
+                $server->status = \Pterodactyl\Models\Server::STATUS_SUSPENDED;
+                $server->save();
+            } catch (\Throwable $e) {}
+        }
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
@@ -202,6 +210,14 @@ if (file_exists($buildCtrlFile)) {
             $server->plan_price = $request->input("plan_price") ?: null;
         }
         $server->save();
+
+        // Re-enforce suspension if server is still expired (prevent save from clearing status)
+        if (!empty($server->expire_at) && \Carbon\Carbon::parse($server->expire_at)->isPast() && $server->status !== \Pterodactyl\Models\Server::STATUS_SUSPENDED) {
+            try {
+                $server->status = \Pterodactyl\Models\Server::STATUS_SUSPENDED;
+                $server->save();
+            } catch (\Throwable $e) {}
+        }
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
@@ -345,4 +361,3 @@ MAPPING;
     }
     file_put_contents($getServersFile, $c);
 }
-

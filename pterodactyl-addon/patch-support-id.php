@@ -22,7 +22,7 @@ $event = <<<'PATCH'
         /* >>> ARIX SERVER SUPPORT ID START >>> */
         static::creating(function (\Pterodactyl\Models\Server $server) {
             if (empty($server->support_id) && !empty($server->uuid)) {
-                $server->support_id = 'SUP-' . strtoupper(str_replace('-', '', $server->uuid));
+                $server->support_id = 'SUP-' . strtoupper(substr(str_replace('-', '', $server->uuid), 0, 6));
             }
         });
         /* <<< ARIX SERVER SUPPORT ID END <<< */

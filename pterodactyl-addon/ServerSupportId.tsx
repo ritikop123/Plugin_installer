@@ -61,16 +61,16 @@ const ServerSupportId: React.FC<Props> = ({ className = '' }) => {
     return (
         <button
             type="button"
-            title={copyFailed ? 'Could not copy support ID.' : 'Click to copy this support ID.'}
+            title={copyFailed ? 'Could not copy support ID.' : 'Click to copy support ID'}
             aria-label={copyFailed ? `Could not copy support ID ${supportId}` : `Copy support ID ${supportId}`}
             onClick={copySupportId}
-            className={`inline-flex items-center gap-1.5 text-xs text-gray-300 hover:text-white transition-colors ${className}`}
+            className={`flex items-center gap-x-1.5 py-1 px-2.5 rounded-component bg-black/20 hover:bg-black/35 text-xs text-gray-300 hover:text-white transition-all duration-200 cursor-pointer select-none border border-white/5 hover:border-white/10 ${className}`}
         >
-            <FontAwesomeIcon icon={faLifeRing} className="text-gray-400" />
-            <span>{supportId}</span>
+            <FontAwesomeIcon icon={faLifeRing} className="text-gray-400 text-xs" />
+            <span className="font-mono font-medium tracking-wide">{supportId}</span>
             <FontAwesomeIcon
                 icon={copied ? faCheck : faCopy}
-                className={copied ? 'text-emerald-400' : 'text-gray-500'}
+                className={copied ? 'text-emerald-400 text-xs' : 'text-gray-500 text-xs'}
             />
             <span className="sr-only" aria-live="polite">
                 {copied ? 'Support ID copied.' : copyFailed ? 'Could not copy support ID.' : ''}

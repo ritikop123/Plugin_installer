@@ -225,99 +225,53 @@ foreach ($scanDirs as $dir) {
 }
 
 // --------------------------------------------------------------------------------------
-// PART 3: Injects ServerUptime next to Disk stat ONLY on Server Console Header
-// (EXCLUDES outer dashboard cards per user request)
+// PART 3: Injects ServerSupportId into Top Bar next to RAM (SlimBar & InformationBar)
 // --------------------------------------------------------------------------------------
-$checkedUptimeFiles = [];
-$serverHeaderDirs = [
-    "resources/scripts/components/server",
-    "resources/scripts/components/arix",
+$topBarFiles = [
+    "resources/scripts/routers/layouts/SlimBar.tsx",
+    "resources/scripts/routers/layouts/InformationBar.tsx",
 ];
 
-foreach ($serverHeaderDirs as $dir) {
-    if (!is_dir($dir)) continue;
-
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
-    foreach ($iterator as $file) {
-        if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
-            $filePath = realpath($file->getPathname()) ?: $file->getPathname();
-            if (isset($checkedUptimeFiles[$filePath])) continue;
-            $checkedUptimeFiles[$filePath] = true;
-
-            // NEVER inject uptime into outer dashboard cards!
-            if (strpos($filePath, "components/dashboard") !== false) continue;
-            if (strpos($filePath, "StatGraphs") !== false) continue;
-            if (strpos($filePath, "StatBlock") !== false) continue;
-
-            $c = file_get_contents($filePath);
-
-            if (!isServerCardOrBannerFile($filePath, $c)) continue;
-
-            // Locate disk usage patterns
-            $pattern = '/(?:limits\??\.disk|stats\??\.disk|disk_bytes|diskLimit)/';
-            if (!preg_match_all($pattern, $c, $matches, PREG_OFFSET_CAPTURE)) {
-                continue;
-            }
-
-            // Collect match positions and process in reverse order so offsets remain stable
-            $positions = [];
-            foreach ($matches[0] as $m) {
-                $positions[] = $m[1];
-            }
-            $positions = array_reverse($positions);
-
-            $usedOffsets = [];
-            $modified = false;
-
-            // Determine stats variable name
-            $statsVar = 'stats';
-            if (preg_match('/([a-zA-Z0-9_$]+)\??\.disk/', $c, $statVarMatch)) {
-                $candidate = $statVarMatch[1];
-                if ($candidate !== 'limits' && $candidate !== 'server' && $candidate !== 'srv') {
-                    $statsVar = $candidate;
-                }
-            } elseif (strpos($c, 'stats?.') === false && strpos($c, 'stats.') === false && strpos($c, 'serverStats') !== false) {
-                $statsVar = 'serverStats';
-            }
-
-            foreach ($positions as $diskPos) {
-                $sub = substr($c, $diskPos);
-                if (preg_match('/^(?:(?!\<\/(?:div|span|p)\>).)*?(<\/span\s*>\s*<\/div\s*>|<\/div\s*>|<\/span\s*>|<\/p\s*>)/s', $sub, $closeMatch, PREG_OFFSET_CAPTURE)) {
-                    $closeOffset = $closeMatch[1][1];
-                    $closeLen = strlen($closeMatch[1][0]);
-                    $insertOffset = $diskPos + $closeOffset + $closeLen;
-
-                    if (in_array($insertOffset, $usedOffsets)) {
-                        continue;
-                    }
-                    $usedOffsets[] = $insertOffset;
-
-                    // Check if the container row already has gap- or space-x-
-                    $beforeDisk = substr($c, max(0, $diskPos - 300), min(300, $diskPos));
-                    $hasGap = preg_match('/(?:gap-|space-x-)/', $beforeDisk);
-                    $classNameProp = $hasGap ? '' : ' className="ml-4"';
-
-                    $uptimeJsx = ' <ServerUptime stats={' . $statsVar . '}' . $classNameProp . ' /> <ServerSupportId' . $classNameProp . ' />';
-
-                    $c = substr($c, 0, $insertOffset) . $uptimeJsx . substr($c, $insertOffset);
-                    $modified = true;
-                }
-            }
-
-            if ($modified) {
-                // Add clean import at the top
-                if (strpos($c, "import ServerUptime") === false) {
-                    $import = "import ServerUptime from '@/components/dashboard/ServerUptime';\n";
-                    $c = $import . $c;
-                }
-                if (strpos($c, "import ServerSupportId") === false) {
-                    $import = "import ServerSupportId from '@/components/server/ServerSupportId';\n";
-                    $c = $import . $c;
-                }
-
-                file_put_contents($filePath, $c);
-                echo "[✓] Injected ServerUptime next to disk stat in server console header: $filePath\n";
+// Also discover any other router layout files
+$layoutDir = "resources/scripts/routers/layouts";
+if (is_dir($layoutDir)) {
+    $foundLayouts = glob("$layoutDir/*.tsx");
+    if ($foundLayouts) {
+        foreach ($foundLayouts as $fl) {
+            $normalized = str_replace('\\', '/', $fl);
+            if (!in_array($normalized, $topBarFiles)) {
+                $topBarFiles[] = $normalized;
             }
         }
+    }
+}
+
+foreach ($topBarFiles as $filePath) {
+    if (!file_exists($filePath)) continue;
+
+    $c = file_get_contents($filePath);
+
+    // Clean up any existing ServerSupportId
+    $c = preg_replace("/<ServerSupportId[^>]*\/>\s*/s", "", $c);
+    $c = preg_replace("/import\s+ServerSupportId\s+from\s+[^;]+;\s*/s", "", $c);
+
+    // Match the RAM / Memory stick container:
+    // <div className={'flex items-center gap-x-1'}> ... <LuMemoryStick ... </div>
+    $memoryPattern = '/(<div[^>]*>\s*<LuMemoryStick[\s\S]*?<\/div>)/';
+
+    if (preg_match($memoryPattern, $c, $m, PREG_OFFSET_CAPTURE)) {
+        $matchedBlock = $m[1][0];
+        $insertPos = $m[1][1] + strlen($matchedBlock);
+
+        $supportIdJsx = "\n                        <ServerSupportId />";
+        $c = substr($c, 0, $insertPos) . $supportIdJsx . substr($c, $insertPos);
+
+        // Add clean import at the top
+        if (strpos($c, "import ServerSupportId") === false) {
+            $c = "import ServerSupportId from '@/components/server/ServerSupportId';\n" . $c;
+        }
+
+        file_put_contents($filePath, $c);
+        echo "[✓] Injected ServerSupportId next to RAM stat in top bar: $filePath\n";
     }
 }

@@ -35,10 +35,8 @@ class AutoSuspendServersCommand extends Command
             ->get();
 
         foreach ($expiredServers as $server) {
-            $isAlreadySuspended = ($server->status === Server::STATUS_SUSPENDED);
-
-            // A. If not marked suspended in panel, execute standard suspension service
-            if (!$isAlreadySuspended) {
+            // A. Attempt to suspend via the standard SuspensionService (notifies Wings + sets DB)
+            if ($server->status !== Server::STATUS_SUSPENDED) {
                 try {
                     $this->info("Suspending expired server: [{$server->id}] {$server->name} (Expired at: {$server->expire_at})");
                     $suspensionService->toggle($server, SuspensionService::ACTION_SUSPEND);
@@ -46,26 +44,50 @@ class AutoSuspendServersCommand extends Command
                 } catch (\Throwable $e) {
                     $this->error("Failed to auto-suspend server [{$server->id}] {$server->name}: " . $e->getMessage());
                     Log::error("Failed to auto-suspend server [{$server->id}] {$server->name}: " . $e->getMessage());
-
-                    // Fallback: force status in database
-                    try {
-                        $server->status = Server::STATUS_SUSPENDED;
-                        $server->save();
-                    } catch (\Throwable $ex) {}
                 }
             }
 
-            // B. Ensure Wings container is fully stopped/killed even if server was already marked suspended
+            // B. Force-verify: refresh from DB and guarantee the suspended status is persisted.
+            //    The toggle might have partially failed, a Wings callback might have cleared it,
+            //    or a race condition with another process might have overwritten it.
             try {
-                $status = $powerRepository->setServer($server)->getStatus();
-                if ($status !== 'offline') {
-                    $this->warn("Expired server [{$server->id}] {$server->name} container is currently '{$status}'. Forcing kill.");
-                    $powerRepository->setServer($server)->send('kill');
-                    Log::warning("Enforced stop/kill on expired server [{$server->id}] {$server->name} (was: {$status})");
+                $server->refresh();
+                if ($server->status !== Server::STATUS_SUSPENDED) {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                    $this->warn("Force-set suspension status in DB for expired server [{$server->id}] {$server->name}");
+                    Log::warning("Force-set suspension status in DB for expired server [{$server->id}] {$server->name}");
                 }
             } catch (\Throwable $e) {
-                // If Wings is unreachable or already offline, ignore
+                // Last-resort: try without refresh
+                try {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                } catch (\Throwable $ex) {}
             }
+
+            // C. Send kill signal to Wings unconditionally to stop the container.
+            //    Don't gate behind getStatus() — if Wings can't report status, the kill would
+            //    never fire, leaving the container running until someone opens the server page.
+            try {
+                $powerRepository->setServer($server)->send('kill');
+                Log::info("Sent kill signal to expired server [{$server->id}] {$server->name}");
+                $this->info("Sent kill signal to expired server [{$server->id}] {$server->name}");
+            } catch (\Throwable $e) {
+                // Wings unreachable or container already offline — nothing more we can do
+                $this->warn("Could not send kill to expired server [{$server->id}] {$server->name}: " . $e->getMessage());
+            }
+
+            // D. Post-kill: re-verify suspension wasn't cleared by a Wings power-state callback
+            //    or any other side-effect triggered during the kill request.
+            try {
+                $server->refresh();
+                if ($server->status !== Server::STATUS_SUSPENDED) {
+                    $server->status = Server::STATUS_SUSPENDED;
+                    $server->save();
+                    Log::warning("Re-enforced suspension status after kill for server [{$server->id}] {$server->name}");
+                }
+            } catch (\Throwable $e) {}
         }
 
         // 2. Process servers expiring within 3 days (72 hours) and notify owner once

@@ -16,16 +16,19 @@ return new class extends Migration
         }
 
         DB::table('servers')
-            ->select('id', 'uuid')
-            ->whereNull('support_id')
+            ->select('id', 'uuid', 'support_id')
+            ->where(function ($query) {
+                $query->whereNull('support_id')
+                    ->orWhereRaw('LENGTH(support_id) > 10');
+            })
             ->orderBy('id')
             ->chunkById(200, function ($servers): void {
                 foreach ($servers as $server) {
+                    $shortCode = 'SUP-' . strtoupper(substr(str_replace('-', '', $server->uuid), 0, 6));
                     DB::table('servers')
                         ->where('id', $server->id)
-                        ->whereNull('support_id')
                         ->update([
-                            'support_id' => 'SUP-' . strtoupper(str_replace('-', '', $server->uuid)),
+                            'support_id' => $shortCode,
                         ]);
                 }
             });
