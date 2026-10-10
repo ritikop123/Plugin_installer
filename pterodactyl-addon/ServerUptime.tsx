@@ -13,6 +13,9 @@ interface Props {
 const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus, stats, className = '' }) => {
     const serverStatus = ServerContext.useStoreState((state) => state.status.value);
     const socketInstance = ServerContext.useStoreState((state) => state.socket.instance);
+    const rawExpireAt = ServerContext.useStoreState(
+        (state) => (state.server.data as any)?.expire_at || (state.server.data as any)?.expireAt
+    );
     const [liveUptime, setLiveUptime] = useState<number>(0);
 
     // Request stats from daemon Wings on socket connect
@@ -96,22 +99,106 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
         return { text, title: fullTitle, state: 'online' };
     }, [rawUptime, rawStatus]);
 
+    const suspendFormatted = useMemo(() => {
+        if (!rawExpireAt || rawExpireAt === 'N/A' || rawExpireAt === 'null' || rawExpireAt === 'undefined') {
+            return {
+                text: '∞',
+                title: 'No expiration set (Unlimited / Lifetime)',
+                isInfinity: true,
+                isExpired: false,
+                isWarning: false,
+            };
+        }
+
+        const normalizedDate = typeof rawExpireAt === 'string' ? rawExpireAt.replace(' ', 'T') : rawExpireAt;
+        const expiryTime = new Date(normalizedDate).getTime();
+        if (isNaN(expiryTime)) {
+            return {
+                text: '∞',
+                title: 'No expiration set (Unlimited / Lifetime)',
+                isInfinity: true,
+                isExpired: false,
+                isWarning: false,
+            };
+        }
+
+        const now = Date.now();
+        const diffMs = expiryTime - now;
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        const formattedDate = new Date(normalizedDate).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+
+        if (diffHours <= 0) {
+            return {
+                text: 'Suspended',
+                title: `Server expired on ${formattedDate}`,
+                isInfinity: false,
+                isExpired: true,
+                isWarning: true,
+            };
+        }
+
+        if (diffHours <= 24) {
+            const h = Math.max(1, Math.round(diffHours));
+            return {
+                text: `${h}H`,
+                title: `Suspends in ${h} hour${h > 1 ? 's' : ''} (${formattedDate})`,
+                isInfinity: false,
+                isExpired: false,
+                isWarning: true,
+            };
+        }
+
+        const days = Math.ceil(diffHours / 24);
+        return {
+            text: `${days}D`,
+            title: `Suspends in ${days} day${days > 1 ? 's' : ''} (${formattedDate})`,
+            isInfinity: false,
+            isExpired: false,
+            isWarning: false,
+        };
+    }, [rawExpireAt]);
+
     return (
-        <div
-            title={formatted.title}
-            className={`inline-flex items-center gap-1.5 text-sm select-none ${className}`}
-        >
-            <span className="text-gray-400 font-normal">Uptime:</span>
-            <span
-                className={`font-mono font-medium ${
-                    formatted.state === 'online'
-                        ? 'text-gray-200'
-                        : formatted.state === 'starting'
-                        ? 'text-amber-300'
-                        : 'text-gray-400'
-                }`}
-            >
-                {formatted.text}
+        <div className={`inline-flex items-center gap-1.5 text-sm select-none ${className}`}>
+            <span title={formatted.title} className="inline-flex items-center gap-1.5">
+                <span className="text-gray-400 font-normal">Uptime:</span>
+                <span
+                    className={`font-mono font-medium ${
+                        formatted.state === 'online'
+                            ? 'text-gray-200'
+                            : formatted.state === 'starting'
+                            ? 'text-amber-300'
+                            : 'text-gray-400'
+                    }`}
+                >
+                    {formatted.text}
+                </span>
+            </span>
+
+            <span className="text-gray-600 mx-1.5">•</span>
+
+            <span title={suspendFormatted.title} className="inline-flex items-center gap-1.5">
+                <span className="text-gray-400 font-normal">Suspend:</span>
+                <span
+                    className={`font-mono font-medium ${
+                        suspendFormatted.isExpired
+                            ? 'text-red-400 font-semibold'
+                            : suspendFormatted.isWarning
+                            ? 'text-amber-300 font-semibold'
+                            : suspendFormatted.isInfinity
+                            ? 'text-gray-200 text-base leading-none font-bold'
+                            : 'text-gray-200'
+                    }`}
+                >
+                    {suspendFormatted.text}
+                </span>
             </span>
         </div>
     );
