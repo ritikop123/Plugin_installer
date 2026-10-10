@@ -99,50 +99,16 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
     return (
         <div
             title={formatted.title}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0d131f]/85 border border-neutral-700/60 shadow-sm backdrop-blur-sm select-none transition-all duration-200 hover:border-[#034f80]/80 ${className}`}
+            className={`inline-flex items-center gap-1.5 text-sm select-none ${className}`}
         >
-            {formatted.state === 'online' ? (
-                <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-            ) : formatted.state === 'starting' ? (
-                <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                </span>
-            ) : (
-                <span className="inline-flex rounded-full h-2 w-2 bg-neutral-600"></span>
-            )}
-
-            <svg
-                className={`w-3.5 h-3.5 ${
-                    formatted.state === 'online'
-                        ? 'text-emerald-400'
-                        : formatted.state === 'starting'
-                        ? 'text-amber-400'
-                        : 'text-neutral-500'
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-            >
-                <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-            </svg>
-
-            <span className="text-xs text-neutral-400 font-medium">Uptime:</span>
+            <span className="text-gray-400 font-normal">Uptime:</span>
             <span
-                className={`text-xs sm:text-sm font-semibold font-mono tracking-tight ${
+                className={`font-mono font-medium ${
                     formatted.state === 'online'
-                        ? 'text-neutral-100'
+                        ? 'text-gray-200'
                         : formatted.state === 'starting'
                         ? 'text-amber-300'
-                        : 'text-neutral-400'
+                        : 'text-gray-400'
                 }`}
             >
                 {formatted.text}
