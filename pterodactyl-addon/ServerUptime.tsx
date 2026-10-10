@@ -166,36 +166,34 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
     }, [rawExpireAt]);
 
     return (
-        <div className={`inline-flex items-center gap-1.5 text-sm select-none ${className}`}>
+        <div className={`inline-flex items-center gap-2 text-lg font-medium text-gray-300 select-none ${className}`}>
             <span title={formatted.title} className="inline-flex items-center gap-1.5">
                 <span className="text-gray-400 font-normal">Uptime:</span>
                 <span
-                    className={`font-mono font-medium ${
+                    className={
                         formatted.state === 'online'
-                            ? 'text-gray-200'
+                            ? 'text-gray-300 font-medium'
                             : formatted.state === 'starting'
-                            ? 'text-amber-300'
-                            : 'text-gray-400'
-                    }`}
+                            ? 'text-amber-300 font-medium'
+                            : 'text-gray-400 font-medium'
+                    }
                 >
                     {formatted.text}
                 </span>
             </span>
 
-            <span className="text-gray-600 mx-1.5">•</span>
+            <span className="text-gray-500 mx-1">•</span>
 
             <span title={suspendFormatted.title} className="inline-flex items-center gap-1.5">
                 <span className="text-gray-400 font-normal">Suspend:</span>
                 <span
-                    className={`font-mono font-medium ${
+                    className={
                         suspendFormatted.isExpired
-                            ? 'text-red-400 font-semibold'
+                            ? 'text-red-400 font-medium'
                             : suspendFormatted.isWarning
-                            ? 'text-amber-300 font-semibold'
-                            : suspendFormatted.isInfinity
-                            ? 'text-gray-200 text-base leading-none font-bold'
-                            : 'text-gray-200'
-                    }`}
+                            ? 'text-amber-300 font-medium'
+                            : 'text-gray-300 font-medium'
+                    }
                 >
                     {suspendFormatted.text}
                 </span>
