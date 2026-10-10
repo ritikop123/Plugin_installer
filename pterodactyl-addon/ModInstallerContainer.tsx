@@ -588,15 +588,12 @@ export default function ModInstallerContainer() {
                 }}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer border ${
                   selectedProvider === 'modrinth'
-                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/70 shadow-md shadow-emerald-500/10'
+                    ? 'bg-neutral-900/90 text-emerald-400 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
                     : 'bg-neutral-900/80 text-neutral-400 border-neutral-700/70 hover:text-neutral-200 hover:border-neutral-600'
                 }`}
               >
                 <img src={MODRINTH_ICON} alt="Modrinth" className="w-4 h-4 shrink-0 object-contain" />
                 <span>Modrinth</span>
-                {selectedProvider === 'modrinth' && (
-                  <span className={'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5'} />
-                )}
               </button>
 
               {/* CurseForge */}
@@ -610,7 +607,7 @@ export default function ModInstallerContainer() {
                 }}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer border ${
                   selectedProvider === 'curseforge'
-                    ? 'bg-orange-950/70 text-orange-300 border-orange-500/70 shadow-md shadow-orange-500/10'
+                    ? 'bg-neutral-900/90 text-[#F38148] border-[#D8602F] shadow-[0_0_12px_rgba(216,96,47,0.35)]'
                     : 'bg-neutral-900/80 text-neutral-400 border-neutral-700/70 hover:text-neutral-200 hover:border-neutral-600'
                 }`}
               >
@@ -618,9 +615,6 @@ export default function ModInstallerContainer() {
                   <path style={{ fill: 'rgb(216,96,47)' }} strokeLinecap="round" d="M244.0133 123.4342C244.0133 123.4342 309.3466 113.2632 319.6666 83.6053L219.5733 83.6053 219.5733 60.079-0.3333 60.079 26.76 91.1053 26.76 122.8816C26.76 122.8816 95.12 119.3816 121.56 139.1579 157.7467 172.2632 80.8534 217.0131 80.8534 217.0131L67.6534 260.0789C88.28 240.6973 127.5733 215.6447 199.64 216.8421 172.2133 225.3947 144.64 238.75 123.1733 260.0789L268.84 260.0789 255.12 217.0131C255.12 217.0131 149.5467 155.5921 244.0133 123.4342"/>
                 </svg>
                 <span>CurseForge</span>
-                {selectedProvider === 'curseforge' && (
-                  <span className={'w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse ml-0.5'} />
-                )}
               </button>
             </div>
 
