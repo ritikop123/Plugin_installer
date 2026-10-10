@@ -289,7 +289,7 @@ class ModpackInstallerController extends ClientApiController
         ];
 
         try {
-            $response = $this->httpClient->get('tag/category');
+            $response = $this->httpClient->get(self::MODRINTH_API . 'tag/category');
             if ($response->getStatusCode() === 200) {
                 $allCats = json_decode($response->getBody()->getContents(), true);
                 if (is_array($allCats)) {
@@ -454,7 +454,7 @@ class ModpackInstallerController extends ClientApiController
         } else {
             try {
                 // 1. Fetch version metadata from Modrinth
-                $verRes = $this->httpClient->get("version/{$versionId}");
+                $verRes = $this->httpClient->get(self::MODRINTH_API . "version/{$versionId}");
                 if ($verRes->getStatusCode() === 200) {
                     $verData = json_decode($verRes->getBody()->getContents(), true);
                     $files = $verData['files'] ?? [];
@@ -478,6 +478,7 @@ class ModpackInstallerController extends ClientApiController
             return response()->json(['error' => 'No valid modpack archive (.mrpack or .zip) found for this version.'], 400);
         }
 
+        try {
             // 2. Perform Wipe if requested
             if ($wipeMode === 'full_server') {
                 if ($request->user()->can(Permission::ACTION_FILE_DELETE, $server)) {

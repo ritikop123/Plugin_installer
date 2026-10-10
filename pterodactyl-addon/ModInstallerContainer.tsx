@@ -167,8 +167,9 @@ export default function ModInstallerContainer() {
   };
 
   const getModSourceUrl = (mod: ModrinthModHit): { url: string; label: string } => {
-    const slug = mod.slug || mod.project_id || mod.id;
-    if (selectedProvider === 'curseforge') {
+    const provider = (mod as any).provider || selectedProvider;
+    const slug = mod.slug || mod.project_id || mod.id || '';
+    if (provider === 'curseforge') {
       return {
         url: `https://www.curseforge.com/minecraft/mc-mods/${slug}`,
         label: 'CurseForge',

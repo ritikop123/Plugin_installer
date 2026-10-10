@@ -418,8 +418,9 @@ export default function ModpackInstallerContainer() {
   };
 
   const getModpackSourceUrl = (modpack: ModpackHit): { url: string; label: string } => {
-    const slug = modpack.slug || modpack.project_id || modpack.id;
-    if (selectedProvider === 'curseforge') {
+    const provider = (modpack as any).provider || selectedProvider;
+    const slug = modpack.slug || modpack.project_id || modpack.id || '';
+    if (provider === 'curseforge') {
       return {
         url: `https://www.curseforge.com/minecraft/modpacks/${slug}`,
         label: 'CurseForge',
