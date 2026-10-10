@@ -40,6 +40,11 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PluginInstallerContainer.ts
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx
 
+echo -e "\033[0;32m[+] Updating ServerExpiryCard component & auto-suspend / build config patches...\033[0m"
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerExpiryCard.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerExpiryCard.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_suspend.php
+php /tmp/ptero_patch_auto_suspend.php || true
+
 echo -e "\033[0;32m[+] Updating ServerSupportId component & top bar injection...\033[0m"
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSupportId.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerSupportId.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php

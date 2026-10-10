@@ -143,7 +143,7 @@ PATCH;
     }
 }
 
-// Patch 5: app/Http/Controllers/Admin/ServersController.php (Server Details update)
+// Patch 5: app/Http/Controllers/Admin/ServersController.php (Server Details & Build update)
 $serversCtrlFile = "app/Http/Controllers/Admin/ServersController.php";
 if (file_exists($serversCtrlFile)) {
     $c = file_get_contents($serversCtrlFile);
@@ -181,16 +181,28 @@ if (file_exists($serversCtrlFile)) {
 PATCH;
     if (preg_match('/(\$this->detailsModificationService->handle\([\s\S]*?\);\s*)/', $c, $m)) {
         $c = str_replace($m[1], $m[1] . $patch, $c);
-        file_put_contents($serversCtrlFile, $c);
     }
+    // Also patch updateBuild if it exists within ServersController.php
+    if (preg_match('/(\$this->buildModificationService->handle\([\s\S]*?\);\s*)/', $c, $m)) {
+        $c = str_replace($m[1], $m[1] . $patch, $c);
+    } elseif (strpos($c, "alerts.build_updated") !== false) {
+        $c = preg_replace('/(\$this->alert->success\(trans\(\x27admin\/server\.alerts\.build_updated\x27\)\)->flash\(\);\s*)/', $patch . "        $1", $c, 1);
+    }
+    file_put_contents($serversCtrlFile, $c);
 }
 
-// Patch 5b: app/Http/Controllers/Admin/Servers/ServerBuildController.php (Server Build update)
-$buildCtrlFile = "app/Http/Controllers/Admin/Servers/ServerBuildController.php";
-if (file_exists($buildCtrlFile)) {
-    $c = file_get_contents($buildCtrlFile);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO SUSPENSION START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO SUSPENSION END\s*<<<\s*\*\/\s*/s", "", $c);
-    $patch = <<<'PATCH'
+// Patch 5b: ServerBuildController.php (Check both app/Http/Controllers/Admin/Servers and app/Http/Controllers/Admin/Server)
+$buildFiles = [
+    "app/Http/Controllers/Admin/Servers/ServerBuildController.php",
+    "app/Http/Controllers/Admin/Server/ServerBuildController.php",
+    "app/Http/Controllers/Admin/Servers/BuildController.php",
+];
+
+foreach ($buildFiles as $buildCtrlFile) {
+    if (file_exists($buildCtrlFile)) {
+        $c = file_get_contents($buildCtrlFile);
+        $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO SUSPENSION START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO SUSPENSION END\s*<<<\s*\*\/\s*/s", "", $c);
+        $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
         if ($request->has("expire_at")) {
             try {
@@ -221,12 +233,16 @@ if (file_exists($buildCtrlFile)) {
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
-    if (preg_match('/(\$this->buildModificationService->handle\([\s\S]*?\);\s*)/', $c, $m)) {
-        $c = str_replace($m[1], $m[1] . $patch, $c);
-        file_put_contents($buildCtrlFile, $c);
-    } elseif (strpos($c, "alerts.build_updated") !== false) {
-        $c = preg_replace('/(\$this->alert->success\(trans\(\x27admin\/server\.alerts\.build_updated\x27\)\)->flash\(\);\s*)/', $patch . "        $1", $c, 1);
-        file_put_contents($buildCtrlFile, $c);
+        if (preg_match('/(\$this->buildModificationService->handle\([\s\S]*?\);\s*)/', $c, $m)) {
+            $c = str_replace($m[1], $m[1] . $patch, $c);
+            file_put_contents($buildCtrlFile, $c);
+        } elseif (strpos($c, "alerts.build_updated") !== false) {
+            $c = preg_replace('/(\$this->alert->success\(trans\(\x27admin\/server\.alerts\.build_updated\x27\)\)->flash\(\);\s*)/', $patch . "        $1", $c, 1);
+            file_put_contents($buildCtrlFile, $c);
+        } elseif (preg_match('/(\$this->alert->success\([^\n]+\)->flash\(\);\s*)/', $c, $m)) {
+            $c = str_replace($m[1], $patch . "        " . $m[1], $c);
+            file_put_contents($buildCtrlFile, $c);
+        }
     }
 }
 

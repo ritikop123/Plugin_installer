@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { ServerContext } from "@/state/server";
 import http from "@/api/http";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -357,34 +358,44 @@ const ServerExpiryCard: React.FC = () => {
                 </div>
             )}
 
-            {/* Admin Quick Edit Modal */}
-            {editModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-[#1e232d] border border-neutral-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+            {/* Admin Quick Edit Modal (Portal to body to prevent overflow/backdrop glitches) */}
+            {editModalOpen && typeof document !== "undefined" && createPortal(
+                <div
+                    className="fixed inset-0 w-screen h-screen z-[999999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto"
+                    style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget && !saving) setEditModalOpen(false);
+                    }}
+                >
+                    <div
+                        className="bg-[#181c24] border border-neutral-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col my-auto relative z-10"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {/* Modal Header */}
-                        <div className="flex items-center justify-between px-5 py-4 bg-[#171b23] border-b border-neutral-800">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-arix/20 text-arix flex items-center justify-center">
-                                    <FontAwesomeIcon icon={faEdit} className="text-sm" />
+                        <div className="flex items-center justify-between px-6 py-4 bg-[#12151b] border-b border-neutral-800">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-[#034f80]/25 text-[#38bdf8] flex items-center justify-center border border-[#034f80]/40">
+                                    <FontAwesomeIcon icon={faEdit} className="text-base" />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-bold text-white">Edit Server Plan & Expiration</h3>
-                                    <p className="text-xs text-gray-400">Configure billing and suspension details (Admin Only)</p>
+                                    <h3 className="text-base font-bold text-white leading-tight">Edit Server Plan & Expiration</h3>
+                                    <p className="text-xs text-gray-400 mt-0.5">Configure billing and suspension details (Admin Only)</p>
                                 </div>
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setEditModalOpen(false)}
-                                className="text-gray-400 hover:text-white p-1.5 rounded-lg transition-colors"
+                                onClick={() => !saving && setEditModalOpen(false)}
+                                disabled={saving}
+                                className="text-gray-400 hover:text-white p-1.5 rounded-lg transition-colors disabled:opacity-50"
                             >
                                 <FontAwesomeIcon icon={faTimes} className="text-lg" />
                             </button>
                         </div>
 
                         {/* Modal Body Form */}
-                        <form onSubmit={handleSavePlan} className="p-5 space-y-4">
+                        <form onSubmit={handleSavePlan} className="p-6 space-y-4">
                             {saveError && (
-                                <div className="p-3 bg-red-500/15 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2">
+                                <div className="p-3 bg-red-500/15 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2.5">
                                     <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 shrink-0" />
                                     <span>{saveError}</span>
                                 </div>
@@ -399,7 +410,7 @@ const ServerExpiryCard: React.FC = () => {
                                     value={editPlanName}
                                     onChange={(e) => setEditPlanName(e.target.value)}
                                     placeholder="e.g. Starter 4GB, Diamond VIP (Leave empty for N/A)"
-                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
+                                    className="w-full bg-[#0d1017] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#034f80] transition-colors placeholder:text-gray-500"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
                                     Custom plan tier title shown on the dashboard (shows N/A if empty).
@@ -415,7 +426,7 @@ const ServerExpiryCard: React.FC = () => {
                                     value={editPlanPrice}
                                     onChange={(e) => setEditPlanPrice(e.target.value)}
                                     placeholder="e.g. $10.00/mo, ₹499/mo, Free (Leave empty for N/A)"
-                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors placeholder:text-gray-500"
+                                    className="w-full bg-[#0d1017] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#034f80] transition-colors placeholder:text-gray-500"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
                                     Billing rate shown on the card (shows N/A if empty).
@@ -430,7 +441,7 @@ const ServerExpiryCard: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setEditExpireAt("")}
-                                        className="text-xs text-arix hover:underline flex items-center gap-1 font-medium"
+                                        className="text-xs text-[#38bdf8] hover:underline flex items-center gap-1 font-medium"
                                     >
                                         <FontAwesomeIcon icon={faInfinity} className="text-xs" />
                                         <span>Set Lifetime (No Expiry)</span>
@@ -440,7 +451,7 @@ const ServerExpiryCard: React.FC = () => {
                                     type="datetime-local"
                                     value={editExpireAt}
                                     onChange={(e) => setEditExpireAt(e.target.value)}
-                                    className="w-full bg-[#12161f] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-arix transition-colors [color-scheme:dark]"
+                                    className="w-full bg-[#0d1017] border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#034f80] transition-colors [color-scheme:dark]"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">
                                     Automated suspension triggers on this date. Clear or leave empty for permanent lifetime server.
@@ -460,7 +471,7 @@ const ServerExpiryCard: React.FC = () => {
                                 <button
                                     type="submit"
                                     disabled={saving}
-                                    className="px-5 py-2 rounded-xl text-xs font-semibold bg-arix hover:bg-arix/90 text-white transition-all shadow flex items-center gap-2 disabled:opacity-50"
+                                    className="px-5 py-2 rounded-xl text-xs font-semibold bg-[#034f80] hover:bg-[#034f80]/85 text-white transition-all shadow flex items-center gap-2 disabled:opacity-50"
                                 >
                                     {saving ? (
                                         <>
@@ -477,7 +488,8 @@ const ServerExpiryCard: React.FC = () => {
                             </div>
                         </form>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
