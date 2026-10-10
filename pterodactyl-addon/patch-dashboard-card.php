@@ -287,7 +287,7 @@ foreach ($topBarFiles as $filePath) {
         $matchedBlock = $m[1][0];
         $insertPos = $m[1][1] + strlen($matchedBlock);
 
-        $supportIdJsx = "\n                        <ServerSupportId className={'hidden md:flex ml-2'} />";
+        $supportIdJsx = "\n                        <ServerSupportId className={'hidden md:flex'} />";
         $c = substr($c, 0, $insertPos) . $supportIdJsx . substr($c, $insertPos);
 
         // Add clean import at the top
