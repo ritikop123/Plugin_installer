@@ -774,10 +774,14 @@ fetch_addon_file "ServerExpiryBadge.tsx" "resources/scripts/components/server/Se
 fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/dashboard/ServerUptime.tsx"
 fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/server/ServerUptime.tsx"
 fetch_addon_file "ServerSupportId.tsx" "resources/scripts/components/server/ServerSupportId.tsx"
+fetch_addon_file "AdminSupportIdSearch.tsx" "resources/scripts/components/dashboard/AdminSupportIdSearch.tsx"
 
-# Ensure OptionsController.php is downloaded (powers /subscription endpoint)
+# Ensure OptionsController.php and SupportLookupController.php are downloaded
 mkdir -p "app/Http/Controllers/Api/Client/Servers"
+mkdir -p "app/Http/Controllers/Api/Client"
 fetch_addon_file "OptionsController.php" "app/Http/Controllers/Api/Client/Servers/OptionsController.php"
+fetch_addon_file "SupportLookupController.php" "app/Http/Controllers/Api/Client/SupportLookupController.php"
+
 
 # Run database migration
 echo -e "${CYAN}[*] Running database migrations for auto-suspension, plan details, and server support IDs...${NC}"

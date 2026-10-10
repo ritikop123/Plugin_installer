@@ -45,13 +45,18 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerExpiryCard.tsx?t=${CA
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_suspend.php
 php /tmp/ptero_patch_auto_suspend.php || true
 
-echo -e "\033[0;32m[+] Updating ServerSupportId component & top bar injection...\033[0m"
+echo -e "\033[0;32m[+] Updating ServerSupportId, AdminSupportIdSearch & SupportLookupController...\033[0m"
+mkdir -p resources/scripts/components/dashboard
+mkdir -p app/Http/Controllers/Api/Client
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSupportId.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerSupportId.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=${CACHE_BUST}" -o resources/scripts/components/dashboard/AdminSupportIdSearch.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SupportLookupController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/SupportLookupController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-dashboard-card.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_dashboard_card.php
 
 php /tmp/ptero_patch_support_id.php || true
 php /tmp/ptero_patch_dashboard_card.php || true
+
 
 echo -e "\033[0;32m[+] Updating existing database support IDs to 6 characters (SUP-XXXXXX)...\033[0m"
 php artisan tinker --execute="

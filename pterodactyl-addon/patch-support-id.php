@@ -215,4 +215,18 @@ if (file_put_contents($getServerFile, $content) === false) {
     exit(1);
 }
 
+$routesFile = 'routes/api-client.php';
+if (file_exists($routesFile)) {
+    $c = file_get_contents($routesFile);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX SUPPORT LOOKUP START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SUPPORT LOOKUP END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/Route::get\(\x27\/support-lookup\x27,.*?\);\s*/s', '', $c);
+
+    $lookupRoute = "\n/* >>> ARIX SUPPORT LOOKUP START >>> */\nRoute::get('/support-lookup', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\SupportLookupController::class, 'index']);\n/* <<< ARIX SUPPORT LOOKUP END <<< */\n";
+
+    $c = rtrim($c) . $lookupRoute;
+    file_put_contents($routesFile, $c);
+    echo "[✓] Support lookup route registered in routes/api-client.php\n";
+}
+
 echo "[+] Support ID generation, display, and admin search are installed.\n";
+
