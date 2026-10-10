@@ -143,7 +143,7 @@ const AdminSupportIdSearch: React.FC<Props> = ({ className = '' }) => {
                         }
                     }}
                     onKeyDown={handleKeyDown}
-                    placeholder="Search Support ID (SUP-...)"
+                    placeholder="Search Support ID..."
                     className="w-full bg-transparent text-xs sm:text-sm text-neutral-100 placeholder-neutral-400 focus:outline-none"
                     autoComplete="off"
                     spellCheck={false}
@@ -185,11 +185,6 @@ const AdminSupportIdSearch: React.FC<Props> = ({ className = '' }) => {
                         </svg>
                     </button>
                 )}
-
-                {/* Admin Pill */}
-                <span className="hidden md:inline-flex items-center text-[10px] font-bold uppercase tracking-wider text-[#38bdf8] bg-[#034f80]/30 border border-[#034f80]/60 px-1.5 py-0.5 rounded ml-2 shrink-0 select-none">
-                    Admin
-                </span>
             </div>
 
             {/* Dropdown Results */}
