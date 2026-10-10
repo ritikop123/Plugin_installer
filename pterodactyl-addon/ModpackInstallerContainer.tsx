@@ -417,6 +417,20 @@ export default function ModpackInstallerContainer() {
     return installedManifest?.project_id === id;
   };
 
+  const getModpackSourceUrl = (modpack: ModpackHit): { url: string; label: string } => {
+    const slug = modpack.slug || modpack.project_id || modpack.id;
+    if (selectedProvider === 'curseforge') {
+      return {
+        url: `https://www.curseforge.com/minecraft/modpacks/${slug}`,
+        label: 'CurseForge',
+      };
+    }
+    return {
+      url: `https://modrinth.com/modpack/${slug}`,
+      label: 'Modrinth',
+    };
+  };
+
   return (
     <ServerContentBlock title={'Minecraft Modpacks Installer'}>
       <div className={'my-6'}>
@@ -438,7 +452,7 @@ export default function ModpackInstallerContainer() {
               onClick={() => setActiveTab('catalog')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
                 activeTab === 'catalog'
-                  ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
+                  ? 'bg-[#034f80] text-white shadow-lg shadow-[#034f80]/30'
                   : 'text-neutral-400 hover:text-neutral-200'
               }`}
             >
@@ -452,7 +466,7 @@ export default function ModpackInstallerContainer() {
               }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
                 activeTab === 'installed'
-                  ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
+                  ? 'bg-[#034f80] text-white shadow-lg shadow-[#034f80]/30'
                   : 'text-neutral-400 hover:text-neutral-200'
               }`}
             >
@@ -660,42 +674,61 @@ export default function ModpackInstallerContainer() {
                 {modpacks.map((modpack) => {
                   const currentlyInstalled = isInstalled(modpack);
                   const cardId = modpack.project_id || modpack.id || modpack.slug;
+                  const source = getModpackSourceUrl(modpack);
                   return (
                     <div
                       key={cardId}
                       className={'bg-neutral-800/60 backdrop-blur-md border border-neutral-700/60 hover:border-cyan-500/50 rounded-xl p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-xl hover:shadow-cyan-500/10'}
                     >
                       <div>
-                        {/* Card Header: Icon & Titles */}
-                        <div className={'flex items-start gap-4 mb-3'}>
-                          {modpack.icon_url ? (
-                            <img
-                              src={modpack.icon_url}
-                              alt={modpack.title}
-                              className={'w-14 h-14 rounded-xl object-cover bg-neutral-900/60 border border-neutral-700/60 shrink-0'}
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className={'w-14 h-14 rounded-xl bg-neutral-900/80 border border-neutral-700/60 flex items-center justify-center text-cyan-400 text-xl shrink-0'}>
-                              <FontAwesomeIcon icon={faLayerGroup} />
-                            </div>
-                          )}
+                        {/* Card Header: Icon, Titles & Source Redirect */}
+                        <div className={'flex items-start justify-between gap-3 mb-3'}>
+                          <div className={'flex items-start gap-3.5 min-w-0 flex-1'}>
+                            {modpack.icon_url ? (
+                              <img
+                                src={modpack.icon_url}
+                                alt={modpack.title}
+                                className={'w-14 h-14 rounded-xl object-cover bg-neutral-900/60 border border-neutral-700/60 shrink-0'}
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className={'w-14 h-14 rounded-xl bg-neutral-900/80 border border-neutral-700/60 flex items-center justify-center text-cyan-400 text-xl shrink-0'}>
+                                <FontAwesomeIcon icon={faLayerGroup} />
+                              </div>
+                            )}
 
-                          <div className={'flex-1 min-w-0'}>
-                            <h3 className={'font-bold text-neutral-100 text-base leading-snug truncate'}>
-                              {modpack.title}
-                            </h3>
-                            <p className={'text-xs text-neutral-400 mt-0.5'}>by {modpack.author}</p>
-                            <div className={'flex items-center gap-3 text-xs text-neutral-400 mt-1'}>
-                              <span>
-                                <FontAwesomeIcon icon={faDownload} className={'text-cyan-400 mr-1 text-[10px]'} />
-                                {formatNumber(modpack.downloads || 0)}
-                              </span>
-                              <span>★ {formatNumber(modpack.follows || 0)}</span>
+                            <div className={'flex-1 min-w-0'}>
+                              <h3 className={'font-bold text-neutral-100 text-base leading-snug truncate'}>
+                                {modpack.title}
+                              </h3>
+                              <p className={'text-xs text-neutral-400 mt-0.5'}>by {modpack.author}</p>
+                              <div className={'flex items-center gap-3 text-xs text-neutral-400 mt-1'}>
+                                <span>
+                                  <FontAwesomeIcon icon={faDownload} className={'text-cyan-400 mr-1 text-[10px]'} />
+                                  {formatNumber(modpack.downloads || 0)}
+                                </span>
+                                <span>★ {formatNumber(modpack.follows || 0)}</span>
+                              </div>
                             </div>
                           </div>
+
+                          {/* Source Website Redirect Button */}
+                          <a
+                            href={source.url}
+                            target={'_blank'}
+                            rel={'noopener noreferrer'}
+                            className={'p-2 rounded-lg text-neutral-400 hover:text-cyan-300 bg-neutral-900/70 hover:bg-neutral-800 border border-neutral-700/60 hover:border-cyan-500/50 transition-all duration-200 shrink-0 group'}
+                            title={`View on ${source.label}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <svg className={'w-3.5 h-3.5 group-hover:scale-110 transition-transform'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                          </a>
                         </div>
 
                         {/* Description */}
@@ -729,7 +762,7 @@ export default function ModpackInstallerContainer() {
                             <div className={'flex items-center gap-2'}>
                               <button
                                 onClick={() => openInstallModal(modpack)}
-                                className={'px-3 py-1.5 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-xs font-medium rounded-lg transition-colors'}
+                                className={'px-3 py-1.5 bg-[#034f80]/40 hover:bg-[#034f80]/70 border border-[#034f80]/60 text-blue-100 text-xs font-medium rounded-lg transition-colors'}
                               >
                                 Reinstall
                               </button>
@@ -746,7 +779,7 @@ export default function ModpackInstallerContainer() {
                         ) : (
                           <button
                             onClick={() => openInstallModal(modpack)}
-                            className={'w-full py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center gap-2'}
+                            className={'w-full py-2 bg-[#034f80] hover:bg-[#023e65] text-white text-xs font-semibold rounded-lg shadow-lg shadow-[#034f80]/30 transition-all flex items-center justify-center gap-2'}
                           >
                             <FontAwesomeIcon icon={faDownload} />
                             Install Modpack
@@ -873,7 +906,7 @@ export default function ModpackInstallerContainer() {
                 </p>
                 <button
                   onClick={() => setActiveTab('catalog')}
-                  className={'mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg transition-colors'}
+                  className={'mt-4 px-4 py-2 bg-[#034f80] hover:bg-[#023e65] text-white text-xs font-semibold rounded-lg shadow-md shadow-[#034f80]/30 transition-colors'}
                 >
                   Browse Modpacks
                 </button>
@@ -1079,7 +1112,7 @@ export default function ModpackInstallerContainer() {
                     <button
                       onClick={startInstallation}
                       disabled={!selectedVersionId || loadingVersions}
-                      className={'px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-md shadow-cyan-500/20 transition-all flex items-center gap-1.5'}
+                      className={'px-4 py-1.5 bg-[#034f80] hover:bg-[#023e65] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-md shadow-[#034f80]/30 transition-all flex items-center gap-1.5'}
                     >
                       <FontAwesomeIcon icon={faDownload} />
                       Install Now
