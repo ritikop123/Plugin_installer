@@ -775,6 +775,9 @@ fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/dashboard/Serv
 fetch_addon_file "ServerUptime.tsx" "resources/scripts/components/server/ServerUptime.tsx"
 fetch_addon_file "ServerSupportId.tsx" "resources/scripts/components/server/ServerSupportId.tsx"
 fetch_addon_file "AdminSupportIdSearch.tsx" "resources/scripts/components/dashboard/AdminSupportIdSearch.tsx"
+mkdir -p "resources/scripts/components/dashboard/dashboard"
+cp "resources/scripts/components/dashboard/AdminSupportIdSearch.tsx" "resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx" 2>/dev/null || true
+
 
 # Ensure OptionsController.php and SupportLookupController.php are downloaded
 mkdir -p "app/Http/Controllers/Api/Client/Servers"

@@ -303,99 +303,116 @@ foreach ($topBarFiles as $filePath) {
 // --------------------------------------------------------------------------------------
 // PART 4: Injects AdminSupportIdSearch into Dashboard Welcome Card Banner (Admin Only)
 // --------------------------------------------------------------------------------------
+$knownDashboardFiles = [
+    "resources/scripts/components/dashboard/dashboard/DashboardContainer.tsx",
+    "resources/scripts/components/dashboard/DashboardContainer.tsx",
+];
+
 $dashScanDirs = [
     "resources/scripts/components/dashboard",
     "resources/scripts/components/arix",
     "resources/scripts/routers",
 ];
 
-$checkedDashFiles = [];
-$injectedSearch = false;
-
+// Step 1: Clean up ALL previous search patches across all dashboard files
+$checkedClean = [];
 foreach ($dashScanDirs as $dir) {
     if (!is_dir($dir)) continue;
-
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
     foreach ($iterator as $file) {
         if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
-            $filePath = realpath($file->getPathname()) ?: $file->getPathname();
-            if (isset($checkedDashFiles[$filePath])) continue;
-            $checkedDashFiles[$filePath] = true;
+            $fp = realpath($file->getPathname()) ?: $file->getPathname();
+            if (isset($checkedClean[$fp])) continue;
+            $checkedClean[$fp] = true;
+            if (strpos($fp, "AdminSupportIdSearch.tsx") !== false) continue;
 
-            if (strpos($filePath, "AdminSupportIdSearch.tsx") !== false) continue;
-            if (strpos($filePath, "ServerSupportId.tsx") !== false) continue;
-            if (strpos($filePath, "ServerExpiryCard.tsx") !== false) continue;
-            if (strpos($filePath, "ServerExpiryBadge.tsx") !== false) continue;
-
-            $c = file_get_contents($filePath);
+            $c = file_get_contents($fp);
             $orig = $c;
-
-            // Clean up any existing search patches
             $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX ADMIN SUPPORT SEARCH START[\s\S]*?ARIX ADMIN SUPPORT SEARCH END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
             $c = preg_replace("/\/\*\s*>>>\s*ARIX ADMIN SUPPORT SEARCH START[\s\S]*?ARIX ADMIN SUPPORT SEARCH END\s*<<<\s*\*\/\s*/s", "", $c);
             $c = preg_replace("/<AdminSupportIdSearch[^>]*\/>\s*/s", "", $c);
             $c = preg_replace("/import\s+AdminSupportIdSearch\s+from\s+[^;]+;\s*/s", "", $c);
-
-            // Check if this file is the dashboard welcome banner or container
-            $hasWelcomeText = (
-                stripos($c, "Welcome back") !== false ||
-                stripos($c, "Here you can see all the servers") !== false
-            );
-            $hasToggle = (
-                stripos($c, "SHOWING YOUR SERVERS") !== false ||
-                stripos($c, "Showing your servers") !== false ||
-                strpos($c, "show_all_servers") !== false ||
-                strpos($c, "showOnlyAdmin") !== false
-            );
-
-            if (($hasWelcomeText || $hasToggle) && !$injectedSearch) {
-                $searchJsx = <<<'SEARCH_JSX'
-{/* >>> ARIX ADMIN SUPPORT SEARCH START >>> */}
-                <div className={'flex-1 max-w-sm md:max-w-md mx-2 md:mx-4'}>
-                    <AdminSupportIdSearch />
-                </div>
-                {/* <<< ARIX ADMIN SUPPORT SEARCH END <<< */}
-SEARCH_JSX;
-
-                $injected = false;
-
-                // Priority 1: Arix theme "SHOWING YOUR SERVERS" toggle container
-                if (preg_match('/(<div[^>]*>[\s\S]*?SHOWING YOUR SERVERS[\s\S]*?<\/div>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-                    $pos = $m[1][1];
-                    $c = substr($c, 0, $pos) . $searchJsx . "\n                " . substr($c, $pos);
-                    $injected = true;
-                    echo "[✓] Injected AdminSupportIdSearch before 'SHOWING YOUR SERVERS' in $filePath\n";
-                } elseif (preg_match('/(<div[^>]*>[\s\S]*?Showing your servers[\s\S]*?<\/div>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-                    $pos = $m[1][1];
-                    $c = substr($c, 0, $pos) . $searchJsx . "\n                " . substr($c, $pos);
-                    $injected = true;
-                    echo "[✓] Injected AdminSupportIdSearch before toggle div in $filePath\n";
-                } elseif (preg_match('/(\{rootAdmin\s*&&\s*\(?\s*<div[^>]*justify-end[^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-                    $matched = $m[1][0];
-                    $replaced = preg_replace('/justify-end/', 'justify-between', $matched);
-                    $pos = $m[1][1];
-                    $len = strlen($matched);
-                    $c = substr($c, 0, $pos) . $replaced . "\n                    " . $searchJsx . substr($c, $pos + $len);
-                    $injected = true;
-                    echo "[✓] Injected AdminSupportIdSearch into rootAdmin flex container in $filePath\n";
-                } elseif (preg_match('/(<Switch[^>]*name=[\x27\x22]show_all_servers[\x27\x22][^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-                    $pos = $m[1][1];
-                    $c = substr($c, 0, $pos) . $searchJsx . "\n                " . substr($c, $pos);
-                    $injected = true;
-                    echo "[✓] Injected AdminSupportIdSearch before show_all_servers Switch in $filePath\n";
-                }
-
-                if ($injected) {
-                    // Ensure import at top
-                    if (strpos($c, "import AdminSupportIdSearch") === false) {
-                        $c = "import AdminSupportIdSearch from '@/components/dashboard/AdminSupportIdSearch';\n" . $c;
-                    }
-                    file_put_contents($filePath, $c);
-                    $injectedSearch = true;
-                }
-            } elseif ($c !== $orig) {
-                file_put_contents($filePath, $c);
+            if ($c !== $orig) {
+                file_put_contents($fp, $c);
             }
         }
     }
 }
+
+// Step 2: Build candidate list, placing known Arix files FIRST
+$candidateFiles = [];
+foreach ($knownDashboardFiles as $kf) {
+    if (file_exists($kf)) {
+        $candidateFiles[] = realpath($kf) ?: $kf;
+    }
+}
+foreach ($dashScanDirs as $dir) {
+    if (!is_dir($dir)) continue;
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+    foreach ($iterator as $file) {
+        if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
+            $fp = realpath($file->getPathname()) ?: $file->getPathname();
+            if (!in_array($fp, $candidateFiles) && strpos($fp, "AdminSupportIdSearch.tsx") === false) {
+                $candidateFiles[] = $fp;
+            }
+        }
+    }
+}
+
+$searchJsx = <<<'SEARCH_JSX'
+{/* >>> ARIX ADMIN SUPPORT SEARCH START >>> */}
+                    <AdminSupportIdSearch className={'flex-1 max-w-sm md:max-w-md mx-4'} />
+                    {/* <<< ARIX ADMIN SUPPORT SEARCH END <<< */}
+SEARCH_JSX;
+
+$injectedSearch = false;
+foreach ($candidateFiles as $filePath) {
+    if ($injectedSearch) break;
+    $c = file_get_contents($filePath);
+
+    // Check if this file has the Arix welcome card (translation keys)
+    $hasArixWelcome = (
+        strpos($c, "welcome-back") !== false ||
+        strpos($c, "all-servers-you-have-access-to") !== false
+    );
+
+    if ($hasArixWelcome) {
+        // Priority 1A: Insert right after the welcome text div, before {rootAdmin && (
+        if (preg_match('/(<div>\s*<p[^>]*>\{t\([\x27\x22]welcome-back[\x27\x22]\)\}<\/p>[\s\S]*?<\/div>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+            $target = $m[1][0];
+            $pos = $m[1][1] + strlen($target);
+            $c = substr($c, 0, $pos) . "\n" . $searchJsx . substr($c, $pos);
+            $injectedSearch = true;
+            echo "[✓] Injected AdminSupportIdSearch after welcome text div in $filePath\n";
+        } elseif (preg_match('/(<p[^>]*>\{t\([\x27\x22]all-servers-you-have-access-to[\x27\x22]\)\}<\/p>\s*<\/div>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+            $target = $m[1][0];
+            $pos = $m[1][1] + strlen($target);
+            $c = substr($c, 0, $pos) . "\n" . $searchJsx . substr($c, $pos);
+            $injectedSearch = true;
+            echo "[✓] Injected AdminSupportIdSearch after all-servers-you-have-access-to in $filePath\n";
+        }
+    }
+
+    if (!$injectedSearch) {
+        // Priority 2: Fallback for literal text or toggle
+        if (preg_match('/(<div[^>]*>[\s\S]*?SHOWING YOUR SERVERS[\s\S]*?<\/div>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+            $pos = $m[1][1];
+            $c = substr($c, 0, $pos) . $searchJsx . "\n                    " . substr($c, $pos);
+            $injectedSearch = true;
+            echo "[✓] Injected AdminSupportIdSearch before SHOWING YOUR SERVERS in $filePath\n";
+        } elseif (preg_match('/(\{rootAdmin\s*&&\s*\(\s*<div[^>]*justify-end[^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+            $pos = $m[1][1];
+            $c = substr($c, 0, $pos) . $searchJsx . "\n                    " . substr($c, $pos);
+            $injectedSearch = true;
+            echo "[✓] Injected AdminSupportIdSearch before rootAdmin toggle in $filePath\n";
+        }
+    }
+
+    if ($injectedSearch) {
+        if (strpos($c, "import AdminSupportIdSearch") === false) {
+            $c = "import AdminSupportIdSearch from '@/components/dashboard/AdminSupportIdSearch';\n" . $c;
+        }
+        file_put_contents($filePath, $c);
+    }
+}
+

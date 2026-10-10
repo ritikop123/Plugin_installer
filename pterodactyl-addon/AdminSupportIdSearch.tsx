@@ -29,13 +29,9 @@ const AdminSupportIdSearch: React.FC<Props> = ({ className = '' }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // If not root admin, do not render anything
-    if (!rootAdmin) {
-        return null;
-    }
-
     // Debounced search
     useEffect(() => {
+        if (!rootAdmin) return;
         const trimmed = query.trim();
         if (!trimmed) {
             setResults([]);
@@ -63,7 +59,8 @@ const AdminSupportIdSearch: React.FC<Props> = ({ className = '' }) => {
         }, 250);
 
         return () => clearTimeout(timer);
-    }, [query]);
+    }, [query, rootAdmin]);
+
 
     // Click outside listener
     useEffect(() => {
@@ -111,6 +108,10 @@ const AdminSupportIdSearch: React.FC<Props> = ({ className = '' }) => {
         setIsOpen(false);
         inputRef.current?.focus();
     };
+
+    if (!rootAdmin) {
+        return null;
+    }
 
     return (
         <div ref={containerRef} className={`relative w-full ${className}`}>
