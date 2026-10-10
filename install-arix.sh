@@ -851,6 +851,9 @@ if [ -f "$WRAPPER_FILE" ]; then
   touch "$WRAPPER_FILE" 2>/dev/null || true
 fi
 
+# Configure cron jobs for schedule:run and midnight auto-suspend check
+(crontab -l 2>/dev/null | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend'; echo "* * * * * php $PTERO_DIR/artisan schedule:run >> /dev/null 2>&1"; echo "0 0 * * * php $PTERO_DIR/artisan ptero:auto-suspend >> /dev/null 2>&1") | crontab - 2>/dev/null || true
+
 chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
 
 # Turn off rollback trap on success

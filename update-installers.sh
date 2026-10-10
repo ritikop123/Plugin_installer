@@ -41,9 +41,16 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModInstallerContainer.tsx?t
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx
 
 echo -e "\033[0;32m[+] Updating ServerExpiryCard component & auto-suspend / build config patches...\033[0m"
+mkdir -p app/Console/Commands
+mkdir -p app/Notifications
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoSuspendServersCommand.php?t=${CACHE_BUST}" -o app/Console/Commands/AutoSuspendServersCommand.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" -o app/Notifications/ServerSuspensionWarningNotification.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerExpiryCard.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerExpiryCard.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_suspend.php
 php /tmp/ptero_patch_auto_suspend.php || true
+
+# Ensure system cron runs artisan schedule:run every minute and ptero:auto-suspend directly
+(crontab -l 2>/dev/null | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend'; echo "* * * * * php $PTERO_DIR/artisan schedule:run >> /dev/null 2>&1"; echo "0 0 * * * php $PTERO_DIR/artisan ptero:auto-suspend >> /dev/null 2>&1") | crontab - 2>/dev/null || true
 
 echo -e "\033[0;32m[+] Updating ServerSupportId, AdminSupportIdSearch & SupportLookupController...\033[0m"
 mkdir -p resources/scripts/components/dashboard
