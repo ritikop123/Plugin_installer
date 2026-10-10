@@ -416,3 +416,35 @@ foreach ($candidateFiles as $filePath) {
     }
 }
 
+// --------------------------------------------------------------------------------------
+// PART 5: Injects ServerUptime into ServerContentBlock header next to Console title
+// --------------------------------------------------------------------------------------
+$contentBlockFile = "resources/scripts/components/elements/ServerContentBlock.tsx";
+if (file_exists($contentBlockFile)) {
+    $c = file_get_contents($contentBlockFile);
+
+    // Clean up previous patch
+    $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX SERVER UPTIME START[\s\S]*?ARIX SERVER UPTIME END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX SERVER UPTIME START[\s\S]*?ARIX SERVER UPTIME END\s*<<<\s*\*\/\s*/s", "", $c);
+    $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
+    $c = preg_replace("/import\s+ServerUptime\s+from\s+[^;]+;\s*/s", "", $c);
+
+    // Match <p className={'text-lg font-medium text-gray-300'}>{title}</p>
+    $pattern = '/(<p[^>]*>\{title\}<\/p>)/';
+    if (preg_match($pattern, $c, $m, PREG_OFFSET_CAPTURE)) {
+        $matched = $m[1][0];
+        $pos = $m[1][1] + strlen($matched);
+
+        $uptimeJsx = "\n                    {/* >>> ARIX SERVER UPTIME START >>> */}\n                    <ServerUptime className={'ml-2'} />\n                    {/* <<< ARIX SERVER UPTIME END <<< */}";
+        $c = substr($c, 0, $pos) . $uptimeJsx . substr($c, $pos);
+
+        if (strpos($c, "import ServerUptime") === false) {
+            $c = "import ServerUptime from '@/components/server/ServerUptime';\n" . $c;
+        }
+
+        file_put_contents($contentBlockFile, $c);
+        echo "[✓] Injected ServerUptime next to Console title in $contentBlockFile\n";
+    }
+}
+
+

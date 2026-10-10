@@ -50,11 +50,14 @@ mkdir -p resources/scripts/components/dashboard
 mkdir -p resources/scripts/components/dashboard/dashboard
 mkdir -p app/Http/Controllers/Api/Client
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSupportId.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerSupportId.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerUptime.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerUptime.tsx
+cp resources/scripts/components/server/ServerUptime.tsx resources/scripts/components/dashboard/ServerUptime.tsx 2>/dev/null || true
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=${CACHE_BUST}" -o resources/scripts/components/dashboard/AdminSupportIdSearch.tsx
 cp resources/scripts/components/dashboard/AdminSupportIdSearch.tsx resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx 2>/dev/null || true
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SupportLookupController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/SupportLookupController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-dashboard-card.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_dashboard_card.php
+
 
 
 php /tmp/ptero_patch_support_id.php || true
