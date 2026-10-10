@@ -63,7 +63,10 @@ const ServerExpiryCard: React.FC = () => {
                 const pName = data?.plan_name ?? sub?.product;
                 const pPrice = data?.plan_price ?? (sub?.price?.amount && sub.price.amount !== "N/A" ? (sub.price.amount + (sub.price.currency ? " " + sub.price.currency : "")) : null);
 
-                if (exp !== undefined) setExpireAt(exp || null);
+                if (exp !== undefined) {
+                    setExpireAt(exp || null);
+                    window.dispatchEvent(new CustomEvent('server:expire_at_updated', { detail: { expire_at: exp || null } }));
+                }
                 if (pName !== undefined) setPlanName(pName && pName !== "N/A" ? pName : null);
                 if (pPrice !== undefined) setPlanPrice(pPrice && pPrice !== "N/A" ? pPrice : null);
                 if (data?.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
@@ -72,7 +75,10 @@ const ServerExpiryCard: React.FC = () => {
                 // Secondary fallback to /options
                 http.get(`/api/client/servers/${uuid}/options`)
                     .then(({ data }) => {
-                        if (data.expire_at !== undefined) setExpireAt(data.expire_at || null);
+                        if (data.expire_at !== undefined) {
+                            setExpireAt(data.expire_at || null);
+                            window.dispatchEvent(new CustomEvent('server:expire_at_updated', { detail: { expire_at: data.expire_at || null } }));
+                        }
                         if (data.plan_name !== undefined) setPlanName(data.plan_name && data.plan_name !== "N/A" ? data.plan_name : null);
                         if (data.plan_price !== undefined) setPlanPrice(data.plan_price && data.plan_price !== "N/A" ? data.plan_price : null);
                         if (data.can_edit !== undefined) setCanEdit(Boolean(data.can_edit));
@@ -117,9 +123,11 @@ const ServerExpiryCard: React.FC = () => {
             };
 
             const { data } = await http.post(`/api/client/servers/${uuid}/subscription`, payload);
+            const newExp = data.expire_at ?? payload.expire_at;
             setPlanName(data.plan_name ?? payload.plan_name);
             setPlanPrice(data.plan_price ?? payload.plan_price);
-            setExpireAt(data.expire_at ?? payload.expire_at);
+            setExpireAt(newExp);
+            window.dispatchEvent(new CustomEvent('server:expire_at_updated', { detail: { expire_at: newExp } }));
             setEditModalOpen(false);
         } catch (err: any) {
             setSaveError(

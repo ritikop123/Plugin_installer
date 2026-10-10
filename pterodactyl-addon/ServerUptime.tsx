@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ServerContext } from '@/state/server';
 import { SocketEvent, SocketRequest } from '@/components/server/events';
 import useWebsocketEvent from '@/plugins/useWebsocketEvent';
+import http from '@/api/http';
 
 interface Props {
     uptime?: number | null;
@@ -11,12 +12,58 @@ interface Props {
 }
 
 const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus, stats, className = '' }) => {
+    const serverUuid = ServerContext.useStoreState((state) => state.server.data?.uuid);
     const serverStatus = ServerContext.useStoreState((state) => state.status.value);
     const socketInstance = ServerContext.useStoreState((state) => state.socket.instance);
-    const rawExpireAt = ServerContext.useStoreState(
+    const storeExpireAt = ServerContext.useStoreState(
         (state) => (state.server.data as any)?.expire_at || (state.server.data as any)?.expireAt
     );
+
+    const [liveExpireAt, setLiveExpireAt] = useState<string | null>(storeExpireAt || null);
     const [liveUptime, setLiveUptime] = useState<number>(0);
+
+    // Keep liveExpireAt synced if storeExpireAt updates
+    useEffect(() => {
+        if (storeExpireAt) {
+            setLiveExpireAt(storeExpireAt);
+        }
+    }, [storeExpireAt]);
+
+    // Fetch fresh subscription details and listen to real-time update events
+    useEffect(() => {
+        if (!serverUuid) return;
+
+        // Fetch fresh subscription details
+        http.get(`/api/client/servers/${serverUuid}/subscription`)
+            .then(({ data }) => {
+                const sub = data?.data || data;
+                const exp = data?.expire_at !== undefined ? data.expire_at : (sub?.expires_at ?? sub?.expire_at);
+                if (exp !== undefined) {
+                    setLiveExpireAt(exp || null);
+                }
+            })
+            .catch(() => {
+                http.get(`/api/client/servers/${serverUuid}/options`)
+                    .then(({ data }) => {
+                        if (data.expire_at !== undefined) {
+                            setLiveExpireAt(data.expire_at || null);
+                        }
+                    })
+                    .catch(() => {});
+            });
+
+        // Event listener when ServerExpiryCard updates or fetches new data
+        const handleExpireUpdated = (e: any) => {
+            if (e.detail?.expire_at !== undefined) {
+                setLiveExpireAt(e.detail.expire_at || null);
+            }
+        };
+
+        window.addEventListener('server:expire_at_updated', handleExpireUpdated);
+        return () => {
+            window.removeEventListener('server:expire_at_updated', handleExpireUpdated);
+        };
+    }, [serverUuid]);
 
     // Request stats from daemon Wings on socket connect
     useEffect(() => {
@@ -100,7 +147,7 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
     }, [rawUptime, rawStatus]);
 
     const suspendFormatted = useMemo(() => {
-        if (!rawExpireAt || rawExpireAt === 'N/A' || rawExpireAt === 'null' || rawExpireAt === 'undefined') {
+        if (!liveExpireAt || liveExpireAt === 'N/A' || liveExpireAt === 'null' || liveExpireAt === 'undefined') {
             return {
                 text: '∞',
                 title: 'No expiration set (Unlimited / Lifetime)',
@@ -110,7 +157,7 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
             };
         }
 
-        const normalizedDate = typeof rawExpireAt === 'string' ? rawExpireAt.replace(' ', 'T') : rawExpireAt;
+        const normalizedDate = typeof liveExpireAt === 'string' ? liveExpireAt.replace(' ', 'T') : liveExpireAt;
         const expiryTime = new Date(normalizedDate).getTime();
         if (isNaN(expiryTime)) {
             return {
@@ -163,7 +210,7 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
             isExpired: false,
             isWarning: false,
         };
-    }, [rawExpireAt]);
+    }, [liveExpireAt]);
 
     return (
         <div className={`inline-flex items-center gap-2 text-lg font-medium text-gray-300 select-none ${className}`}>
