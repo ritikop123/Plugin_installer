@@ -95,7 +95,11 @@ function isServerCardOrBannerFile($filePath, $content) {
     if (strpos($filePath, "StatBlock") !== false) return false;
     if (strpos($filePath, "Search") !== false) return false;
     if (strpos($filePath, "search") !== false) return false;
-    if (strpos($filePath, "Modal") !== false) return false;
+    if (strpos($filePath, "ServerDetailsBlock") !== false) return false;
+    if (strpos($filePath, "ServerDetails") !== false) return false;
+    if (strpos($filePath, "DetailsBlock") !== false) return false;
+    if (strpos($filePath, "ServerConsoleContainer") !== false) return false;
+    if (strpos($filePath, "DashboardContainer") !== false) return false;
 
     // Check by filename
     $byName = (
@@ -104,11 +108,8 @@ function isServerCardOrBannerFile($filePath, $content) {
         strpos($filePath, "ServerRow") !== false ||
         strpos($filePath, "LinearCard") !== false ||
         strpos($filePath, "NormalCard") !== false ||
-        strpos($filePath, "ServerDetailsBlock") !== false ||
-        strpos($filePath, "ServerDetails") !== false ||
         strpos($filePath, "ServerBanner") !== false ||
-        strpos($filePath, "ServerHeader") !== false ||
-        strpos($filePath, "DetailsBlock") !== false
+        strpos($filePath, "ServerHeader") !== false
     );
 
     if ($byName) return true;
@@ -225,7 +226,28 @@ foreach ($scanDirs as $dir) {
 }
 
 // --------------------------------------------------------------------------------------
-// PART 3: Injects ServerSupportId into Top Bar next to RAM (SlimBar & InformationBar)
+// CLEANUP: Specifically strip any ServerSupportId and ServerUptime from ServerDetailsBlock
+// --------------------------------------------------------------------------------------
+$consoleDetailsFiles = [
+    "resources/scripts/components/server/console/ServerDetailsBlock.tsx",
+    "resources/scripts/components/server/ServerDetailsBlock.tsx",
+    "resources/scripts/components/server/console/ServerConsoleContainer.tsx",
+    "resources/scripts/components/server/dashboard/DashboardContainer.tsx",
+];
+foreach ($consoleDetailsFiles as $cdFile) {
+    if (file_exists($cdFile)) {
+        $c = file_get_contents($cdFile);
+        $c = preg_replace("/<ServerUptime[^>]*\/>\s*/s", "", $c);
+        $c = preg_replace("/import\s+ServerUptime\s+from\s+[^;]+;\s*/s", "", $c);
+        $c = preg_replace("/<ServerSupportId[^>]*\/>\s*/s", "", $c);
+        $c = preg_replace("/import\s+ServerSupportId\s+from\s+[^;]+;\s*/s", "", $c);
+        file_put_contents($cdFile, $c);
+        echo "[✓] Cleaned up ServerDetails/Console from: $cdFile\n";
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// PART 3: Injects ServerSupportId into Top Bar next to RAM / Disk (SlimBar & InformationBar)
 // --------------------------------------------------------------------------------------
 $topBarFiles = [
     "resources/scripts/routers/layouts/SlimBar.tsx",
@@ -255,15 +277,17 @@ foreach ($topBarFiles as $filePath) {
     $c = preg_replace("/<ServerSupportId[^>]*\/>\s*/s", "", $c);
     $c = preg_replace("/import\s+ServerSupportId\s+from\s+[^;]+;\s*/s", "", $c);
 
-    // Match the RAM / Memory stick container:
-    // <div className={'flex items-center gap-x-1'}> ... <LuMemoryStick ... </div>
-    $memoryPattern = '/(<div[^>]*>\s*<LuMemoryStick[\s\S]*?<\/div>)/';
+    // Match Disk stat (LuSave) first if present; if absent (like SlimBar), match RAM stat (LuMemoryStick)
+    $statPattern = '/(<div[^>]*>\s*<LuSave[\s\S]*?<\/div>)/';
+    if (!preg_match($statPattern, $c)) {
+        $statPattern = '/(<div[^>]*>\s*<LuMemoryStick[\s\S]*?<\/div>)/';
+    }
 
-    if (preg_match($memoryPattern, $c, $m, PREG_OFFSET_CAPTURE)) {
+    if (preg_match($statPattern, $c, $m, PREG_OFFSET_CAPTURE)) {
         $matchedBlock = $m[1][0];
         $insertPos = $m[1][1] + strlen($matchedBlock);
 
-        $supportIdJsx = "\n                        <ServerSupportId />";
+        $supportIdJsx = "\n                        <ServerSupportId className={'hidden md:flex ml-2'} />";
         $c = substr($c, 0, $insertPos) . $supportIdJsx . substr($c, $insertPos);
 
         // Add clean import at the top
@@ -272,6 +296,6 @@ foreach ($topBarFiles as $filePath) {
         }
 
         file_put_contents($filePath, $c);
-        echo "[✓] Injected ServerSupportId next to RAM stat in top bar: $filePath\n";
+        echo "[✓] Injected ServerSupportId next to stats in top bar: $filePath\n";
     }
 }

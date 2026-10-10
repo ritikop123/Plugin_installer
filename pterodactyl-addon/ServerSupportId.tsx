@@ -8,9 +8,25 @@ interface Props {
 }
 
 const ServerSupportId: React.FC<Props> = ({ className = '' }) => {
-    const supportId = ServerContext.useStoreState((state) => state.server.data?.support_id);
+    const rawSupportId = ServerContext.useStoreState((state) => state.server.data?.support_id);
+    const serverUuid = ServerContext.useStoreState((state) => state.server.data?.uuid);
     const [copied, setCopied] = useState(false);
     const [copyFailed, setCopyFailed] = useState(false);
+
+    const supportId = React.useMemo(() => {
+        if (rawSupportId && typeof rawSupportId === 'string' && rawSupportId.trim().length > 0) {
+            const clean = rawSupportId.trim();
+            if (clean.toUpperCase().startsWith('SUP-')) {
+                return `SUP-${clean.slice(4, 10).toUpperCase()}`;
+            }
+            return `SUP-${clean.slice(0, 6).toUpperCase()}`;
+        }
+        if (serverUuid && typeof serverUuid === 'string') {
+            const cleanUuid = serverUuid.replace(/-/g, '').toUpperCase();
+            return `SUP-${cleanUuid.slice(0, 6)}`;
+        }
+        return '';
+    }, [rawSupportId, serverUuid]);
 
     const copySupportId = async () => {
         if (!supportId) return;
