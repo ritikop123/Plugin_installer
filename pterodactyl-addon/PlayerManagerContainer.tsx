@@ -607,8 +607,8 @@ export default function PlayerManagerContainer() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           {/* Status & Player Count Counter */}
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-neutral-800/90 border border-neutral-700/60 flex items-center justify-center text-primary-400 shadow-inner">
-              <FontAwesomeIcon icon={faUsers} className="text-2xl" />
+            <div className="shrink-0 text-primary-400 flex items-center justify-center">
+              <FontAwesomeIcon icon={faUsers} className="text-3xl" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -620,10 +620,6 @@ export default function PlayerManagerContainer() {
                     }`}
                   />
                   {serverOnline ? 'Server Active' : 'Server Standby'}
-                </span>
-                <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-full">
-                  <FontAwesomeIcon icon={faSyncAlt} className="text-[9px] animate-spin" style={{ animationDuration: '5s' }} />
-                  <span>5s Live</span>
                 </span>
                 {software && (
                   <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border bg-cyan-950/60 text-cyan-300 border-cyan-700/50 font-medium">
