@@ -30,16 +30,20 @@ mkdir -p app/Http/Controllers/Api/Client/Servers
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PluginInstallerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModInstallerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/ModInstallerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModpackInstallerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/ModpackInstallerController.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/OptionsController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/OptionsController.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SoftwareInstallerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php
 
 echo -e "\033[0;32m[+] Downloading updated React components with brand icons & providers...\033[0m"
 mkdir -p resources/scripts/components/server/plugin-installer
 mkdir -p resources/scripts/components/server/mod-installer
 mkdir -p resources/scripts/components/server/modpack-installer
+mkdir -p resources/scripts/components/server/software-installer
 mkdir -p resources/scripts/components/server/options
 
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PluginInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SoftwareInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/software-installer/SoftwareInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/OptionsContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/options/OptionsContainer.tsx
 
 
