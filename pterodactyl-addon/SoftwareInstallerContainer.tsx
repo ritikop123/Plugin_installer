@@ -376,11 +376,6 @@ export default function SoftwareInstallerContainer() {
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           Currently Installed
                         </span>
-                        {currentSoftware.source && currentSoftware.source !== 'manifest' && (
-                          <span className="text-[10px] text-slate-500">
-                            (Detected via {currentSoftware.source.replace('_', ' ')})
-                          </span>
-                        )}
                       </div>
 
                       <div className="flex items-baseline gap-2.5 mt-1.5 flex-wrap">
