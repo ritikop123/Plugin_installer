@@ -1260,6 +1260,52 @@ class PlayerManagerController extends ClientApiController
             }
         }
 
+        // 6. From indexed world/playerdata/*.dat files (CRITICAL: catches all players even if usercache.json is empty or offline-mode)
+        try {
+            $pData = $this->getPlayerdataFiles($server);
+            $files = $pData['files'] ?? [];
+            if (!empty($files)) {
+                // Collect UUIDs that aren't yet mapped to a name
+                $existingUuids = [];
+                foreach ($playersMap as $p) {
+                    if (!empty($p['uuid'])) {
+                        $existingUuids[strtolower($p['uuid'])] = true;
+                        $existingUuids[str_replace('-', '', strtolower($p['uuid']))] = true;
+                    }
+                }
+
+                $checkedCount = 0;
+                foreach ($files as $rawUuid => $fInfo) {
+                    $cleanUuid = strtolower($rawUuid);
+                    if (isset($existingUuids[$cleanUuid])) continue;
+
+                    // Read up to 25 unindexed playerdata NBT headers to resolve Bukkit lastKnownName
+                    if ($checkedCount < 25) {
+                        $checkedCount++;
+                        try {
+                            $rawBytes = $this->fileRepository->setServer($server)->getContent($fInfo['path']);
+                            if (!empty($rawBytes)) {
+                                $decomp = $this->decompressNbt($rawBytes);
+                                if (!empty($decomp)) {
+                                    $nbt = $this->parseNbt($decomp);
+                                    $lastName = $nbt['payload']['bukkit']['lastKnownName'] ?? null;
+                                    if (!empty($lastName) && is_string($lastName)) {
+                                        $playersMap[strtolower($lastName)] = [
+                                            'name' => $lastName,
+                                            'uuid' => $cleanUuid,
+                                            'expiresOn' => '',
+                                        ];
+                                        $existingUuids[$cleanUuid] = true;
+                                        continue;
+                                    }
+                                }
+                            }
+                        } catch (Throwable $ex) {}
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
         return array_values($playersMap);
     }
 
@@ -2218,497 +2264,137 @@ class PlayerManagerController extends ClientApiController
      */
     public function detectServerSoftware(Server $server): array
     {
-        $cacheKey = "ptero:pm:{$server->id}:soft_detect";
-        return Cache::remember($cacheKey, 180, function () use ($server) {
-            // 1. Check software manifest (written by SoftwareInstaller)
+        $cacheKey = "server:detected_software:{$server->id}";
+        return Cache::remember($cacheKey, 120, function () use ($server) {
+            // 1. FAST-PATH: Database Egg Inspection (0ms)
             try {
-                $rawManifest = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
-            $manifest = json_decode($rawManifest, true);
-            if (is_array($manifest) && !empty($manifest['software'])) {
-                $softId = strtoupper($manifest['software']);
-                $category = 'java';
-                if (in_array($softId, ['BDS', 'BEDROCK', 'POCKETMINE', 'NUKKIT', 'POWERNUKKIT'])) {
-                    $category = 'bedrock';
-                } elseif (in_array($softId, ['BUNGEECORD', 'WATERFALL', 'VELOCITY', 'HEXACORD'])) {
-                    $category = 'proxy';
+                $eggName = strtolower($server->egg->name ?? '');
+                $eggDocker = strtolower($server->egg->docker_image ?? '');
+                if (str_contains($eggName, 'bedrock') || str_contains($eggName, 'pocketmine') || str_contains($eggDocker, 'bedrock')) {
+                    return [
+                        'id' => 'BDS',
+                        'name' => 'Bedrock Dedicated Server',
+                        'category' => 'bedrock',
+                        'version' => null,
+                        'build' => null,
+                        'supports_plugins' => false,
+                        'supports_mods' => false,
+                        'config_file' => '/server.properties',
+                        'source' => 'egg',
+                    ];
                 }
-                return [
-                    'id' => $softId,
-                    'name' => $manifest['software_name'] ?? ucfirst(strtolower($softId)),
-                    'category' => $category,
-                    'version' => $manifest['version'] ?? null,
-                    'build' => $manifest['build'] ?? null,
-                    'supports_plugins' => in_array($softId, ['PAPER', 'PURPUR', 'SPIGOT', 'BUKKIT', 'FOLIA', 'POCKETMINE', 'NUKKIT', 'BUNGEECORD', 'VELOCITY', 'WATERFALL']),
-                    'supports_mods' => in_array($softId, ['FORGE', 'NEOFORGE', 'FABRIC', 'QUILT', 'MOHIST', 'MAGMA', 'ARCLIGHT', 'CATSERVER']),
-                    'config_file' => in_array($softId, ['BUNGEECORD', 'WATERFALL']) ? '/config.yml' : ($softId === 'VELOCITY' ? '/velocity.toml' : '/server.properties'),
-                    'source' => 'manifest',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 2. Check Bedrock Dedicated Server (BDS)
-        try {
-            $isBds = false;
-            try {
-                $hasBedrockBin = $this->fileRepository->setServer($server)->getContent('/bedrock_server');
-                if ($hasBedrockBin !== null) $isBds = true;
-            } catch (Throwable $e) {}
-            if (!$isBds) {
-                try {
-                    $hasAllowlist = $this->fileRepository->setServer($server)->getContent('/allowlist.json');
-                    $hasPermissions = $this->fileRepository->setServer($server)->getContent('/permissions.json');
-                    if ($hasAllowlist !== null || $hasPermissions !== null) $isBds = true;
-                } catch (Throwable $e) {}
-            }
-            if ($isBds) {
-                return [
-                    'id' => 'BDS',
-                    'name' => 'Bedrock Dedicated Server',
-                    'category' => 'bedrock',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => false,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'bedrock_server',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 3. Check PocketMine-MP
-        try {
-            $hasPocketmine = false;
-            try {
-                $pm = $this->fileRepository->setServer($server)->getContent('/pocketmine.yml');
-                if ($pm !== null) $hasPocketmine = true;
-            } catch (Throwable $e) {}
-            if ($hasPocketmine) {
-                return [
-                    'id' => 'POCKETMINE',
-                    'name' => 'PocketMine-MP',
-                    'category' => 'bedrock',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/pocketmine.yml',
-                    'source' => 'pocketmine.yml',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 4. Check Nukkit / PowerNukkit
-        try {
-            $hasNukkit = false;
-            try {
-                $nk = $this->fileRepository->setServer($server)->getContent('/nukkit.yml');
-                if ($nk !== null) $hasNukkit = true;
-            } catch (Throwable $e) {}
-            if ($hasNukkit) {
-                return [
-                    'id' => 'NUKKIT',
-                    'name' => 'Nukkit',
-                    'category' => 'bedrock',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/nukkit.yml',
-                    'source' => 'nukkit.yml',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 5. Check Velocity Proxy
-        try {
-            $hasVelocity = false;
-            try {
-                $vel = $this->fileRepository->setServer($server)->getContent('/velocity.toml');
-                if ($vel !== null) $hasVelocity = true;
-            } catch (Throwable $e) {}
-            if ($hasVelocity) {
-                return [
-                    'id' => 'VELOCITY',
-                    'name' => 'Velocity',
-                    'category' => 'proxy',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/velocity.toml',
-                    'source' => 'velocity.toml',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 6. Check BungeeCord / Waterfall Proxy
-        try {
-            $hasBungee = false;
-            try {
-                $bng = $this->fileRepository->setServer($server)->getContent('/config.yml');
-                if ($bng !== null && (str_contains($bng, 'listeners:') || str_contains($bng, 'ip_forward:'))) {
-                    $hasBungee = true;
+                if (str_contains($eggName, 'velocity')) {
+                    return [
+                        'id' => 'VELOCITY',
+                        'name' => 'Velocity',
+                        'category' => 'proxy',
+                        'version' => null,
+                        'build' => null,
+                        'supports_plugins' => true,
+                        'supports_mods' => false,
+                        'config_file' => '/velocity.toml',
+                        'source' => 'egg',
+                    ];
+                }
+                if (str_contains($eggName, 'bungeecord') || str_contains($eggName, 'waterfall')) {
+                    return [
+                        'id' => 'BUNGEECORD',
+                        'name' => 'BungeeCord / Waterfall',
+                        'category' => 'proxy',
+                        'version' => null,
+                        'build' => null,
+                        'supports_plugins' => true,
+                        'supports_mods' => false,
+                        'config_file' => '/config.yml',
+                        'source' => 'egg',
+                    ];
                 }
             } catch (Throwable $e) {}
-            if ($hasBungee) {
-                return [
-                    'id' => 'BUNGEECORD',
-                    'name' => 'BungeeCord / Waterfall',
-                    'category' => 'proxy',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/config.yml',
-                    'source' => 'config.yml',
-                ];
-            }
-        } catch (Throwable $e) {}
 
-        // 7. Check version_history.json (Paper / Purpur / Spigot / Folia)
-        try {
-            $rawHistory = $this->fileRepository->setServer($server)->getContent('/version_history.json');
-            $history = json_decode($rawHistory, true);
-            if (is_array($history) && !empty($history['currentVersion'])) {
-                $raw = (string) $history['currentVersion'];
-                $softName = 'Paper';
-                $build = null;
-                $mcVer = null;
-
-                if (preg_match('/git-Purpur-(\d+)/i', $raw, $m)) {
-                    $softName = 'Purpur';
-                    $build = '#' . $m[1];
-                } elseif (preg_match('/git-Paper-(\d+)/i', $raw, $m)) {
-                    $softName = 'Paper';
-                    $build = '#' . $m[1];
-                } elseif (preg_match('/git-Folia-(\d+)/i', $raw, $m)) {
-                    $softName = 'Folia';
-                    $build = '#' . $m[1];
-                } elseif (preg_match('/git-Spigot-([a-f0-9]+)/i', $raw, $m)) {
-                    $softName = 'Spigot';
-                    $build = substr($m[1], 0, 7);
-                }
-
-                if (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) {
-                    $mcVer = $m[1];
-                }
-
-                return [
-                    'id' => strtoupper($softName),
-                    'name' => $softName,
-                    'category' => 'java',
-                    'version' => $mcVer,
-                    'build' => $build,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'version_history.json',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 8. Check Purpur / Paper / Spigot / Folia YAML files
-        try {
-            $isPurpur = false;
+            // 2. Fetch root directory ONCE in a single Wings API call
+            $rootFiles = [];
             try {
-                $py = $this->fileRepository->setServer($server)->getContent('/purpur.yml');
-                if ($py !== null) $isPurpur = true;
-            } catch (Throwable $e) {}
-            if ($isPurpur) {
-                return [
-                    'id' => 'PURPUR',
-                    'name' => 'Purpur',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'purpur.yml',
-                ];
-            }
-
-            $isPaper = false;
-            try {
-                $pay = $this->fileRepository->setServer($server)->getContent('/paper.yml');
-                if ($pay !== null) $isPaper = true;
-            } catch (Throwable $e) {}
-            if (!$isPaper) {
-                try {
-                    $pay = $this->fileRepository->setServer($server)->getContent('/config/paper-global.yml');
-                    if ($pay !== null) $isPaper = true;
-                } catch (Throwable $e) {}
-            }
-            if ($isPaper) {
-                return [
-                    'id' => 'PAPER',
-                    'name' => 'Paper',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'paper.yml',
-                ];
-            }
-
-            $isFolia = false;
-            try {
-                $fy = $this->fileRepository->setServer($server)->getContent('/folia.yml');
-                if ($fy !== null) $isFolia = true;
-            } catch (Throwable $e) {}
-            if ($isFolia) {
-                return [
-                    'id' => 'FOLIA',
-                    'name' => 'Folia',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'folia.yml',
-                ];
-            }
-
-            $isSpigot = false;
-            try {
-                $sy = $this->fileRepository->setServer($server)->getContent('/spigot.yml');
-                if ($sy !== null) $isSpigot = true;
-            } catch (Throwable $e) {}
-            if ($isSpigot) {
-                return [
-                    'id' => 'SPIGOT',
-                    'name' => 'Spigot',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => true,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'spigot.yml',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 9. Check Forge / NeoForge / Fabric / Quilt in libraries directory
-        try {
-            $forgeItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/minecraftforge/forge');
-            if (is_array($forgeItems) && !empty($forgeItems)) {
-                $ver = null;
-                $bld = null;
-                foreach ($forgeItems as $item) {
-                    $n = $item['name'] ?? '';
-                    if (!empty($n) && $n !== '.' && $n !== '..') {
-                        $parts = explode('-', $n, 2);
-                        $ver = $parts[0] ?? $n;
-                        $bld = $parts[1] ?? null;
-                        break;
+                $items = $this->fileRepository->setServer($server)->getDirectory('/');
+                if (is_array($items)) {
+                    foreach ($items as $item) {
+                        $n = $item['name'] ?? '';
+                        if (!empty($n) && $n !== '.' && $n !== '..') {
+                            $rootFiles[strtolower($n)] = $n;
+                        }
                     }
                 }
-                return [
-                    'id' => 'FORGE',
-                    'name' => 'Forge',
-                    'category' => 'java',
-                    'version' => $ver,
-                    'build' => $bld,
-                    'supports_plugins' => false,
-                    'supports_mods' => true,
-                    'config_file' => '/server.properties',
-                    'source' => 'libraries/forge',
-                ];
-            }
-        } catch (Throwable $e) {}
+            } catch (Throwable $e) {}
 
-        try {
-            $neoItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/neoforged/neoforge');
-            if (is_array($neoItems) && !empty($neoItems)) {
-                $bld = null;
-                foreach ($neoItems as $item) {
-                    $n = $item['name'] ?? '';
-                    if (!empty($n) && $n !== '.' && $n !== '..') {
-                        $bld = $n;
-                        break;
-                    }
-                }
-                return [
-                    'id' => 'NEOFORGE',
-                    'name' => 'NeoForge',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => $bld,
-                    'supports_plugins' => false,
-                    'supports_mods' => true,
-                    'config_file' => '/server.properties',
-                    'source' => 'libraries/neoforge',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        try {
-            $fabricItems = $this->fileRepository->setServer($server)->getDirectory('/libraries/net/fabricmc/fabric-loader');
-            if (is_array($fabricItems) && !empty($fabricItems)) {
-                $bld = null;
-                foreach ($fabricItems as $item) {
-                    $n = $item['name'] ?? '';
-                    if (!empty($n) && $n !== '.' && $n !== '..') {
-                        $bld = $n;
-                        break;
-                    }
-                }
-                return [
-                    'id' => 'FABRIC',
-                    'name' => 'Fabric',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => $bld,
-                    'supports_plugins' => false,
-                    'supports_mods' => true,
-                    'config_file' => '/server.properties',
-                    'source' => 'libraries/fabric',
-                ];
-            }
-        } catch (Throwable $e) {}
-
-        // 10. Check Hybrid servers (Mohist / Magma / Arclight / CatServer)
-        try {
-            foreach (['mohist.yml' => 'Mohist', 'magma.yml' => 'Magma', 'arclight.conf' => 'Arclight', 'catserver.yml' => 'CatServer'] as $f => $name) {
+            // 3. Manifest file
+            if (isset($rootFiles['.pterodactyl-software.json'])) {
                 try {
-                    $c = $this->fileRepository->setServer($server)->getContent("/{$f}");
-                    if ($c !== null) {
+                    $rawManifest = $this->fileRepository->setServer($server)->getContent(self::MANIFEST_FILE);
+                    $manifest = json_decode($rawManifest, true);
+                    if (is_array($manifest) && !empty($manifest['software'])) {
+                        $softId = strtoupper($manifest['software']);
+                        $category = 'java';
+                        if (in_array($softId, ['BDS', 'BEDROCK', 'POCKETMINE', 'NUKKIT', 'POWERNUKKIT'])) {
+                            $category = 'bedrock';
+                        } elseif (in_array($softId, ['BUNGEECORD', 'WATERFALL', 'VELOCITY', 'HEXACORD'])) {
+                            $category = 'proxy';
+                        }
                         return [
-                            'id' => strtoupper($name),
-                            'name' => $name,
-                            'category' => 'java',
-                            'version' => null,
-                            'build' => null,
-                            'supports_plugins' => true,
-                            'supports_mods' => true,
-                            'config_file' => '/server.properties',
-                            'source' => $f,
+                            'id' => $softId,
+                            'name' => $manifest['software_name'] ?? ucfirst(strtolower($softId)),
+                            'category' => $category,
+                            'version' => $manifest['version'] ?? null,
+                            'build' => $manifest['build'] ?? null,
+                            'supports_plugins' => in_array($softId, ['PAPER', 'PURPUR', 'SPIGOT', 'BUKKIT', 'FOLIA', 'POCKETMINE', 'NUKKIT', 'BUNGEECORD', 'VELOCITY', 'WATERFALL']),
+                            'supports_mods' => in_array($softId, ['FORGE', 'NEOFORGE', 'FABRIC', 'QUILT', 'MOHIST', 'MAGMA', 'ARCLIGHT', 'CATSERVER']),
+                            'config_file' => in_array($softId, ['BUNGEECORD', 'WATERFALL']) ? '/config.yml' : ($softId === 'VELOCITY' ? '/velocity.toml' : '/server.properties'),
+                            'source' => 'manifest',
                         ];
                     }
                 } catch (Throwable $e) {}
             }
-        } catch (Throwable $e) {}
 
-        // 11. Check logs/latest.log startup signatures
-        try {
-            $logContent = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
-            if (!empty($logContent)) {
-                $sample = substr($logContent, 0, 16384);
-                if (preg_match('/This server is running ([A-Za-z0-9_-]+) version git-\1-(\d+)\s*\(MC:\s*([0-9\.]+)\)/i', $sample, $m)) {
-                    $name = ucfirst(strtolower($m[1]));
-                    return [
-                        'id' => strtoupper($name),
-                        'name' => $name,
-                        'category' => 'java',
-                        'version' => $m[3],
-                        'build' => '#' . $m[2],
-                        'supports_plugins' => true,
-                        'supports_mods' => false,
-                        'config_file' => '/server.properties',
-                        'source' => 'logs/latest.log',
-                    ];
-                }
-                if (preg_match('/Loading Minecraft ([0-9\.]+) with Fabric Loader ([0-9\.]+)/i', $sample, $m)) {
-                    return [
-                        'id' => 'FABRIC',
-                        'name' => 'Fabric',
-                        'category' => 'java',
-                        'version' => $m[1],
-                        'build' => $m[2],
-                        'supports_plugins' => false,
-                        'supports_mods' => true,
-                        'config_file' => '/server.properties',
-                        'source' => 'logs/latest.log',
-                    ];
-                }
-                if (preg_match('/MinecraftForge v([0-9\.]+) Initialized/i', $sample, $m)) {
-                    return [
-                        'id' => 'FORGE',
-                        'name' => 'Forge',
-                        'category' => 'java',
-                        'version' => null,
-                        'build' => $m[1],
-                        'supports_plugins' => false,
-                        'supports_mods' => true,
-                        'config_file' => '/server.properties',
-                        'source' => 'logs/latest.log',
-                    ];
-                }
-                if (preg_match('/Starting Bedrock Dedicated Server/i', $sample) || preg_match('/IPv4 supported/i', $sample)) {
-                    return [
-                        'id' => 'BDS',
-                        'name' => 'Bedrock Dedicated Server',
-                        'category' => 'bedrock',
-                        'version' => null,
-                        'build' => null,
-                        'supports_plugins' => false,
-                        'supports_mods' => false,
-                        'config_file' => '/server.properties',
-                        'source' => 'logs/latest.log',
-                    ];
-                }
-                if (preg_match('/Starting minecraft server version ([0-9\.]+)/i', $sample, $m)) {
-                    return [
-                        'id' => 'VANILLA',
-                        'name' => 'Vanilla Minecraft',
-                        'category' => 'java',
-                        'version' => $m[1],
-                        'build' => null,
-                        'supports_plugins' => false,
-                        'supports_mods' => false,
-                        'config_file' => '/server.properties',
-                        'source' => 'logs/latest.log',
-                    ];
-                }
+            if (isset($rootFiles['bedrock_server']) || isset($rootFiles['allowlist.json']) || isset($rootFiles['permissions.json'])) {
+                return ['id' => 'BDS', 'name' => 'Bedrock Dedicated Server', 'category' => 'bedrock', 'version' => null, 'build' => null, 'supports_plugins' => false, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'bedrock_server'];
             }
-        } catch (Throwable $e) {}
-
-        // 12. Check if server.properties exists
-        try {
-            $props = $this->fileRepository->setServer($server)->getContent('/server.properties');
-            if (!empty($props)) {
-                if (str_contains($props, 'server-portv6') || str_contains($props, 'allow-cheats')) {
-                    return [
-                        'id' => 'BDS',
-                        'name' => 'Bedrock Dedicated Server',
-                        'category' => 'bedrock',
-                        'version' => null,
-                        'build' => null,
-                        'supports_plugins' => false,
-                        'supports_mods' => false,
-                        'config_file' => '/server.properties',
-                        'source' => 'server.properties',
-                    ];
-                }
-                return [
-                    'id' => 'VANILLA',
-                    'name' => 'Vanilla Minecraft',
-                    'category' => 'java',
-                    'version' => null,
-                    'build' => null,
-                    'supports_plugins' => false,
-                    'supports_mods' => false,
-                    'config_file' => '/server.properties',
-                    'source' => 'server.properties',
-                ];
+            if (isset($rootFiles['pocketmine.yml'])) {
+                return ['id' => 'POCKETMINE', 'name' => 'PocketMine-MP', 'category' => 'bedrock', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/pocketmine.yml', 'source' => 'pocketmine.yml'];
             }
-        } catch (Throwable $e) {}
+            if (isset($rootFiles['nukkit.yml'])) {
+                return ['id' => 'NUKKIT', 'name' => 'Nukkit', 'category' => 'bedrock', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/nukkit.yml', 'source' => 'nukkit.yml'];
+            }
+            if (isset($rootFiles['velocity.toml'])) {
+                return ['id' => 'VELOCITY', 'name' => 'Velocity', 'category' => 'proxy', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/velocity.toml', 'source' => 'velocity.toml'];
+            }
 
-        return [
-            'id' => 'CUSTOM',
-            'name' => 'Custom Server',
-            'category' => 'java',
-            'version' => null,
-            'build' => null,
-            'supports_plugins' => false,
-            'supports_mods' => false,
-            'config_file' => '/server.properties',
-            'source' => 'default',
-        ];
+            if (isset($rootFiles['version_history.json'])) {
+                try {
+                    $rawHistory = $this->fileRepository->setServer($server)->getContent('/version_history.json');
+                    $history = json_decode($rawHistory, true);
+                    if (is_array($history) && !empty($history['currentVersion'])) {
+                        $raw = (string) $history['currentVersion'];
+                        $softName = 'Paper';
+                        $build = null;
+                        $mcVer = null;
+                        if (preg_match('/git-Purpur-(\d+)/i', $raw, $m)) { $softName = 'Purpur'; $build = '#' . $m[1]; }
+                        elseif (preg_match('/git-Paper-(\d+)/i', $raw, $m)) { $softName = 'Paper'; $build = '#' . $m[1]; }
+                        elseif (preg_match('/git-Folia-(\d+)/i', $raw, $m)) { $softName = 'Folia'; $build = '#' . $m[1]; }
+                        elseif (preg_match('/git-Spigot-([a-f0-9]+)/i', $raw, $m)) { $softName = 'Spigot'; $build = substr($m[1], 0, 7); }
+                        if (preg_match('/\(MC:\s*([0-9\.]+)\)/i', $raw, $m)) { $mcVer = $m[1]; }
+                        return ['id' => strtoupper($softName), 'name' => $softName, 'category' => 'java', 'version' => $mcVer, 'build' => $build, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'version_history.json'];
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            if (isset($rootFiles['purpur.yml'])) return ['id' => 'PURPUR', 'name' => 'Purpur', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'purpur.yml'];
+            if (isset($rootFiles['paper.yml'])) return ['id' => 'PAPER', 'name' => 'Paper', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'paper.yml'];
+            if (isset($rootFiles['folia.yml'])) return ['id' => 'FOLIA', 'name' => 'Folia', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'folia.yml'];
+            if (isset($rootFiles['spigot.yml'])) return ['id' => 'SPIGOT', 'name' => 'Spigot', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => true, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'spigot.yml'];
+
+            if (isset($rootFiles['server.properties'])) {
+                return ['id' => 'VANILLA', 'name' => 'Vanilla Minecraft', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => false, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'server.properties'];
+            }
+
+            return ['id' => 'CUSTOM', 'name' => 'Custom Server', 'category' => 'java', 'version' => null, 'build' => null, 'supports_plugins' => false, 'supports_mods' => false, 'config_file' => '/server.properties', 'source' => 'default'];
         });
     }
 }
