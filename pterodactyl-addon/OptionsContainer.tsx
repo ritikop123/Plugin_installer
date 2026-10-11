@@ -342,8 +342,8 @@ interface SettingRowProps {
 }
 
 const SettingRow: React.FC<SettingRowProps> = ({ label, propKey, desc, badge, children }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-3.5 rounded-component hover:bg-black/20 border border-transparent hover:border-white/5 transition-all">
-    <div className="space-y-0.5 max-w-sm">
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-2.5 px-3.5 rounded-component bg-black/20 hover:bg-black/30 border border-white/5 hover:border-white/10 transition-all min-w-0">
+    <div className="space-y-0.5 flex-1 min-w-0 pr-2">
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs font-semibold text-gray-200 tracking-tight">{label}</label>
         <span className="text-[10px] font-mono text-gray-400 bg-black/40 border border-white/10 px-1.5 py-0.5 rounded">
@@ -351,7 +351,7 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, propKey, desc, badge, ch
         </span>
         {badge}
       </div>
-      <p className="text-[11px] text-gray-400 leading-snug">{desc}</p>
+      <p className="text-[11px] text-gray-400 leading-snug line-clamp-2">{desc}</p>
     </div>
     <div className="flex items-center justify-end sm:self-center flex-shrink-0">
       {children}
@@ -763,7 +763,7 @@ export default function OptionsContainer() {
 
   return (
     <ServerContentBlock title="Server Options">
-      <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+      <div className="space-y-5 pb-8 w-full min-w-0 max-w-full">
         {/* Hidden File Inputs */}
         <input
           ref={fileInputRef}
@@ -780,85 +780,17 @@ export default function OptionsContainer() {
           onChange={handlePackSelected}
         />
 
-        {/* ========================================================================= */}
-        {/* TOP STATUS BAR: Software, Live Auto-Save, Session Restart Hint */}
-        {/* ========================================================================= */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-700 backdrop boxBorder px-4 py-3 rounded-box">
-          {/* Software & Category Badges */}
-          <div className="flex flex-wrap items-center gap-2">
-            {software ? (
-              <span
-                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-component border font-semibold ${
-                  isBedrock
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : isProxy
-                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                    : 'bg-arix/20 text-white border-arix/40'
-                }`}
-              >
-                <FontAwesomeIcon icon={isBedrock ? faGamepad : isProxy ? faServer : faGamepad} className="text-[11px]" />
-                <span>
-                  {software.name} {software.version ? `v${software.version}` : ''}
-                </span>
-                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded-component bg-black/40 text-gray-300">
-                  {software.category}
-                </span>
-              </span>
-            ) : (
-              <span className="text-xs text-gray-400 flex items-center space-x-1.5">
-                <FontAwesomeIcon icon={faCogs} className="text-gray-500" />
-                <span>Standard Minecraft Server</span>
-              </span>
-            )}
-
-            {hasChangedInSession && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-component bg-amber-500/15 text-amber-300 border border-amber-500/40 font-medium animate-pulse">
-                <FontAwesomeIcon icon={faRedo} className="text-[10px]" />
-                <span>Restart recommended to apply changes</span>
-              </span>
-            )}
-          </div>
-
-          {/* Live Auto-Save Indicator */}
-          <div className="flex items-center space-x-2 text-xs font-mono">
-            {autoSaveStatus === 'saving' && (
-              <span className="text-arix flex items-center space-x-1.5 bg-black/25 border border-white/10 px-3 py-1 rounded-component">
-                <FontAwesomeIcon icon={faSpinner} spin className="text-[11px]" />
-                <span>Saving changes...</span>
-              </span>
-            )}
-            {autoSaveStatus === 'saved' && (
-              <span className="text-emerald-400 font-semibold flex items-center space-x-1.5 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-component">
-                <FontAwesomeIcon icon={faCheckCircle} className="text-[11px]" />
-                <span>Saved & Synchronized</span>
-              </span>
-            )}
-            {autoSaveStatus === 'error' && (
-              <span className="text-red-400 font-semibold flex items-center space-x-1.5 bg-red-500/15 border border-red-500/30 px-3 py-1 rounded-component">
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-[11px]" />
-                <span>Save Error</span>
-              </span>
-            )}
-            {autoSaveStatus === 'idle' && (
-              <span className="text-gray-400 flex items-center space-x-1.5 bg-black/20 border border-white/5 px-3 py-1 rounded-component">
-                <FontAwesomeIcon icon={faCheck} className="text-[10px] text-emerald-400" />
-                <span>Auto-save active</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Action Banners */}
+        {/* Action / Error Banners */}
         {toastMessage && (
           <div className="flex items-center space-x-3 bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-component shadow-lg">
-            <FontAwesomeIcon icon={faCheck} className="text-emerald-400 text-lg flex-shrink-0" />
+            <FontAwesomeIcon icon={faCheck} className="text-emerald-400 text-base flex-shrink-0" />
             <span className="text-sm font-medium">{toastMessage}</span>
           </div>
         )}
 
         {toastError && (
           <div className="flex items-center space-x-3 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-3 rounded-component shadow-lg">
-            <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
+            <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-base flex-shrink-0" />
             <span className="text-sm font-medium">{toastError}</span>
           </div>
         )}
@@ -874,7 +806,7 @@ export default function OptionsContainer() {
           if (isSuspended) {
             return (
               <div className="flex items-center space-x-3 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-3 rounded-component shadow-lg">
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-base flex-shrink-0" />
                 <div className="text-xs sm:text-sm">
                   <span className="font-bold text-white">Server Suspended:</span> This server has reached its expiration date. Please renew your plan to reactivate it.
                 </div>
@@ -885,7 +817,7 @@ export default function OptionsContainer() {
           if (isExpiringSoon) {
             return (
               <div className="flex items-center space-x-3 bg-yellow-500/15 border border-yellow-500/40 text-yellow-200 px-4 py-3 rounded-component shadow-lg">
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-400 text-lg flex-shrink-0" />
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-400 text-base flex-shrink-0" />
                 <div className="text-xs sm:text-sm">
                   <span className="font-bold text-white">Scheduled Suspension Notice:</span> This server is scheduled for automatic suspension on{' '}
                   <span className="font-mono text-white font-semibold">
@@ -901,17 +833,18 @@ export default function OptionsContainer() {
         })()}
 
         {/* ========================================================================= */}
-        {/* HERO SECTION: Authentic Minecraft Multiplayer Server Identity Banner */}
+        {/* HERO CARD: Server Identity, Status, and In-Game MOTD Preview */}
         {/* ========================================================================= */}
-        <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 relative overflow-hidden group">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
-            {/* Left: 64x64 Icon Box & Server Address Details */}
-            <div className="flex items-center space-x-4">
-              {/* 64x64 Minecraft Server Icon Box */}
+        <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-4 w-full min-w-0">
+          {/* Header Row: Server Icon, Name, Software Badge, and Live Status */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-600/60">
+            {/* Left: Icon & Server Info */}
+            <div className="flex items-center gap-3.5 min-w-0">
+              {/* Server Icon with upload & revert */}
               <div
                 onClick={() => !uploadingIcon && fileInputRef.current?.click()}
-                className="relative group/icon cursor-pointer w-16 h-16 rounded-component border border-white/10 hover:border-arix transition-all duration-200 bg-black/40 overflow-hidden flex-shrink-0 shadow"
-                title="Click to upload custom server icon (64×64 PNG, auto-resized)"
+                className="relative group/icon cursor-pointer w-11 h-11 rounded-component border border-white/10 hover:border-arix transition-all bg-black/40 overflow-hidden flex-shrink-0 shadow"
+                title="Click to upload custom server icon (64×64 PNG)"
               >
                 <img
                   src={iconData || '/images/sagarmatha_logo.png'}
@@ -925,116 +858,197 @@ export default function OptionsContainer() {
                   style={{ imageRendering: 'pixelated' }}
                 />
 
-                {/* Upload Overlay on Hover */}
                 <div className="absolute inset-0 bg-black/75 opacity-0 group-hover/icon:opacity-100 transition-opacity flex flex-col items-center justify-center text-white">
                   {uploadingIcon ? (
-                    <FontAwesomeIcon icon={faSpinner} spin className="text-arix text-lg" />
+                    <FontAwesomeIcon icon={faSpinner} spin className="text-arix text-xs" />
                   ) : (
-                    <>
-                      <FontAwesomeIcon icon={faCamera} className="text-arix text-sm mb-0.5" />
-                      <span className="text-[9px] font-semibold tracking-tighter">CHANGE</span>
-                    </>
+                    <FontAwesomeIcon icon={faCamera} className="text-arix text-xs" />
                   )}
                 </div>
 
-                {/* Remove Icon Button */}
                 {hasCustomIcon && !uploadingIcon && (
                   <button
                     type="button"
                     onClick={handleDeleteIcon}
-                    className="absolute -top-1 -right-1 bg-red-600 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow transition-colors z-20"
-                    title="Revert to default Sagarmatha logo"
+                    className="absolute -top-1 -right-1 bg-red-600 hover:bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center shadow transition-colors z-20"
+                    title="Revert to default logo"
                   >
                     {deletingIcon ? (
-                      <FontAwesomeIcon icon={faSpinner} spin className="text-[10px]" />
+                      <FontAwesomeIcon icon={faSpinner} spin className="text-[8px]" />
                     ) : (
-                      <FontAwesomeIcon icon={faTrashAlt} className="text-[10px]" />
+                      <FontAwesomeIcon icon={faTrashAlt} className="text-[8px]" />
                     )}
                   </button>
                 )}
               </div>
 
-              {/* Server Name & Unchangeable Address Badge */}
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-bold text-white tracking-wide">{serverName}</h2>
-                  {hasCustomIcon ? (
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-mono border border-emerald-500/30">
-                      Custom Icon
+              {/* Title & Software Badges */}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-semibold text-white tracking-tight truncate">{serverName}</h3>
+                  {software ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full bg-arix/20 text-white border border-arix/40 font-semibold">
+                      <FontAwesomeIcon icon={isBedrock ? faGamepad : isProxy ? faServer : faGamepad} className="text-[10px]" />
+                      <span>{software.name} {software.version ? `v${software.version}` : ''}</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] bg-white/10 text-gray-300 px-2.5 py-0.5 rounded-full font-mono border border-white/10">
-                      Default Logo
+                    <span className="text-[11px] bg-white/10 text-gray-300 px-2 py-0.5 rounded-full font-mono">
+                      Standard
+                    </span>
+                  )}
+                  {hasCustomIcon && (
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono font-semibold border border-emerald-500/30">
+                      Custom Icon
                     </span>
                   )}
                 </div>
-
-                {/* Server Address with 1-Click Copy */}
-                <div className="flex items-center space-x-2 mt-2">
-                  <div
-                    className="inline-flex items-center space-x-2 bg-black/30 border border-white/10 px-3 py-1.5 rounded-component text-xs font-mono text-gray-200 select-all cursor-pointer hover:border-arix transition-colors"
-                    onClick={handleCopyAddress}
-                    title="Click to copy server address"
-                  >
-                    <FontAwesomeIcon icon={faLock} className="text-gray-400 text-[10px]" />
-                    <span className="font-medium">{serverAddress || 'Allocating port...'}</span>
-                    <FontAwesomeIcon
-                      icon={copiedAddress ? faCheck : faCopy}
-                      className={copiedAddress ? 'text-emerald-400' : 'text-gray-400 hover:text-white'}
-                    />
-                  </div>
-                  {copiedAddress && (
-                    <span className="text-xs text-emerald-400 font-medium">Copied!</span>
-                  )}
-                </div>
+                <p className="text-xs text-gray-300 mt-0.5 truncate">
+                  Configure server properties, multiplayer MOTD, and gameplay behavior
+                </p>
               </div>
             </div>
 
-            {/* Right: Quick Action Buttons */}
-            <div className="flex items-center space-x-2.5 self-end lg:self-center">
+            {/* Right: Auto-save status and Quick Action Buttons */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap flex-shrink-0">
+              {/* Auto-save status indicator */}
+              <div className="text-xs font-mono">
+                {autoSaveStatus === 'saving' && (
+                  <span className="text-arix flex items-center gap-1.5 bg-black/25 border border-white/10 px-2.5 py-1 rounded-component">
+                    <FontAwesomeIcon icon={faSpinner} spin className="text-[10px]" />
+                    <span>Saving...</span>
+                  </span>
+                )}
+                {autoSaveStatus === 'saved' && (
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-component">
+                    <FontAwesomeIcon icon={faCheckCircle} className="text-[10px]" />
+                    <span>Synced</span>
+                  </span>
+                )}
+                {autoSaveStatus === 'error' && (
+                  <span className="text-red-400 font-semibold flex items-center gap-1.5 bg-red-500/15 border border-red-500/30 px-2.5 py-1 rounded-component">
+                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-[10px]" />
+                    <span>Save Error</span>
+                  </span>
+                )}
+                {autoSaveStatus === 'idle' && (
+                  <span className="text-gray-400 flex items-center gap-1.5 bg-black/20 border border-white/5 px-2.5 py-1 rounded-component">
+                    <FontAwesomeIcon icon={faCheck} className="text-[10px] text-emerald-400" />
+                    <span>Auto-saved</span>
+                  </span>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={handleCopyMotd}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-component text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-component text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all shadow-sm"
                 title="Copy raw formatted MOTD code to clipboard"
               >
                 <FontAwesomeIcon icon={copiedMotd ? faCheck : faCopy} className={copiedMotd ? 'text-emerald-400' : ''} />
-                <span>{copiedMotd ? 'Copied MOTD' : 'Copy Code'}</span>
+                <span>{copiedMotd ? 'Copied' : 'Copy MOTD'}</span>
               </button>
+
               <button
                 type="button"
                 onClick={() => setShowMotdTools(!showMotdTools)}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-component text-xs font-semibold transition-all shadow-sm ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-component text-xs font-semibold transition-all shadow-sm ${
                   showMotdTools
                     ? 'bg-arix text-white shadow-arix/30'
                     : 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
                 }`}
               >
-                <FontAwesomeIcon icon={faPalette} />
-                <span>{showMotdTools ? 'Close Studio' : 'Visual MOTD Studio'}</span>
+                <FontAwesomeIcon icon={faPalette} className="text-xs" />
+                <span>{showMotdTools ? 'Close Studio' : 'MOTD Studio'}</span>
               </button>
             </div>
           </div>
 
-          {/* Authentic Multiplayer Server List Preview Box */}
-          <div className="mt-5 pt-4 border-t border-gray-600/60">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                <FontAwesomeIcon icon={faSignal} className="text-emerald-400 text-[10px]" />
-                <span>In-Game Multiplayer Server Browser Preview</span>
-              </span>
-              <div className="flex items-center space-x-3 text-[11px] text-gray-300 font-mono">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-emerald-400 font-bold">24ms</span>
-                </span>
-                <span>
-                  Slots: <span className="text-white font-bold">{getProp('max-players', '20')}</span>
-                </span>
+          {/* 3 Metric-Style Info Boxes (exact same layout as ServerExpiryCard) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 w-full min-w-0">
+            {/* Box 1: Server Connection Address */}
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+              <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
+                <FontAwesomeIcon icon={faLock} className="text-arix text-xs" />
+                <span>Connection Address</span>
+              </div>
+              <div
+                onClick={handleCopyAddress}
+                className="flex items-center justify-between bg-black/40 border border-white/10 hover:border-arix px-3 py-1.5 rounded-component text-xs font-mono text-white cursor-pointer transition-colors shadow-inner select-all"
+                title="Click to copy server IP"
+              >
+                <span className="truncate mr-2 font-medium">{serverAddress || 'Allocating port...'}</span>
+                <FontAwesomeIcon
+                  icon={copiedAddress ? faCheck : faCopy}
+                  className={copiedAddress ? 'text-emerald-400 flex-shrink-0' : 'text-gray-400 hover:text-white flex-shrink-0'}
+                />
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1.5">
+                {copiedAddress ? (
+                  <span className="text-emerald-400 font-semibold">Address copied to clipboard!</span>
+                ) : (
+                  <span>Port: <span className="text-gray-300 font-mono">{serverPort}</span> • 1-Click copy</span>
+                )}
               </div>
             </div>
 
-            <div className="bg-black/40 border border-white/10 rounded-component p-4 min-h-[58px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
+            {/* Box 2: Player Capacity & Default Gamemode */}
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+              <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
+                <FontAwesomeIcon icon={faGamepad} className="text-arix text-xs" />
+                <span>Slots & Gamemode</span>
+              </div>
+              <div className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <span>{getProp('max-players', '20')} Slots</span>
+                <span className="text-xs text-gray-400 font-normal">•</span>
+                <span className="text-xs font-medium capitalize bg-white/10 px-2 py-0.5 rounded-component text-gray-200">
+                  {getProp('gamemode', 'survival')}
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1.5">
+                Difficulty: <span className="capitalize text-gray-300 font-medium">{getProp('difficulty', 'easy')}</span> • PvP: <span className="text-gray-300">{getBoolProp('pvp', true) ? 'Enabled' : 'Disabled'}</span>
+              </div>
+            </div>
+
+            {/* Box 3: Synchronisation & Restart State */}
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+              <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
+                <FontAwesomeIcon icon={faCheckCircle} className="text-emerald-400 text-xs" />
+                <span>Configuration Sync</span>
+              </div>
+              <div className="text-sm font-semibold tracking-tight">
+                {hasChangedInSession ? (
+                  <span className="text-amber-300 flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faRedo} className="text-xs animate-spin" />
+                    <span>Restart recommended</span>
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faCheck} className="text-xs" />
+                    <span>All settings live</span>
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1.5">
+                {hasChangedInSession ? 'Some changes require server restart' : 'server.properties up to date'}
+              </div>
+            </div>
+          </div>
+
+          {/* MOTD In-Game Browser Preview Sub-Box */}
+          <div className="p-3.5 rounded-component bg-black/20 border border-white/10 w-full min-w-0">
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
+              <span className="text-xs font-medium text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                <FontAwesomeIcon icon={faSignal} className="text-emerald-400 text-xs" />
+                <span>In-Game Multiplayer Browser Preview</span>
+              </span>
+              <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-bold">24ms</span>
+                <span className="text-gray-400 text-[11px]">({getProp('max-players', '20')} Slots)</span>
+              </div>
+            </div>
+
+            <div className="bg-black/50 border border-white/10 rounded-component px-3.5 py-2.5 min-h-[46px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
               <div className="w-full">
                 {renderMotdSpans(getProp('motd', DEFAULT_MOTD))}
               </div>
@@ -1043,22 +1057,22 @@ export default function OptionsContainer() {
 
           {/* Expandable Visual MOTD Studio Drawer */}
           {showMotdTools && (
-            <div className="mt-5 pt-4 border-t border-neutral-800 space-y-4">
+            <div className="pt-4 border-t border-gray-600/60 space-y-3.5 w-full min-w-0">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-xs font-bold text-neutral-200 flex items-center space-x-2">
-                  <FontAwesomeIcon icon={faMagic} className="text-cyan-400" />
+                <label className="text-xs font-bold text-white flex items-center space-x-2">
+                  <FontAwesomeIcon icon={faMagic} className="text-arix" />
                   <span>Visual MOTD Studio</span>
-                  <span className="text-neutral-400 font-normal text-[11px]">(Auto-saves live)</span>
+                  <span className="text-gray-400 font-normal text-[11px]">(Auto-saves live)</span>
                 </label>
 
                 {/* Prefix Selector & Reset */}
-                <div className="flex items-center space-x-2 text-xs text-neutral-400">
+                <div className="flex items-center space-x-2 text-xs text-gray-400">
                   <span>Prefix:</span>
                   <button
                     type="button"
                     onClick={() => setMotdPrefix('§')}
-                    className={`px-2 py-0.5 rounded font-mono font-bold transition-colors ${
-                      motdPrefix === '§' ? 'bg-cyan-500 text-neutral-900 shadow-sm' : 'bg-neutral-800 text-neutral-300'
+                    className={`px-2 py-0.5 rounded-component font-mono font-bold transition-colors ${
+                      motdPrefix === '§' ? 'bg-arix text-white shadow-sm' : 'bg-black/40 text-gray-300 border border-white/10'
                     }`}
                   >
                     §
@@ -1066,8 +1080,8 @@ export default function OptionsContainer() {
                   <button
                     type="button"
                     onClick={() => setMotdPrefix('&')}
-                    className={`px-2 py-0.5 rounded font-mono font-bold transition-colors ${
-                      motdPrefix === '&' ? 'bg-cyan-500 text-neutral-900 shadow-sm' : 'bg-neutral-800 text-neutral-300'
+                    className={`px-2 py-0.5 rounded-component font-mono font-bold transition-colors ${
+                      motdPrefix === '&' ? 'bg-arix text-white shadow-sm' : 'bg-black/40 text-gray-300 border border-white/10'
                     }`}
                   >
                     &
@@ -1075,7 +1089,7 @@ export default function OptionsContainer() {
                   <button
                     type="button"
                     onClick={() => updateProp('motd', DEFAULT_MOTD, true)}
-                    className="ml-2 text-[11px] text-cyan-400 hover:text-cyan-300 underline font-medium"
+                    className="ml-2 text-[11px] text-arix hover:underline font-medium"
                   >
                     Reset Default
                   </button>
@@ -1090,16 +1104,16 @@ export default function OptionsContainer() {
                   value={getProp('motd', DEFAULT_MOTD)}
                   onChange={(e) => updateProp('motd', e.target.value, false)}
                   placeholder="Enter server description (MOTD)..."
-                  className="w-full bg-neutral-950/90 border border-neutral-700/80 rounded-xl px-3.5 py-2.5 text-sm text-neutral-100 font-mono focus:border-cyan-500 focus:outline-none resize-y"
+                  className="w-full bg-black/40 border border-white/10 rounded-component px-3.5 py-2.5 text-sm text-white font-mono focus:border-arix focus:outline-none resize-y"
                 />
-                <span className="absolute bottom-2.5 right-3 text-[10px] text-neutral-500 font-mono">
+                <span className="absolute bottom-2.5 right-3 text-[10px] text-gray-400 font-mono">
                   {getProp('motd', '').length} chars
                 </span>
               </div>
 
               {/* Preset Quick Styles */}
               <div className="space-y-1.5">
-                <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
                   Quick Style Presets:
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1108,7 +1122,7 @@ export default function OptionsContainer() {
                       key={p.name}
                       type="button"
                       onClick={() => handleApplyMotdPreset(p.value)}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-neutral-800/80 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 hover:border-cyan-500/50 transition-all font-medium"
+                      className="px-2.5 py-1 rounded-component text-xs bg-black/30 hover:bg-black/50 text-gray-200 border border-white/10 hover:border-arix transition-all font-medium"
                     >
                       {p.name}
                     </button>
@@ -1120,14 +1134,14 @@ export default function OptionsContainer() {
               <div className="flex flex-wrap items-center gap-4 pt-1">
                 {/* 16 Colors */}
                 <div className="space-y-1">
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider block">Colors</span>
-                  <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-neutral-950/70 border border-neutral-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Colors</span>
+                  <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-black/30 border border-white/10 rounded-component">
                     {MC_COLORS.map((c) => (
                       <button
                         key={c.code}
                         type="button"
                         onClick={() => handleInsertCode(c.code)}
-                        className="w-6 h-6 rounded-md border border-neutral-600/70 hover:scale-110 active:scale-95 transition-transform flex items-center justify-center shadow-sm"
+                        className="w-6 h-6 rounded-component border border-neutral-600/70 hover:scale-110 active:scale-95 transition-transform flex items-center justify-center shadow-sm"
                         style={{ backgroundColor: c.hex }}
                         title={`${c.name} (${motdPrefix}${c.code})`}
                       >
@@ -1141,14 +1155,14 @@ export default function OptionsContainer() {
 
                 {/* Formats */}
                 <div className="space-y-1">
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider block">Formatting</span>
-                  <div className="flex items-center space-x-1 p-1.5 bg-neutral-950/70 border border-neutral-800 rounded-xl">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Formatting</span>
+                  <div className="flex items-center space-x-1 p-1.5 bg-black/30 border border-white/10 rounded-component">
                     {MC_FORMATS.map((f) => (
                       <button
                         key={f.code}
                         type="button"
                         onClick={() => handleInsertCode(f.code)}
-                        className={`px-2 py-1 rounded-md text-xs font-mono font-bold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors ${f.style}`}
+                        className={`px-2 py-1 rounded-component text-xs font-mono font-bold bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-colors ${f.style}`}
                         title={`${f.name} (${motdPrefix}${f.code})`}
                       >
                         {f.label}
@@ -1162,24 +1176,24 @@ export default function OptionsContainer() {
         </div>
 
         {/* ========================================================================= */}
-        {/* NAVIGATION & SEARCH CONTROLS */}
+        {/* SEARCH & LIVE FILTER BAR */}
         {/* ========================================================================= */}
-        <div className="space-y-3">
-          {/* Search Bar */}
-          <div className="relative">
-            <FontAwesomeIcon icon={faSearch} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+        <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-4 space-y-3 w-full min-w-0">
+          {/* Search Input Box */}
+          <div className="relative w-full">
+            <FontAwesomeIcon icon={faSearch} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search settings by property key or keyword (e.g. pvp, flight, whitelist, distance)..."
-              className="w-full bg-gray-700 backdrop boxBorder rounded-box pl-10 pr-10 py-3 text-sm text-white placeholder-gray-400 focus:outline-none transition-all"
+              className="w-full bg-black/30 border border-white/10 rounded-component pl-9 pr-9 py-2 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-arix focus:outline-none transition-colors"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
                 title="Clear search"
               >
                 <FontAwesomeIcon icon={faTimes} className="text-xs" />
@@ -1187,8 +1201,8 @@ export default function OptionsContainer() {
             )}
           </div>
 
-          {/* Segmented Category Filter Tabs */}
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
+          {/* Segmented Category Filter Tabs (constrained scroll without stretching parent) */}
+          <div className="flex items-center gap-2 overflow-x-auto max-w-full min-w-0 pb-1 scrollbar-none">
             {[
               { id: 'all', label: 'All Options', icon: faLayerGroup, count: tabCounts.all },
               { id: 'general', label: 'General', icon: faGamepad, count: tabCounts.general },
@@ -1205,10 +1219,10 @@ export default function OptionsContainer() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-component text-xs font-semibold whitespace-nowrap transition-all shadow-sm ${
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-component text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
                     active
                       ? 'bg-arix text-white shadow-arix/30'
-                      : 'bg-gray-700 hover:bg-gray-600/80 text-gray-300 boxBorder backdrop'
+                      : 'bg-black/30 hover:bg-black/40 text-gray-300 border border-white/10'
                   }`}
                 >
                   <FontAwesomeIcon icon={tab.icon} className="text-xs" />
@@ -1216,7 +1230,7 @@ export default function OptionsContainer() {
                   {tab.count > 0 && (
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
-                        active ? 'bg-black/30 text-white font-bold' : 'bg-black/30 text-gray-400'
+                        active ? 'bg-black/30 text-white font-bold' : 'bg-black/40 text-gray-400'
                       }`}
                     >
                       {tab.count}
@@ -1254,14 +1268,14 @@ export default function OptionsContainer() {
         {/* ========================================================================= */}
         {/* MAIN CONFIGURATION GRID: Professional Categorized Cards */}
         {/* ========================================================================= */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full min-w-0">
           {/* ------------------------------------------------------------- */}
           {/* CARD 1: General Server Settings */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('general') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-arix/20 text-white flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-arix/20 text-white flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faGamepad} className="text-base" />
                 </div>
                 <div>
@@ -1362,9 +1376,9 @@ export default function OptionsContainer() {
           {/* CARD 2: Access & Authentication */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('security') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-emerald-500/20 text-emerald-300 flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-emerald-500/20 text-emerald-300 flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faShieldAlt} className="text-base" />
                 </div>
                 <div>
@@ -1456,9 +1470,9 @@ export default function OptionsContainer() {
           {/* CARD 3: Gameplay & Combat */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('gameplay') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-red-500/20 text-red-300 flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-red-500/20 text-red-300 flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faSkullCrossbones} className="text-base" />
                 </div>
                 <div>
@@ -1550,9 +1564,9 @@ export default function OptionsContainer() {
           {/* CARD 4: World Entities & Spawning */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('world') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-purple-500/20 text-purple-300 flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-purple-500/20 text-purple-300 flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faGlobe} className="text-base" />
                 </div>
                 <div>
@@ -1638,9 +1652,9 @@ export default function OptionsContainer() {
           {/* CARD: Bedrock Dedicated Server Settings (When BDS detected) */}
           {/* ------------------------------------------------------------- */}
           {isBedrock && isCategoryVisible('bedrock') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-amber-500/20 text-amber-300 flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-amber-500/20 text-amber-300 flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faGamepad} className="text-base" />
                 </div>
                 <div>
@@ -1702,9 +1716,9 @@ export default function OptionsContainer() {
           {/* CARD: Advanced Performance & Network (When Java) */}
           {/* ------------------------------------------------------------- */}
           {!isBedrock && !isProxy && isCategoryVisible('advanced') && (
-            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
-              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
-                <div className="w-10 h-10 rounded-component bg-indigo-500/20 text-indigo-300 flex items-center justify-center shadow">
+            <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-2.5 transition-all">
+              <div className="flex items-center gap-3 pb-3.5 mb-2 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-indigo-500/20 text-indigo-300 flex items-center justify-center flex-shrink-0 shadow">
                   <FontAwesomeIcon icon={faSlidersH} className="text-base" />
                 </div>
                 <div>
@@ -1784,9 +1798,9 @@ export default function OptionsContainer() {
         {/* CARD 5: Resource Pack Settings & 1-Click ZIP Upload */}
         {/* ------------------------------------------------------------- */}
         {isCategoryVisible('resourcepack') && (
-          <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-4 transition-all">
-            <div className="flex items-center space-x-3.5 pb-4 border-b border-gray-600/60">
-              <div className="w-10 h-10 rounded-component bg-yellow-500/20 text-yellow-300 flex items-center justify-center shadow">
+          <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-3.5 transition-all w-full min-w-0">
+            <div className="flex items-center gap-3 pb-3.5 border-b border-gray-600/60">
+              <div className="w-10 h-10 rounded-component bg-yellow-500/20 text-yellow-300 flex items-center justify-center flex-shrink-0 shadow">
                 <FontAwesomeIcon icon={faCloudUploadAlt} className="text-base" />
               </div>
               <div>
