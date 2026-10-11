@@ -35,10 +35,13 @@ echo -e "\033[0;32m[+] Downloading updated React components with brand icons & p
 mkdir -p resources/scripts/components/server/plugin-installer
 mkdir -p resources/scripts/components/server/mod-installer
 mkdir -p resources/scripts/components/server/modpack-installer
+mkdir -p resources/scripts/components/server/options
 
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PluginInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ModpackInstallerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/OptionsContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/options/OptionsContainer.tsx
+
 
 echo -e "\033[0;32m[+] Updating ServerExpiryCard component & auto-suspend / build config patches...\033[0m"
 mkdir -p app/Console/Commands

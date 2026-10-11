@@ -265,14 +265,7 @@ interface ToggleSwitchProps {
   disabled?: boolean;
 }
 
-const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, activeColor = 'cyan', disabled = false }) => {
-  const colorClasses = {
-    cyan: 'bg-gradient-to-r from-cyan-500 to-blue-500 shadow-cyan-500/25',
-    emerald: 'bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-500/25',
-    rose: 'bg-gradient-to-r from-rose-500 to-red-600 shadow-rose-500/25',
-    amber: 'bg-gradient-to-r from-amber-500 to-yellow-500 shadow-amber-500/25',
-  }[activeColor];
-
+const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, disabled = false }) => {
   return (
     <button
       type="button"
@@ -281,7 +274,7 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, activeCo
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-200 ease-in-out focus:outline-none ${
-        checked ? `${colorClasses} shadow-md` : 'bg-neutral-800 hover:bg-neutral-700/80'
+        checked ? 'bg-arix shadow-md' : 'bg-gray-800 hover:bg-gray-700/80'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
     >
       <span
@@ -306,14 +299,14 @@ const Stepper: React.FC<StepperProps> = ({ value, onChange, min = 0, max = 10000
   const num = typeof value === 'number' ? value : parseInt(value, 10) || 0;
 
   return (
-    <div className="inline-flex items-center rounded-xl bg-neutral-950 border border-neutral-800 shadow-inner p-0.5">
+    <div className="inline-flex items-center rounded-component bg-black/30 border border-white/10 shadow-inner p-0.5">
       <button
         type="button"
         onClick={() => {
           if (num > min) onChange((num - step).toString());
         }}
         disabled={num <= min}
-        className="w-7 h-7 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+        className="w-7 h-7 rounded-component text-gray-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
       >
         <FontAwesomeIcon icon={faMinus} className="text-[10px]" />
       </button>
@@ -325,14 +318,14 @@ const Stepper: React.FC<StepperProps> = ({ value, onChange, min = 0, max = 10000
         onChange={(e) => onChange(e.target.value)}
         className="w-14 bg-transparent text-center text-xs font-mono font-bold text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       />
-      {unit && <span className="text-[10px] text-neutral-500 font-mono pr-1.5">{unit}</span>}
+      {unit && <span className="text-[10px] text-gray-400 font-mono pr-1.5">{unit}</span>}
       <button
         type="button"
         onClick={() => {
           if (num < max) onChange((num + step).toString());
         }}
         disabled={num >= max}
-        className="w-7 h-7 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+        className="w-7 h-7 rounded-component text-gray-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
       >
         <FontAwesomeIcon icon={faPlus} className="text-[10px]" />
       </button>
@@ -349,16 +342,16 @@ interface SettingRowProps {
 }
 
 const SettingRow: React.FC<SettingRowProps> = ({ label, propKey, desc, badge, children }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-3.5 rounded-xl hover:bg-neutral-800/30 border border-transparent hover:border-neutral-800/60 transition-all">
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-3.5 rounded-component hover:bg-black/20 border border-transparent hover:border-white/5 transition-all">
     <div className="space-y-0.5 max-w-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold text-neutral-200 tracking-tight">{label}</label>
-        <span className="text-[10px] font-mono text-neutral-500 bg-neutral-950/70 border border-neutral-800 px-1.5 py-0.2 rounded">
+        <label className="text-xs font-semibold text-gray-200 tracking-tight">{label}</label>
+        <span className="text-[10px] font-mono text-gray-400 bg-black/40 border border-white/10 px-1.5 py-0.5 rounded">
           {propKey}
         </span>
         {badge}
       </div>
-      <p className="text-[11px] text-neutral-400 leading-snug">{desc}</p>
+      <p className="text-[11px] text-gray-400 leading-snug">{desc}</p>
     </div>
     <div className="flex items-center justify-end sm:self-center flex-shrink-0">
       {children}
@@ -790,36 +783,36 @@ export default function OptionsContainer() {
         {/* ========================================================================= */}
         {/* TOP STATUS BAR: Software, Live Auto-Save, Session Restart Hint */}
         {/* ========================================================================= */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-neutral-900/60 border border-neutral-800/80 px-4 py-2.5 rounded-2xl backdrop-blur-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-700 backdrop boxBorder px-4 py-3 rounded-box">
           {/* Software & Category Badges */}
           <div className="flex flex-wrap items-center gap-2">
             {software ? (
               <span
-                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full border font-semibold ${
+                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-component border font-semibold ${
                   isBedrock
-                    ? 'bg-amber-950/60 text-amber-300 border-amber-600/40'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                     : isProxy
-                    ? 'bg-purple-950/60 text-purple-300 border-purple-600/40'
-                    : 'bg-cyan-950/60 text-cyan-300 border-cyan-600/40'
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                    : 'bg-arix/20 text-white border-arix/40'
                 }`}
               >
                 <FontAwesomeIcon icon={isBedrock ? faGamepad : isProxy ? faServer : faGamepad} className="text-[11px]" />
                 <span>
                   {software.name} {software.version ? `v${software.version}` : ''}
                 </span>
-                <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-black/40 text-neutral-300">
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded-component bg-black/40 text-gray-300">
                   {software.category}
                 </span>
               </span>
             ) : (
-              <span className="text-xs text-neutral-400 flex items-center space-x-1.5">
-                <FontAwesomeIcon icon={faCogs} className="text-neutral-500" />
+              <span className="text-xs text-gray-400 flex items-center space-x-1.5">
+                <FontAwesomeIcon icon={faCogs} className="text-gray-500" />
                 <span>Standard Minecraft Server</span>
               </span>
             )}
 
             {hasChangedInSession && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium animate-pulse">
+              <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-component bg-amber-500/15 text-amber-300 border border-amber-500/40 font-medium animate-pulse">
                 <FontAwesomeIcon icon={faRedo} className="text-[10px]" />
                 <span>Restart recommended to apply changes</span>
               </span>
@@ -829,25 +822,25 @@ export default function OptionsContainer() {
           {/* Live Auto-Save Indicator */}
           <div className="flex items-center space-x-2 text-xs font-mono">
             {autoSaveStatus === 'saving' && (
-              <span className="text-cyan-400 flex items-center space-x-1.5 bg-cyan-950/40 border border-cyan-500/30 px-2.5 py-1 rounded-full">
+              <span className="text-arix flex items-center space-x-1.5 bg-black/25 border border-white/10 px-3 py-1 rounded-component">
                 <FontAwesomeIcon icon={faSpinner} spin className="text-[11px]" />
                 <span>Saving changes...</span>
               </span>
             )}
             {autoSaveStatus === 'saved' && (
-              <span className="text-emerald-400 font-semibold flex items-center space-x-1.5 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-full shadow-sm shadow-emerald-500/20">
+              <span className="text-emerald-400 font-semibold flex items-center space-x-1.5 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-component">
                 <FontAwesomeIcon icon={faCheckCircle} className="text-[11px]" />
                 <span>Saved & Synchronized</span>
               </span>
             )}
             {autoSaveStatus === 'error' && (
-              <span className="text-red-400 font-semibold flex items-center space-x-1.5 bg-red-950/40 border border-red-500/30 px-2.5 py-1 rounded-full">
+              <span className="text-red-400 font-semibold flex items-center space-x-1.5 bg-red-500/15 border border-red-500/30 px-3 py-1 rounded-component">
                 <FontAwesomeIcon icon={faExclamationTriangle} className="text-[11px]" />
                 <span>Save Error</span>
               </span>
             )}
             {autoSaveStatus === 'idle' && (
-              <span className="text-neutral-400 flex items-center space-x-1.5 bg-neutral-800/40 px-2.5 py-1 rounded-full">
+              <span className="text-gray-400 flex items-center space-x-1.5 bg-black/20 border border-white/5 px-3 py-1 rounded-component">
                 <FontAwesomeIcon icon={faCheck} className="text-[10px] text-emerald-400" />
                 <span>Auto-save active</span>
               </span>
@@ -857,14 +850,14 @@ export default function OptionsContainer() {
 
         {/* Action Banners */}
         {toastMessage && (
-          <div className="flex items-center space-x-3 bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 px-4 py-3 rounded-xl shadow-lg">
+          <div className="flex items-center space-x-3 bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-component shadow-lg">
             <FontAwesomeIcon icon={faCheck} className="text-emerald-400 text-lg flex-shrink-0" />
             <span className="text-sm font-medium">{toastMessage}</span>
           </div>
         )}
 
         {toastError && (
-          <div className="flex items-center space-x-3 bg-red-950/70 border border-red-500/50 text-red-200 px-4 py-3 rounded-xl shadow-lg">
+          <div className="flex items-center space-x-3 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-3 rounded-component shadow-lg">
             <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
             <span className="text-sm font-medium">{toastError}</span>
           </div>
@@ -880,7 +873,7 @@ export default function OptionsContainer() {
 
           if (isSuspended) {
             return (
-              <div className="flex items-center space-x-3 bg-red-950/80 border border-red-500/50 text-red-200 px-4 py-3 rounded-xl shadow-lg">
+              <div className="flex items-center space-x-3 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-3 rounded-component shadow-lg">
                 <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400 text-lg flex-shrink-0" />
                 <div className="text-xs sm:text-sm">
                   <span className="font-bold text-white">Server Suspended:</span> This server has reached its expiration date. Please renew your plan to reactivate it.
@@ -891,11 +884,11 @@ export default function OptionsContainer() {
 
           if (isExpiringSoon) {
             return (
-              <div className="flex items-center space-x-3 bg-amber-950/80 border border-amber-500/50 text-amber-200 px-4 py-3 rounded-xl shadow-lg">
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-amber-400 text-lg flex-shrink-0" />
+              <div className="flex items-center space-x-3 bg-yellow-500/15 border border-yellow-500/40 text-yellow-200 px-4 py-3 rounded-component shadow-lg">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-400 text-lg flex-shrink-0" />
                 <div className="text-xs sm:text-sm">
                   <span className="font-bold text-white">Scheduled Suspension Notice:</span> This server is scheduled for automatic suspension on{' '}
-                  <span className="font-mono text-cyan-300 font-semibold">
+                  <span className="font-mono text-white font-semibold">
                     {new Date(expireAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>{' '}
                   {daysLeft === 0 ? '(Today)' : `(in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'})`}. Please renew your plan to prevent downtime.
@@ -910,16 +903,14 @@ export default function OptionsContainer() {
         {/* ========================================================================= */}
         {/* HERO SECTION: Authentic Minecraft Multiplayer Server Identity Banner */}
         {/* ========================================================================= */}
-        <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-5 sm:p-6 shadow-xl backdrop-blur-md relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-96 h-48 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
-
+        <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 relative overflow-hidden group">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
             {/* Left: 64x64 Icon Box & Server Address Details */}
             <div className="flex items-center space-x-4">
               {/* 64x64 Minecraft Server Icon Box */}
               <div
                 onClick={() => !uploadingIcon && fileInputRef.current?.click()}
-                className="relative group/icon cursor-pointer w-16 h-16 rounded-xl border-2 border-neutral-700/80 hover:border-cyan-500 transition-all duration-200 bg-black/60 overflow-hidden flex-shrink-0 shadow-lg"
+                className="relative group/icon cursor-pointer w-16 h-16 rounded-component border border-white/10 hover:border-arix transition-all duration-200 bg-black/40 overflow-hidden flex-shrink-0 shadow"
                 title="Click to upload custom server icon (64×64 PNG, auto-resized)"
               >
                 <img
@@ -937,10 +928,10 @@ export default function OptionsContainer() {
                 {/* Upload Overlay on Hover */}
                 <div className="absolute inset-0 bg-black/75 opacity-0 group-hover/icon:opacity-100 transition-opacity flex flex-col items-center justify-center text-white">
                   {uploadingIcon ? (
-                    <FontAwesomeIcon icon={faSpinner} spin className="text-cyan-400 text-lg" />
+                    <FontAwesomeIcon icon={faSpinner} spin className="text-arix text-lg" />
                   ) : (
                     <>
-                      <FontAwesomeIcon icon={faCamera} className="text-cyan-400 text-sm mb-0.5" />
+                      <FontAwesomeIcon icon={faCamera} className="text-arix text-sm mb-0.5" />
                       <span className="text-[9px] font-semibold tracking-tighter">CHANGE</span>
                     </>
                   )}
@@ -968,28 +959,28 @@ export default function OptionsContainer() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-bold text-white tracking-wide">{serverName}</h2>
                   {hasCustomIcon ? (
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono border border-emerald-500/30">
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-mono border border-emerald-500/30">
                       Custom Icon
                     </span>
                   ) : (
-                    <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2 py-0.5 rounded-full font-mono border border-neutral-700">
+                    <span className="text-[10px] bg-white/10 text-gray-300 px-2.5 py-0.5 rounded-full font-mono border border-white/10">
                       Default Logo
                     </span>
                   )}
                 </div>
 
                 {/* Server Address with 1-Click Copy */}
-                <div className="flex items-center space-x-2 mt-1.5">
+                <div className="flex items-center space-x-2 mt-2">
                   <div
-                    className="inline-flex items-center space-x-2 bg-neutral-800/90 border border-neutral-700/80 px-2.5 py-1 rounded-lg text-xs font-mono text-cyan-300 select-all cursor-pointer hover:border-cyan-500/60 transition-colors"
+                    className="inline-flex items-center space-x-2 bg-black/30 border border-white/10 px-3 py-1.5 rounded-component text-xs font-mono text-gray-200 select-all cursor-pointer hover:border-arix transition-colors"
                     onClick={handleCopyAddress}
                     title="Click to copy server address"
                   >
-                    <FontAwesomeIcon icon={faLock} className="text-neutral-400 text-[10px]" />
-                    <span>{serverAddress || 'Allocating port...'}</span>
+                    <FontAwesomeIcon icon={faLock} className="text-gray-400 text-[10px]" />
+                    <span className="font-medium">{serverAddress || 'Allocating port...'}</span>
                     <FontAwesomeIcon
                       icon={copiedAddress ? faCheck : faCopy}
-                      className={copiedAddress ? 'text-emerald-400' : 'text-neutral-400 hover:text-cyan-400'}
+                      className={copiedAddress ? 'text-emerald-400' : 'text-gray-400 hover:text-white'}
                     />
                   </div>
                   {copiedAddress && (
@@ -1004,7 +995,7 @@ export default function OptionsContainer() {
               <button
                 type="button"
                 onClick={handleCopyMotd}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-component text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all shadow-sm"
                 title="Copy raw formatted MOTD code to clipboard"
               >
                 <FontAwesomeIcon icon={copiedMotd ? faCheck : faCopy} className={copiedMotd ? 'text-emerald-400' : ''} />
@@ -1013,10 +1004,10 @@ export default function OptionsContainer() {
               <button
                 type="button"
                 onClick={() => setShowMotdTools(!showMotdTools)}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-component text-xs font-semibold transition-all shadow-sm ${
                   showMotdTools
-                    ? 'bg-cyan-500 text-neutral-950 shadow-md shadow-cyan-500/30'
-                    : 'bg-neutral-800 hover:bg-neutral-700 text-cyan-300 border border-cyan-500/30'
+                    ? 'bg-arix text-white shadow-arix/30'
+                    : 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
                 }`}
               >
                 <FontAwesomeIcon icon={faPalette} />
@@ -1026,13 +1017,13 @@ export default function OptionsContainer() {
           </div>
 
           {/* Authentic Multiplayer Server List Preview Box */}
-          <div className="mt-5 pt-4 border-t border-neutral-800/80">
+          <div className="mt-5 pt-4 border-t border-gray-600/60">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
                 <FontAwesomeIcon icon={faSignal} className="text-emerald-400 text-[10px]" />
                 <span>In-Game Multiplayer Server Browser Preview</span>
               </span>
-              <div className="flex items-center space-x-3 text-[11px] text-neutral-400 font-mono">
+              <div className="flex items-center space-x-3 text-[11px] text-gray-300 font-mono">
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-emerald-400 font-bold">24ms</span>
@@ -1043,7 +1034,7 @@ export default function OptionsContainer() {
               </div>
             </div>
 
-            <div className="bg-black/90 border border-neutral-800 rounded-xl p-4 min-h-[58px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
+            <div className="bg-black/40 border border-white/10 rounded-component p-4 min-h-[58px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
               <div className="w-full">
                 {renderMotdSpans(getProp('motd', DEFAULT_MOTD))}
               </div>
@@ -1176,19 +1167,19 @@ export default function OptionsContainer() {
         <div className="space-y-3">
           {/* Search Bar */}
           <div className="relative">
-            <FontAwesomeIcon icon={faSearch} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 text-sm" />
+            <FontAwesomeIcon icon={faSearch} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search settings by property key or keyword (e.g. pvp, flight, whitelist, distance)..."
-              className="w-full bg-neutral-900/90 border border-neutral-700/80 rounded-xl pl-10 pr-10 py-2.5 text-sm text-neutral-100 placeholder-neutral-500 focus:border-cyan-500 focus:outline-none transition-all shadow-inner"
+              className="w-full bg-gray-700 backdrop boxBorder rounded-box pl-10 pr-10 py-3 text-sm text-white placeholder-gray-400 focus:outline-none transition-all"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-200 p-1"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
                 title="Clear search"
               >
                 <FontAwesomeIcon icon={faTimes} className="text-xs" />
@@ -1197,7 +1188,7 @@ export default function OptionsContainer() {
           </div>
 
           {/* Segmented Category Filter Tabs */}
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-thin">
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
             {[
               { id: 'all', label: 'All Options', icon: faLayerGroup, count: tabCounts.all },
               { id: 'general', label: 'General', icon: faGamepad, count: tabCounts.general },
@@ -1214,18 +1205,18 @@ export default function OptionsContainer() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-component text-xs font-semibold whitespace-nowrap transition-all shadow-sm ${
                     active
-                      ? 'bg-cyan-500 text-neutral-950 shadow-md shadow-cyan-500/20'
-                      : 'bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                      ? 'bg-arix text-white shadow-arix/30'
+                      : 'bg-gray-700 hover:bg-gray-600/80 text-gray-300 boxBorder backdrop'
                   }`}
                 >
                   <FontAwesomeIcon icon={tab.icon} className="text-xs" />
                   <span>{tab.label}</span>
                   {tab.count > 0 && (
                     <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                        active ? 'bg-black/30 text-neutral-950 font-bold' : 'bg-neutral-800 text-neutral-400'
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                        active ? 'bg-black/30 text-white font-bold' : 'bg-black/30 text-gray-400'
                       }`}
                     >
                       {tab.count}
@@ -1239,12 +1230,12 @@ export default function OptionsContainer() {
 
         {/* Empty Search State */}
         {filteredSettings.length === 0 && (
-          <div className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-12 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-neutral-800/80 border border-neutral-700 mx-auto flex items-center justify-center text-neutral-400">
+          <div className="bg-gray-700 backdrop boxBorder rounded-box p-12 text-center space-y-3">
+            <div className="w-12 h-12 rounded-component bg-black/30 border border-white/10 mx-auto flex items-center justify-center text-gray-400">
               <FontAwesomeIcon icon={faSearch} className="text-xl" />
             </div>
             <h4 className="text-base font-bold text-white">No Matching Settings Found</h4>
-            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+            <p className="text-xs text-gray-400 max-w-sm mx-auto">
               No configuration properties matched your search term &quot;{searchQuery}&quot;. Try adjusting your keywords or clearing the filter.
             </p>
             <button
@@ -1253,7 +1244,7 @@ export default function OptionsContainer() {
                 setSearchQuery('');
                 setActiveTab('all');
               }}
-              className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-neutral-950 transition-colors"
+              className="px-4 py-2 rounded-component text-xs font-semibold bg-arix hover:opacity-90 text-white transition-opacity"
             >
               Reset Filters
             </button>
@@ -1268,14 +1259,14 @@ export default function OptionsContainer() {
           {/* CARD 1: General Server Settings */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('general') && (
-            <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
-                  <FontAwesomeIcon icon={faGamepad} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-arix/20 text-white flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faGamepad} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">General Settings</h3>
-                  <p className="text-[11px] text-neutral-400">Core game modes, player slots, and difficulty</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">General Settings</h3>
+                  <p className="text-xs text-gray-300">Core game modes, player slots, and difficulty</p>
                 </div>
               </div>
 
@@ -1303,7 +1294,7 @@ export default function OptionsContainer() {
                   <select
                     value={getProp('gamemode', 'survival').toLowerCase()}
                     onChange={(e) => updateProp('gamemode', e.target.value, true)}
-                    className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 focus:border-cyan-500 rounded-xl px-3 py-1.5 text-xs text-neutral-200 font-medium cursor-pointer focus:outline-none transition-colors"
+                    className="bg-black/30 border border-white/10 hover:border-arix focus:border-arix rounded-component px-3 py-1.5 text-xs text-white font-medium cursor-pointer focus:outline-none transition-colors"
                   >
                     <option value="survival">Survival</option>
                     <option value="creative">Creative</option>
@@ -1322,7 +1313,7 @@ export default function OptionsContainer() {
                   <select
                     value={getProp('difficulty', 'easy').toLowerCase()}
                     onChange={(e) => updateProp('difficulty', e.target.value, true)}
-                    className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 focus:border-cyan-500 rounded-xl px-3 py-1.5 text-xs text-neutral-200 font-medium cursor-pointer focus:outline-none transition-colors"
+                    className="bg-black/30 border border-white/10 hover:border-arix focus:border-arix rounded-component px-3 py-1.5 text-xs text-white font-medium cursor-pointer focus:outline-none transition-colors"
                   >
                     <option value="peaceful">Peaceful</option>
                     <option value="easy">Easy</option>
@@ -1339,7 +1330,7 @@ export default function OptionsContainer() {
                   desc="Players are permanently banned upon in-game death."
                   badge={
                     getBoolProp('hardcore', false) && (
-                      <span className="text-[9px] bg-rose-500/20 text-rose-300 font-bold px-1.5 py-0.2 rounded border border-rose-500/30">
+                      <span className="text-[9px] bg-red-500/20 text-red-300 font-bold px-2 py-0.5 rounded-full border border-red-500/30">
                         PERMADEATH
                       </span>
                     )
@@ -1348,7 +1339,6 @@ export default function OptionsContainer() {
                   <ToggleSwitch
                     checked={getBoolProp('hardcore', false)}
                     onChange={() => toggleBoolProp('hardcore', false)}
-                    activeColor="rose"
                   />
                 </SettingRow>
               )}
@@ -1372,14 +1362,14 @@ export default function OptionsContainer() {
           {/* CARD 2: Access & Authentication */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('security') && (
-            <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-inner">
-                  <FontAwesomeIcon icon={faShieldAlt} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-emerald-500/20 text-emerald-300 flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faShieldAlt} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">Access & Authentication</h3>
-                  <p className="text-[11px] text-neutral-400">Control who can connect and authenticate on your server</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">Access & Authentication</h3>
+                  <p className="text-xs text-gray-300">Control who can connect and authenticate on your server</p>
                 </div>
               </div>
 
@@ -1394,11 +1384,11 @@ export default function OptionsContainer() {
                   }
                   badge={
                     !getBoolProp('online-mode', true) ? (
-                      <span className="text-[9px] bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-500/30">
+                      <span className="text-[9px] bg-yellow-500/20 text-yellow-300 font-bold px-2 py-0.5 rounded-full border border-yellow-500/30">
                         CRACKED ALLOWED
                       </span>
                     ) : (
-                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-1.5 py-0.2 rounded border border-emerald-500/30">
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
                         PREMIUM ONLY
                       </span>
                     )
@@ -1410,7 +1400,6 @@ export default function OptionsContainer() {
                       const isCracked = !getBoolProp('online-mode', true);
                       updateProp('online-mode', isCracked ? 'true' : 'false', true);
                     }}
-                    activeColor="amber"
                   />
                 </SettingRow>
               )}
@@ -1422,7 +1411,7 @@ export default function OptionsContainer() {
                   desc="Only players listed in whitelist.json can join the server."
                   badge={
                     getBoolProp('white-list', false) && (
-                      <span className="text-[9px] bg-cyan-500/20 text-cyan-300 font-bold px-1.5 py-0.2 rounded border border-cyan-500/30">
+                      <span className="text-[9px] bg-arix/20 text-white font-bold px-2 py-0.5 rounded-full border border-arix/30">
                         ACTIVE
                       </span>
                     )
@@ -1467,14 +1456,14 @@ export default function OptionsContainer() {
           {/* CARD 3: Gameplay & Combat */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('gameplay') && (
-            <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shadow-inner">
-                  <FontAwesomeIcon icon={faSkullCrossbones} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-red-500/20 text-red-300 flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faSkullCrossbones} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">Gameplay & Combat</h3>
-                  <p className="text-[11px] text-neutral-400">Player combat, flying liberties, and protection rules</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">Gameplay & Combat</h3>
+                  <p className="text-xs text-gray-300">Player combat, flying liberties, and protection rules</p>
                 </div>
               </div>
 
@@ -1485,8 +1474,8 @@ export default function OptionsContainer() {
                   desc="Allow players to fight, shoot, and damage each other."
                   badge={
                     <span
-                      className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                        getBoolProp('pvp', true) ? 'bg-emerald-500/20 text-emerald-300' : 'bg-neutral-800 text-neutral-400'
+                      className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        getBoolProp('pvp', true) ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-gray-400'
                       }`}
                     >
                       {getBoolProp('pvp', true) ? 'PVP ON' : 'PVP OFF'}
@@ -1561,14 +1550,14 @@ export default function OptionsContainer() {
           {/* CARD 4: World Entities & Spawning */}
           {/* ------------------------------------------------------------- */}
           {isCategoryVisible('world') && (
-            <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shadow-inner">
-                  <FontAwesomeIcon icon={faGlobe} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-purple-500/20 text-purple-300 flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faGlobe} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">World & Spawning</h3>
-                  <p className="text-[11px] text-neutral-400">Mob generation, chunk loading, and render distances</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">World & Spawning</h3>
+                  <p className="text-xs text-gray-300">Mob generation, chunk loading, and render distances</p>
                 </div>
               </div>
 
@@ -1649,14 +1638,14 @@ export default function OptionsContainer() {
           {/* CARD: Bedrock Dedicated Server Settings (When BDS detected) */}
           {/* ------------------------------------------------------------- */}
           {isBedrock && isCategoryVisible('bedrock') && (
-            <div className="bg-neutral-900/70 border border-amber-600/40 hover:border-amber-500/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-inner">
-                  <FontAwesomeIcon icon={faGamepad} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-amber-500/20 text-amber-300 flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faGamepad} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">Bedrock Dedicated Server</h3>
-                  <p className="text-[11px] text-neutral-400">Native Bedrock BDS properties & player permissions</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">Bedrock Dedicated Server</h3>
+                  <p className="text-xs text-gray-300">Native Bedrock BDS properties & player permissions</p>
                 </div>
               </div>
 
@@ -1669,7 +1658,6 @@ export default function OptionsContainer() {
                   <ToggleSwitch
                     checked={getBoolProp('allow-cheats', false)}
                     onChange={() => toggleBoolProp('allow-cheats', false)}
-                    activeColor="amber"
                   />
                 </SettingRow>
               )}
@@ -1699,7 +1687,7 @@ export default function OptionsContainer() {
                   <select
                     value={getProp('default-player-permission-level', 'member').toLowerCase()}
                     onChange={(e) => updateProp('default-player-permission-level', e.target.value, true)}
-                    className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 focus:border-amber-500 rounded-xl px-3 py-1.5 text-xs text-neutral-200 font-medium cursor-pointer focus:outline-none transition-colors"
+                    className="bg-black/30 border border-white/10 hover:border-arix focus:border-arix rounded-component px-3 py-1.5 text-xs text-white font-medium cursor-pointer focus:outline-none transition-colors"
                   >
                     <option value="visitor">Visitor (Can only observe)</option>
                     <option value="member">Member (Regular player)</option>
@@ -1714,14 +1702,14 @@ export default function OptionsContainer() {
           {/* CARD: Advanced Performance & Network (When Java) */}
           {/* ------------------------------------------------------------- */}
           {!isBedrock && !isProxy && isCategoryVisible('advanced') && (
-            <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-2 transition-all">
-              <div className="flex items-center space-x-3 pb-3 mb-2 border-b border-neutral-800/80">
-                <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-inner">
-                  <FontAwesomeIcon icon={faSlidersH} className="text-sm" />
+            <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-3 transition-all">
+              <div className="flex items-center space-x-3.5 pb-4 mb-3 border-b border-gray-600/60">
+                <div className="w-10 h-10 rounded-component bg-indigo-500/20 text-indigo-300 flex items-center justify-center shadow">
+                  <FontAwesomeIcon icon={faSlidersH} className="text-base" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide">Performance & Network</h3>
-                  <p className="text-[11px] text-neutral-400">Low-level lag reduction, packet thresholds, and disk writing</p>
+                  <h3 className="text-base font-semibold text-white tracking-wide">Performance & Network</h3>
+                  <p className="text-xs text-gray-300">Low-level lag reduction, packet thresholds, and disk writing</p>
                 </div>
               </div>
 
@@ -1796,47 +1784,47 @@ export default function OptionsContainer() {
         {/* CARD 5: Resource Pack Settings & 1-Click ZIP Upload */}
         {/* ------------------------------------------------------------- */}
         {isCategoryVisible('resourcepack') && (
-          <div className="bg-neutral-900/70 border border-neutral-800/80 hover:border-neutral-700/60 rounded-2xl p-5 sm:p-6 shadow-xl backdrop-blur-sm space-y-4 transition-all">
-            <div className="flex items-center space-x-3 pb-3 border-b border-neutral-800/80">
-              <div className="w-9 h-9 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400 shadow-inner">
-                <FontAwesomeIcon icon={faCloudUploadAlt} className="text-sm" />
+          <div className="bg-gray-700 backdrop boxBorder rounded-box p-6 space-y-4 transition-all">
+            <div className="flex items-center space-x-3.5 pb-4 border-b border-gray-600/60">
+              <div className="w-10 h-10 rounded-component bg-yellow-500/20 text-yellow-300 flex items-center justify-center shadow">
+                <FontAwesomeIcon icon={faCloudUploadAlt} className="text-base" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white tracking-wide">Server Resource Pack</h3>
-                <p className="text-[11px] text-neutral-400">Upload a .zip pack directly or link an external download URL</p>
+                <h3 className="text-base font-semibold text-white tracking-wide">Server Resource Pack</h3>
+                <p className="text-xs text-gray-300">Upload a .zip pack directly or link an external download URL</p>
               </div>
             </div>
 
             {/* 1-Click ZIP Upload Dropzone Area */}
             <div
               onClick={() => !uploadingPack && packInputRef.current?.click()}
-              className="border-2 border-dashed border-neutral-700/80 hover:border-cyan-500/80 bg-neutral-950/60 hover:bg-neutral-900/60 rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 group relative"
+              className="border border-dashed border-white/20 hover:border-arix bg-black/30 hover:bg-black/40 rounded-component p-6 text-center cursor-pointer transition-all duration-200 group relative"
             >
               {uploadingPack ? (
-                <div className="flex flex-col items-center space-y-2 text-cyan-400 py-3">
+                <div className="flex flex-col items-center space-y-2 text-arix py-3">
                   <FontAwesomeIcon icon={faSpinner} spin className="text-3xl" />
-                  <span className="text-sm font-semibold">Uploading & calculating SHA-1 checksum...</span>
-                  <span className="text-xs text-neutral-400">Configuring server.properties automatically</span>
+                  <span className="text-sm font-semibold text-white">Uploading & calculating SHA-1 checksum...</span>
+                  <span className="text-xs text-gray-400">Configuring server.properties automatically</span>
                 </div>
               ) : getProp('resource-pack') ? (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
                   <div className="flex items-center space-x-3.5">
-                    <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 flex-shrink-0">
+                    <div className="w-12 h-12 rounded-component bg-arix/20 text-white flex items-center justify-center flex-shrink-0 shadow">
                       <FontAwesomeIcon icon={faFileArchive} className="text-xl" />
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="text-sm font-bold text-white">Active Server Resource Pack</span>
-                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono font-semibold">
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-mono font-semibold">
                           HOSTED & LINKED
                         </span>
                       </div>
-                      <p className="text-xs text-neutral-400 font-mono truncate max-w-md mt-0.5">
+                      <p className="text-xs text-gray-300 font-mono truncate max-w-md mt-0.5">
                         {getProp('resource-pack')}
                       </p>
                       {getProp('resource-pack-sha1') && (
-                        <p className="text-[11px] text-neutral-400 font-mono mt-0.5">
-                          SHA-1: <span className="text-neutral-300">{getProp('resource-pack-sha1')}</span>
+                        <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                          SHA-1: <span className="text-gray-200">{getProp('resource-pack-sha1')}</span>
                         </p>
                       )}
                     </div>
@@ -1846,7 +1834,7 @@ export default function OptionsContainer() {
                     <button
                       type="button"
                       onClick={() => packInputRef.current?.click()}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors"
+                      className="px-3.5 py-1.5 rounded-component text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all shadow-sm"
                     >
                       Replace .zip
                     </button>
@@ -1854,7 +1842,7 @@ export default function OptionsContainer() {
                       type="button"
                       onClick={handleDeletePack}
                       disabled={deletingPack}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/60 transition-colors"
+                      className="px-3.5 py-1.5 rounded-component text-xs font-semibold bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/40 transition-colors shadow-sm"
                     >
                       {deletingPack ? (
                         <FontAwesomeIcon icon={faSpinner} spin />
@@ -1869,13 +1857,13 @@ export default function OptionsContainer() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center space-y-2.5 py-3">
-                  <div className="w-12 h-12 rounded-2xl bg-neutral-800/80 border border-neutral-700 group-hover:border-cyan-500/50 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
+                  <div className="w-12 h-12 rounded-component bg-white/10 border border-white/10 group-hover:border-arix flex items-center justify-center text-arix group-hover:scale-105 transition-transform">
                     <FontAwesomeIcon icon={faCloudUploadAlt} className="text-xl" />
                   </div>
-                  <div className="text-sm font-bold text-neutral-200 group-hover:text-cyan-300 transition-colors">
+                  <div className="text-sm font-bold text-white group-hover:text-arix transition-colors">
                     Upload Server Resource Pack (.zip)
                   </div>
-                  <p className="text-xs text-neutral-400 max-w-md">
+                  <p className="text-xs text-gray-400 max-w-md">
                     Click to select your server resource pack. It will automatically be hosted securely on your panel and written to server.properties with automatic SHA-1 generation!
                   </p>
                 </div>
@@ -1884,26 +1872,26 @@ export default function OptionsContainer() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
               <div>
-                <label className="text-xs font-bold text-neutral-300">Resource Pack Direct URL (.zip)</label>
+                <label className="text-xs font-bold text-gray-300">Resource Pack Direct URL (.zip)</label>
                 <input
                   type="text"
                   value={getProp('resource-pack', '')}
                   onChange={(e) => updateProp('resource-pack', e.target.value, false)}
                   onBlur={(e) => updateProp('resource-pack', e.target.value, true)}
                   placeholder="https://example.com/pack.zip"
-                  className="mt-1 w-full bg-neutral-950 border border-neutral-700/80 rounded-xl px-3.5 py-2 text-sm text-neutral-100 font-mono focus:border-cyan-500 focus:outline-none"
+                  className="mt-1 w-full bg-black/30 border border-white/10 rounded-component px-3.5 py-2 text-sm text-white font-mono focus:border-arix focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-neutral-300">Prompt Message (Optional)</label>
+                <label className="text-xs font-bold text-gray-300">Prompt Message (Optional)</label>
                 <input
                   type="text"
                   value={getProp('resource-pack-prompt', '')}
                   onChange={(e) => updateProp('resource-pack-prompt', e.target.value, false)}
                   onBlur={(e) => updateProp('resource-pack-prompt', e.target.value, true)}
                   placeholder="Custom message shown to players when prompting..."
-                  className="mt-1 w-full bg-neutral-950 border border-neutral-700/80 rounded-xl px-3.5 py-2 text-sm text-neutral-100 focus:border-cyan-500 focus:outline-none"
+                  className="mt-1 w-full bg-black/30 border border-white/10 rounded-component px-3.5 py-2 text-sm text-white focus:border-arix focus:outline-none"
                 />
               </div>
             </div>
