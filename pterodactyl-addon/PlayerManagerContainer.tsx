@@ -595,7 +595,7 @@ export default function PlayerManagerContainer() {
           <span>{toastMessage.text}</span>
           <button
             onClick={() => setToastMessage(null)}
-            className="ml-2 text-neutral-400 hover:text-white transition-colors"
+            className="ml-2 text-gray-400 hover:text-white transition-colors"
           >
             <FontAwesomeIcon icon={faTimes} />
           </button>
@@ -603,41 +603,41 @@ export default function PlayerManagerContainer() {
       )}
 
       {/* Top Header Card: Current / Max Players & Search */}
-      <div className="bg-neutral-900/90 border border-neutral-800 rounded-2xl p-5 mb-6 shadow-xl backdrop-blur-sm">
+      <div className="bg-gray-700 backdrop boxBorder rounded-box p-5 mb-6 shadow-xl w-full min-w-0">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           {/* Status & Player Count Counter */}
           <div className="flex items-center gap-4">
-            <div className="shrink-0 text-primary-400 flex items-center justify-center">
+            <div className="shrink-0 text-arix flex items-center justify-center">
               <FontAwesomeIcon icon={faUsers} className="text-3xl" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-2.5 py-0.5 rounded-full border bg-neutral-800 text-neutral-300 border-neutral-700">
+                <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-2.5 py-0.5 rounded-full border bg-gray-800/80 text-gray-300 border-gray-600/60">
                   <FontAwesomeIcon
                     icon={faCircle}
                     className={`text-[9px] ${
-                      serverOnline ? 'text-emerald-400 animate-pulse' : 'text-neutral-500'
+                      serverOnline ? 'text-emerald-400 animate-pulse' : 'text-gray-400'
                     }`}
                   />
                   {serverOnline ? 'Server Active' : 'Server Standby'}
                 </span>
                 {software && (
-                  <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border bg-cyan-950/60 text-cyan-300 border-cyan-700/50 font-medium">
+                  <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full bg-arix/20 text-white border border-arix/40 font-semibold">
                     <FontAwesomeIcon icon={faCube} className="text-[10px]" />
                     <span>{software.name} {software.version ? software.version : ''}</span>
                   </span>
                 )}
                 {!onlineMode && (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full border bg-amber-950/60 text-amber-300 border-amber-700/50 font-medium">
+                  <span className="text-xs px-2.5 py-0.5 rounded-full border bg-amber-500/20 text-amber-300 border-amber-500/40 font-medium">
                     Cracked Mode
                   </span>
                 )}
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold tracking-tight text-white">
-                  {onlineCount} <span className="text-neutral-500 font-normal text-lg">/ {maxPlayers}</span>
+                  {onlineCount} <span className="text-gray-400 font-normal text-lg">/ {maxPlayers}</span>
                 </span>
-                <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
+                <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Players Online
                 </span>
               </div>
@@ -649,19 +649,19 @@ export default function PlayerManagerContainer() {
             <div className="relative flex-1 lg:w-72">
               <FontAwesomeIcon
                 icon={faSearch}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 text-xs"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"
               />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search players by name or UUID..."
-                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 placeholder-neutral-500 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                className="w-full pl-9 pr-4 py-2.5 rounded-component bg-gray-800/90 border border-gray-600 text-white placeholder-gray-400 text-sm focus:outline-none focus:border-arix transition-colors"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
                 >
                   <FontAwesomeIcon icon={faTimes} className="text-xs" />
                 </button>
@@ -672,7 +672,7 @@ export default function PlayerManagerContainer() {
               onClick={handleSync}
               disabled={syncing || refreshing}
               title="Synchronize live players directly from Minecraft console (/list)"
-              className="px-4 py-2.5 rounded-xl bg-primary-600/20 hover:bg-primary-600/30 text-primary-400 text-sm font-semibold border border-primary-500/40 transition-colors flex items-center gap-2 whitespace-nowrap active:scale-95 shadow-sm"
+              className="px-4 py-2.5 rounded-component bg-arix hover:opacity-90 text-white text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap active:scale-95 shadow"
             >
               <FontAwesomeIcon icon={faSyncAlt} className={`${syncing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Sync Online</span>
@@ -682,7 +682,7 @@ export default function PlayerManagerContainer() {
               onClick={() => loadPlayers(true)}
               disabled={refreshing || syncing}
               title="Refresh player list"
-              className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-medium border border-neutral-700 transition-colors flex items-center gap-2 whitespace-nowrap active:scale-95"
+              className="px-4 py-2.5 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-sm font-medium border border-gray-500/50 transition-colors flex items-center gap-2 whitespace-nowrap active:scale-95"
             >
               <FontAwesomeIcon icon={faSyncAlt} className={`${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
@@ -693,13 +693,13 @@ export default function PlayerManagerContainer() {
 
       {/* Tabs & Sub-filter Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2 bg-neutral-950 p-1.5 rounded-2xl border border-neutral-800">
+        <div className="flex items-center gap-2 bg-gray-700 backdrop boxBorder rounded-box p-1.5">
           <button
             onClick={() => setActiveTab('players')}
-            className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2.5 px-4 py-2 rounded-component text-sm font-semibold transition-all ${
               activeTab === 'players'
-                ? 'bg-primary-600/20 text-primary-400 border border-primary-500/40'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
+                ? 'bg-arix text-white shadow'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-600/40'
             }`}
           >
             <FontAwesomeIcon icon={faUsers} />
@@ -707,8 +707,8 @@ export default function PlayerManagerContainer() {
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${
                 activeTab === 'players'
-                  ? 'bg-primary-500/30 text-primary-300'
-                  : 'bg-neutral-800 text-neutral-400'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-gray-800 text-gray-300'
               }`}
             >
               {combinedPlayersList.length}
@@ -717,10 +717,10 @@ export default function PlayerManagerContainer() {
 
           <button
             onClick={() => setActiveTab('banned')}
-            className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2.5 px-4 py-2 rounded-component text-sm font-semibold transition-all ${
               activeTab === 'banned'
-                ? 'bg-rose-950/40 text-rose-400 border border-rose-600/40'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
+                ? 'bg-rose-600 text-white shadow'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-600/40'
             }`}
           >
             <FontAwesomeIcon icon={faUserSlash} />
@@ -729,7 +729,7 @@ export default function PlayerManagerContainer() {
               className={`text-xs px-2 py-0.5 rounded-full ${
                 activeTab === 'banned'
                   ? 'bg-rose-500/30 text-rose-300'
-                  : 'bg-neutral-800 text-neutral-400'
+                  : 'bg-gray-800 text-gray-300'
               }`}
             >
               {bannedPlayers.length}
@@ -739,23 +739,23 @@ export default function PlayerManagerContainer() {
 
         {/* Sub-filters for Players Tab */}
         {activeTab === 'players' && (
-          <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800 self-start sm:self-auto">
+          <div className="flex items-center gap-1.5 bg-gray-800/80 p-1 rounded-component border border-gray-600/60 self-start sm:self-auto">
             <button
               onClick={() => setPlayerFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-component text-xs font-medium transition-colors ${
                 playerFilter === 'all'
-                  ? 'bg-neutral-800 text-white shadow-sm font-semibold'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-gray-600 text-white shadow-sm font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
               }`}
             >
               All ({combinedPlayersList.length})
             </button>
             <button
               onClick={() => setPlayerFilter('online')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-component text-xs font-medium transition-colors ${
                 playerFilter === 'online'
-                  ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/40 shadow-sm font-semibold'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/50 shadow-sm font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -763,10 +763,10 @@ export default function PlayerManagerContainer() {
             </button>
             <button
               onClick={() => setPlayerFilter('offline')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-component text-xs font-medium transition-colors ${
                 playerFilter === 'offline'
-                  ? 'bg-neutral-800 text-neutral-200 shadow-sm font-semibold'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-gray-600 text-gray-200 shadow-sm font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
               }`}
             >
               Offline ({offlinePlayersCount})
@@ -777,13 +777,13 @@ export default function PlayerManagerContainer() {
 
       {/* Players Cards Grid */}
       {loading && allPlayers.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
-          <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-3xl mb-3 text-primary-400" />
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-3xl mb-3 text-arix" />
           <p className="text-sm">Querying server for player records...</p>
         </div>
       ) : filteredPlayers.length === 0 ? (
-        <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-12 text-center">
-          <div className="w-16 h-16 rounded-full bg-neutral-800/70 border border-neutral-700/60 flex items-center justify-center mx-auto mb-4 text-neutral-400">
+        <div className="bg-gray-700 backdrop boxBorder rounded-box p-12 text-center">
+          <div className="w-16 h-16 rounded-full bg-gray-800/80 border border-gray-600/60 flex items-center justify-center mx-auto mb-4 text-gray-400">
             <FontAwesomeIcon icon={activeTab === 'banned' ? faUserSlash : faUsers} className="text-2xl" />
           </div>
           <h3 className="text-lg font-bold text-white mb-1">
@@ -793,7 +793,7 @@ export default function PlayerManagerContainer() {
               ? 'No Players Currently Online'
               : 'No Players Found'}
           </h3>
-          <p className="text-sm text-neutral-400 max-w-md mx-auto">
+          <p className="text-sm text-gray-400 max-w-md mx-auto">
             {activeTab === 'banned'
               ? 'Clean record! There are no banned players in banned-players.json.'
               : playerFilter === 'online'
@@ -803,7 +803,7 @@ export default function PlayerManagerContainer() {
           {activeTab === 'players' && playerFilter === 'online' && combinedPlayersList.length > 0 && (
             <button
               onClick={() => setPlayerFilter('all')}
-              className="mt-4 px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors"
+              className="mt-4 px-4 py-2 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold border border-gray-500/50 transition-colors"
             >
               View All {combinedPlayersList.length} Server Players
             </button>
@@ -815,12 +815,12 @@ export default function PlayerManagerContainer() {
             <div
               key={`${player.name}-${player.uuid}`}
               onClick={() => handleSelectPlayer(player)}
-              className={`group relative bg-neutral-900/90 border rounded-2xl p-4 transition-all duration-200 cursor-pointer shadow-md hover:shadow-xl hover:-translate-y-0.5 ${
+              className={`group relative bg-gray-700 backdrop boxBorder rounded-box p-4 transition-all duration-200 cursor-pointer shadow-md hover:shadow-xl hover:border-arix hover:-translate-y-0.5 ${
                 player.is_banned
-                  ? 'border-rose-900/40 hover:border-rose-500/50 bg-rose-950/10'
+                  ? 'border-rose-500/50 hover:border-rose-400 bg-rose-950/20'
                   : player.is_online
-                  ? 'border-neutral-800 hover:border-primary-500/50'
-                  : 'border-neutral-800/60 hover:border-neutral-700'
+                  ? 'border-gray-600/80 hover:border-arix'
+                  : 'border-gray-600/50 hover:border-gray-500'
               }`}
             >
               <div className="flex items-center gap-3.5">
@@ -828,7 +828,7 @@ export default function PlayerManagerContainer() {
                   <img
                     src={player.avatar_url}
                     alt={player.name}
-                    className="w-12 h-12 rounded-xl bg-neutral-950 border border-neutral-700/60 object-cover shadow-sm transition-transform group-hover:scale-105"
+                    className="w-12 h-12 rounded-component bg-gray-800 border border-gray-600/60 object-cover shadow-sm transition-transform group-hover:scale-105"
                     style={{ imageRendering: 'pixelated' }}
                     onError={(e) => {
                       (e.target as HTMLImageElement).src =
@@ -837,7 +837,7 @@ export default function PlayerManagerContainer() {
                   />
                   {player.is_online && (
                     <span
-                      className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-neutral-900 shadow-sm"
+                      className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-gray-800 shadow-sm"
                       title="Online Now"
                     />
                   )}
@@ -845,7 +845,7 @@ export default function PlayerManagerContainer() {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <h4 className="text-sm font-bold text-white truncate group-hover:text-primary-400 transition-colors">
+                    <h4 className="text-sm font-bold text-white truncate group-hover:text-arix transition-colors">
                       {player.name}
                     </h4>
                     {player.is_op && (
@@ -855,32 +855,32 @@ export default function PlayerManagerContainer() {
                     )}
                   </div>
 
-                  <div className="text-[11px] text-neutral-400 font-mono truncate mb-1.5">
+                  <div className="text-[11px] text-gray-400 font-mono truncate mb-1.5">
                     {player.uuid || 'Unknown UUID'}
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {player.is_banned ? (
-                      <span className="px-1.5 py-0.5 rounded-md bg-rose-950/60 text-rose-300 border border-rose-800/40 text-[10px] font-semibold">
+                      <span className="px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-semibold">
                         Banned
                       </span>
                     ) : player.is_online ? (
-                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 text-[10px] font-semibold flex items-center gap-1">
+                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-semibold flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         Online
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-800 text-neutral-400 text-[10px]">
+                      <span className="px-1.5 py-0.5 rounded-md bg-gray-800 text-gray-400 border border-gray-600/40 text-[10px]">
                         Offline
                       </span>
                     )}
 
                     {player.skin_type === 'steve' ? (
-                      <span className="px-1.5 py-0.5 rounded-md bg-amber-950/50 text-amber-300 border border-amber-800/40 text-[10px]">
+                      <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px]">
                         Steve
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 rounded-md bg-cyan-950/50 text-cyan-300 border border-cyan-800/40 text-[10px]">
+                      <span className="px-1.5 py-0.5 rounded-md bg-arix/20 text-white border border-arix/40 text-[10px]">
                         Skin
                       </span>
                     )}
@@ -903,16 +903,16 @@ export default function PlayerManagerContainer() {
       {/* ========================================================================= */}
       {selectedPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative w-full max-w-6xl bg-[#1e232d] border border-neutral-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
+          <div className="relative w-full max-w-6xl bg-gray-700 backdrop boxBorder rounded-box border border-gray-600 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
             
             {/* Modal Top Header Bar */}
-            <div className="flex items-center justify-between px-5 py-3.5 bg-[#171b23] border-b border-neutral-800">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-gray-800/90 border-b border-gray-600/60">
               <div className="flex items-center gap-3">
-                <span className="text-base sm:text-lg font-bold text-[#4aa3df]">
+                <span className="text-base sm:text-lg font-bold text-arix">
                   Player details
                 </span>
                 {detailSyncing && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary-950/60 text-primary-300 border border-primary-700/50 flex items-center gap-1.5">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-arix/20 text-white border border-arix/40 flex items-center gap-1.5">
                     <FontAwesomeIcon icon={faSyncAlt} className="animate-spin text-[10px]" />
                     <span>Flushing server RAM...</span>
                   </span>
@@ -924,14 +924,14 @@ export default function PlayerManagerContainer() {
                   onClick={() => loadPlayerDetails(selectedPlayer, false, true)}
                   disabled={detailSyncing || loadingDetail}
                   title="Force Minecraft server to flush live RAM to disk (save-all) and refresh inventory"
-                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors flex items-center gap-1.5 active:scale-95"
+                  className="px-3 py-1.5 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold border border-gray-500/50 transition-colors flex items-center gap-1.5 active:scale-95"
                 >
                   <FontAwesomeIcon icon={faSyncAlt} className={detailSyncing ? 'animate-spin' : ''} />
                   <span className="hidden sm:inline">Live RAM Sync</span>
                 </button>
                 <button
                   onClick={handleCloseModal}
-                  className="w-8 h-8 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center transition-colors"
+                  className="w-8 h-8 rounded-component bg-gray-600/60 hover:bg-gray-600 text-gray-300 hover:text-white flex items-center justify-center transition-colors"
                 >
                   <FontAwesomeIcon icon={faTimes} />
                 </button>
@@ -942,12 +942,12 @@ export default function PlayerManagerContainer() {
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
 
               {/* 1. TOP PLAYER BANNER (Avatar, Name, Online badge, UUID, Gamemode dropdown) */}
-              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <img
                     src={playerDetail?.avatar_url || selectedPlayer.avatar_url}
                     alt={selectedPlayer.name}
-                    className="w-12 h-12 rounded-lg bg-neutral-900 border border-neutral-700 object-cover flex-shrink-0"
+                    className="w-12 h-12 rounded-component bg-gray-900 border border-gray-600 object-cover flex-shrink-0"
                     style={{ imageRendering: 'pixelated' }}
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://mc-heads.net/avatar/MHF_Steve/64';
@@ -959,26 +959,26 @@ export default function PlayerManagerContainer() {
                         {selectedPlayer.name}
                       </span>
                       {selectedPlayer.is_banned ? (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-semibold">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold">
                           Banned
                         </span>
                       ) : selectedPlayer.is_online ? (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold flex items-center gap-1">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           Online
                         </span>
                       ) : (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 font-semibold">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-300 border border-gray-600 font-semibold">
                           Offline
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-gray-400 font-mono mt-0.5">
                       <span>{selectedPlayer.uuid}</span>
                       <button
                         onClick={() => handleCopyUuid(selectedPlayer.uuid)}
                         title="Copy UUID"
-                        className="text-neutral-500 hover:text-white transition-colors"
+                        className="text-gray-400 hover:text-white transition-colors"
                       >
                         <FontAwesomeIcon icon={copiedUuid ? faCheck : faCopy} className="text-xs" />
                       </button>
@@ -988,12 +988,12 @@ export default function PlayerManagerContainer() {
 
                 {/* Gamemode Dropdown */}
                 <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <label className="text-xs text-neutral-400 font-medium hidden sm:inline">Gamemode:</label>
+                  <label className="text-xs text-gray-400 font-medium hidden sm:inline">Gamemode:</label>
                   <select
                     value={currentGamemodeValue}
                     onChange={(e) => executePlayerAction('gamemode', { gamemode: e.target.value })}
                     disabled={actionLoading !== null}
-                    className="px-3 py-1.5 rounded-lg bg-[#181d26] border border-neutral-700 text-white text-xs font-semibold focus:outline-none focus:border-primary-500 cursor-pointer"
+                    className="px-3 py-1.5 rounded-component bg-gray-900 border border-gray-600 text-white text-xs font-semibold focus:outline-none focus:border-arix cursor-pointer"
                   >
                     {GAMEMODES.map((gm) => (
                       <option key={gm.value} value={gm.value}>
@@ -1011,13 +1011,13 @@ export default function PlayerManagerContainer() {
                 <div className="lg:col-span-8 flex flex-col gap-4">
 
                   {/* Health and Experience Box */}
-                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
-                    <div className="text-xs font-bold text-neutral-300">
+                  <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-3">
+                    <div className="text-xs font-bold text-gray-300">
                       Health and experience
                     </div>
 
                     {/* Green Experience Bar */}
-                    <div className="relative w-full h-8 bg-neutral-900 rounded-md overflow-hidden border border-neutral-700/80 flex items-center justify-between px-2">
+                    <div className="relative w-full h-8 bg-gray-900 rounded-component overflow-hidden border border-gray-600 flex items-center justify-between px-2">
                       {/* Minecraft XP Green Progress Background */}
                       <div
                         className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-600 via-green-500 to-lime-400 transition-all duration-500"
@@ -1031,7 +1031,7 @@ export default function PlayerManagerContainer() {
                         onClick={() =>
                           setInventoryView(inventoryView === 'inventory' ? 'ender_chest' : 'inventory')
                         }
-                        className="relative z-10 px-2.5 py-1 rounded bg-[#1f242e]/90 hover:bg-[#181d26] text-white text-[11px] font-bold border border-neutral-700 shadow transition-colors flex items-center gap-1.5"
+                        className="relative z-10 px-2.5 py-1 rounded-component bg-gray-900/90 hover:bg-gray-900 text-white text-[11px] font-bold border border-gray-600 shadow transition-colors flex items-center gap-1.5"
                       >
                         <FontAwesomeIcon icon={inventoryView === 'inventory' ? faBoxArchive : faTh} />
                         <span>{inventoryView === 'inventory' ? 'Open Ender Chest' : 'Open Inventory'}</span>
@@ -1057,7 +1057,7 @@ export default function PlayerManagerContainer() {
                         <button
                           onClick={() => executePlayerAction('kill')}
                           disabled={actionLoading !== null}
-                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-component bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
                         >
                           <FontAwesomeIcon icon={faSkull} className="text-[11px]" />
                           <span>Kill</span>
@@ -1065,7 +1065,7 @@ export default function PlayerManagerContainer() {
                         <button
                           onClick={() => executePlayerAction('starve')}
                           disabled={actionLoading !== null}
-                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-component bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
                         >
                           <FontAwesomeIcon icon={faUtensils} className="text-[11px]" />
                           <span>Starve</span>
@@ -1102,7 +1102,7 @@ export default function PlayerManagerContainer() {
                         <button
                           onClick={() => executePlayerAction('heal')}
                           disabled={actionLoading !== null}
-                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-component bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
                         >
                           <FontAwesomeIcon icon={faHeartbeat} className="text-[11px]" />
                           <span>Heal</span>
@@ -1110,7 +1110,7 @@ export default function PlayerManagerContainer() {
                         <button
                           onClick={() => executePlayerAction('feed')}
                           disabled={actionLoading !== null}
-                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
+                          className="flex-1 sm:flex-none px-4 py-1.5 rounded-component bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow"
                         >
                           <FontAwesomeIcon icon={faUtensils} className="text-[11px]" />
                           <span>Feed</span>
@@ -1120,12 +1120,12 @@ export default function PlayerManagerContainer() {
                   </div>
 
                   {/* Inventory / Ender Chest Container */}
-                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-xs font-bold text-neutral-300">
+                      <div className="text-xs font-bold text-gray-300">
                         {inventoryView === 'inventory' ? 'Inventory' : 'Ender Chest'}
                       </div>
-                      <div className="text-[11px] text-neutral-400">
+                      <div className="text-[11px] text-gray-400">
                         {inventoryView === 'inventory'
                           ? `${playerDetail?.inventory?.length || 0} items stored`
                           : `${playerDetail?.ender_chest?.length || 0} items stored`}
@@ -1228,14 +1228,14 @@ export default function PlayerManagerContainer() {
                 <div className="lg:col-span-4 flex flex-col gap-4">
 
                   {/* Control Box */}
-                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-2.5">
-                    <div className="text-xs font-bold text-neutral-300 mb-1">
+                  <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-2.5">
+                    <div className="text-xs font-bold text-gray-300 mb-1">
                       Control
                     </div>
 
                     {/* Whitelisted */}
-                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
-                      <span className="text-xs font-semibold text-neutral-800">
+                    <div className="bg-gray-900 border border-gray-600/60 rounded-component px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-gray-200">
                         Whitelisted
                       </span>
                       <button
@@ -1246,7 +1246,7 @@ export default function PlayerManagerContainer() {
                         }
                         disabled={actionLoading !== null}
                         title="Toggle Whitelist status"
-                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                        className={`w-6 h-6 rounded-component flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
                           playerDetail?.is_whitelisted
                             ? 'bg-[#27ae60] hover:bg-[#219653]'
                             : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
@@ -1259,8 +1259,8 @@ export default function PlayerManagerContainer() {
                     </div>
 
                     {/* Banned */}
-                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
-                      <span className="text-xs font-semibold text-neutral-800">
+                    <div className="bg-gray-900 border border-gray-600/60 rounded-component px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-gray-200">
                         Banned
                       </span>
                       <button
@@ -1273,7 +1273,7 @@ export default function PlayerManagerContainer() {
                         }}
                         disabled={actionLoading !== null}
                         title={playerDetail?.is_banned ? 'Unban Player' : 'Ban Player'}
-                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                        className={`w-6 h-6 rounded-component flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
                           playerDetail?.is_banned || selectedPlayer.is_banned
                             ? 'bg-[#27ae60] hover:bg-[#219653]'
                             : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
@@ -1290,8 +1290,8 @@ export default function PlayerManagerContainer() {
                     </div>
 
                     {/* Operator */}
-                    <div className="bg-[#ffffff] rounded-lg px-3 py-2 flex items-center justify-between shadow-sm">
-                      <span className="text-xs font-semibold text-neutral-800">
+                    <div className="bg-gray-900 border border-gray-600/60 rounded-component px-3 py-2 flex items-center justify-between shadow-sm">
+                      <span className="text-xs font-semibold text-gray-200">
                         Operator
                       </span>
                       <button
@@ -1302,7 +1302,7 @@ export default function PlayerManagerContainer() {
                         }
                         disabled={actionLoading !== null}
                         title="Toggle OP status"
-                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
+                        className={`w-6 h-6 rounded-component flex items-center justify-center text-xs font-bold text-white transition-all active:scale-95 ${
                           playerDetail?.is_op || selectedPlayer.is_op
                             ? 'bg-[#27ae60] hover:bg-[#219653]'
                             : 'bg-[#eb6f5e] hover:bg-[#de5d4b]'
@@ -1320,16 +1320,16 @@ export default function PlayerManagerContainer() {
                   </div>
 
                   {/* Information Box */}
-                  <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
-                    <div className="text-xs font-bold text-neutral-300">
+                  <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-3">
+                    <div className="text-xs font-bold text-gray-300">
                       Information
                     </div>
 
                     {/* Current Position */}
-                    <div className="bg-[#181d26] rounded-lg p-3 border border-neutral-700/60 flex flex-col gap-2">
+                    <div className="bg-gray-900 rounded-component p-3 border border-gray-600/60 flex flex-col gap-2">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-200">
-                          <FontAwesomeIcon icon={faMapMarkerAlt} className="text-primary-400 text-xs" />
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-gray-200">
+                          <FontAwesomeIcon icon={faMapMarkerAlt} className="text-arix text-xs" />
                           <span>Current position</span>
                         </div>
                         <button
@@ -1345,14 +1345,14 @@ export default function PlayerManagerContainer() {
                             }
                             setTeleportModalOpen(true);
                           }}
-                          className="px-2.5 py-1 rounded bg-[#2980b9] hover:bg-[#2471a3] text-white text-[11px] font-bold transition-colors flex items-center gap-1 shadow"
+                          className="px-2.5 py-1 rounded-component bg-arix hover:opacity-90 text-white text-[11px] font-bold transition-all flex items-center gap-1 shadow"
                         >
                           <FontAwesomeIcon icon={faLocationArrow} className="text-[10px]" />
                           <span>Teleport</span>
                         </button>
                       </div>
 
-                      <div className="text-xs text-neutral-300 font-mono">
+                      <div className="text-xs text-gray-300 font-mono">
                         {playerDetail?.stats?.pos ? (
                           <>
                             X: <strong>{playerDetail.stats.pos[0]}</strong> / Y:{' '}
@@ -1364,24 +1364,24 @@ export default function PlayerManagerContainer() {
                         )}
                       </div>
 
-                      <div className="text-[11px] text-neutral-400 font-mono">
+                      <div className="text-[11px] text-gray-400 font-mono">
                         {playerDetail?.stats?.dimension || 'minecraft:overworld'}
                       </div>
                     </div>
 
                     {/* Last Death Location */}
-                    <div className="bg-[#181d26] rounded-lg p-3 border border-neutral-700/60 flex flex-col gap-1.5">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-200">
+                    <div className="bg-gray-900 rounded-component p-3 border border-gray-600/60 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-200">
                         <FontAwesomeIcon icon={faSkull} className="text-rose-400 text-xs" />
                         <span>Last death location</span>
                       </div>
-                      <div className="text-xs text-neutral-400 font-mono">
+                      <div className="text-xs text-gray-400 font-mono">
                         {playerDetail?.stats?.last_death_location ? (
                           <>
                             X: {playerDetail.stats.last_death_location.x} / Y:{' '}
                             {playerDetail.stats.last_death_location.y} / Z:{' '}
                             {playerDetail.stats.last_death_location.z}
-                            <div className="text-[10px] text-neutral-500 mt-0.5">
+                            <div className="text-[10px] text-gray-400 mt-0.5">
                               {playerDetail.stats.last_death_location.dimension}
                             </div>
                           </>
@@ -1395,8 +1395,8 @@ export default function PlayerManagerContainer() {
               </div>
 
               {/* 3. STATISTICS SECTION (4 Columns: PlayTime, Player Kills, Deaths, KDR) */}
-              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-4">
-                <div className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+              <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-4">
+                <div className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                   Statistics
                 </div>
 
@@ -1404,64 +1404,64 @@ export default function PlayerManagerContainer() {
                   {/* Column 1: PlayTime & Distances */}
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                      <div className="flex items-center gap-2 text-arix font-bold text-sm">
                         <FontAwesomeIcon icon={faClock} />
                         <span>PlayTime</span>
                       </div>
-                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                      <div className="text-xs text-gray-300 mt-0.5 font-medium">
                         {playerDetail?.game_statistics?.play_time_formatted || '0 minutes'}
                       </div>
                     </div>
 
-                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
-                      <div className="text-xs font-semibold text-neutral-300">
+                    <div className="border-t border-gray-600/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-gray-300">
                         Distance travelled (in blocks)
                       </div>
-                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                      <div className="text-xs text-gray-400 flex justify-between font-mono">
                         <span>Total</span>
                         <strong className="text-white">{totalDistance.toLocaleString()}</strong>
                       </div>
                       {playerDetail?.game_statistics?.distance_travelled && (
-                        <div className="flex flex-col gap-1 text-[11px] text-neutral-400 font-mono mt-1">
+                        <div className="flex flex-col gap-1 text-[11px] text-gray-400 font-mono mt-1">
                           <div className="flex justify-between">
                             <span>Distance Walked</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.walked.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Sprinted</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.sprinted.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Crouched</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.crouched.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Fallen</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.fallen.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Climbed</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.climbed.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Walked under Water</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.walked_under_water.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span>Distance Walked on Water</span>
-                            <span className="text-neutral-200">
+                            <span className="text-gray-200">
                               {playerDetail.game_statistics.distance_travelled.walked_on_water.toLocaleString()}
                             </span>
                           </div>
@@ -1473,20 +1473,20 @@ export default function PlayerManagerContainer() {
                   {/* Column 2: Player Kills & Blocks Broken */}
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                      <div className="flex items-center gap-2 text-arix font-bold text-sm">
                         <FontAwesomeIcon icon={faShieldAlt} />
                         <span>Player Kills</span>
                       </div>
-                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                      <div className="text-xs text-gray-300 mt-0.5 font-medium">
                         {playerDetail?.game_statistics?.player_kills ?? 0}
                       </div>
                     </div>
 
-                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
-                      <div className="text-xs font-semibold text-neutral-300">
+                    <div className="border-t border-gray-600/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-gray-300">
                         Blocks broken
                       </div>
-                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                      <div className="text-xs text-gray-400 flex justify-between font-mono">
                         <span>Total</span>
                         <strong className="text-white">{totalBlocksBroken.toLocaleString()}</strong>
                       </div>
@@ -1498,7 +1498,7 @@ export default function PlayerManagerContainer() {
                           .map((b) => (
                             <div
                               key={b.id}
-                              className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                              className="flex items-center justify-between text-xs text-gray-300 font-medium"
                             >
                               <div className="flex items-center gap-1.5 truncate">
                                 <img
@@ -1512,7 +1512,7 @@ export default function PlayerManagerContainer() {
                                 />
                                 <span className="truncate text-[11px]">{b.name}</span>
                               </div>
-                              <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                              <span className="font-mono text-[11px] text-gray-400 ml-2">
                                 {b.count.toLocaleString()}
                               </span>
                             </div>
@@ -1522,7 +1522,7 @@ export default function PlayerManagerContainer() {
                       {(playerDetail?.game_statistics?.blocks_broken?.length || 0) > 8 && (
                         <button
                           onClick={() => setShowAllBlocks(!showAllBlocks)}
-                          className="mt-1 self-start px-2 py-0.5 rounded bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
+                          className="mt-1 self-start px-2 py-0.5 rounded-component bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
                         >
                           {showAllBlocks ? 'Show less' : 'Show all'}
                         </button>
@@ -1533,20 +1533,20 @@ export default function PlayerManagerContainer() {
                   {/* Column 3: Deaths & Items Used */}
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                      <div className="flex items-center gap-2 text-arix font-bold text-sm">
                         <FontAwesomeIcon icon={faSkull} />
                         <span>Deaths</span>
                       </div>
-                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                      <div className="text-xs text-gray-300 mt-0.5 font-medium">
                         {playerDetail?.game_statistics?.deaths ?? 0}
                       </div>
                     </div>
 
-                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
-                      <div className="text-xs font-semibold text-neutral-300">
+                    <div className="border-t border-gray-600/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-gray-300">
                         Items used
                       </div>
-                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                      <div className="text-xs text-gray-400 flex justify-between font-mono">
                         <span>Total</span>
                         <strong className="text-white">{totalItemsUsed.toLocaleString()}</strong>
                       </div>
@@ -1558,7 +1558,7 @@ export default function PlayerManagerContainer() {
                           .map((item) => (
                             <div
                               key={item.id}
-                              className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                              className="flex items-center justify-between text-xs text-gray-300 font-medium"
                             >
                               <div className="flex items-center gap-1.5 truncate">
                                 <img
@@ -1572,7 +1572,7 @@ export default function PlayerManagerContainer() {
                                 />
                                 <span className="truncate text-[11px]">{item.name}</span>
                               </div>
-                              <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                              <span className="font-mono text-[11px] text-gray-400 ml-2">
                                 {item.count.toLocaleString()}
                               </span>
                             </div>
@@ -1582,7 +1582,7 @@ export default function PlayerManagerContainer() {
                       {(playerDetail?.game_statistics?.items_used?.length || 0) > 8 && (
                         <button
                           onClick={() => setShowAllItems(!showAllItems)}
-                          className="mt-1 self-start px-2 py-0.5 rounded bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
+                          className="mt-1 self-start px-2 py-0.5 rounded-component bg-[#27ae60] hover:bg-[#219653] text-white text-[10px] font-bold transition-colors"
                         >
                           {showAllItems ? 'Show less' : 'Show all'}
                         </button>
@@ -1593,20 +1593,20 @@ export default function PlayerManagerContainer() {
                   {/* Column 4: KDR & Entities Killed */}
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="flex items-center gap-2 text-[#4aa3df] font-bold text-sm">
+                      <div className="flex items-center gap-2 text-arix font-bold text-sm">
                         <FontAwesomeIcon icon={faCrosshairs} />
                         <span>KDR</span>
                       </div>
-                      <div className="text-xs text-neutral-300 mt-0.5 font-medium">
+                      <div className="text-xs text-gray-300 mt-0.5 font-medium">
                         {playerDetail?.game_statistics?.kdr || '0.00'}
                       </div>
                     </div>
 
-                    <div className="border-t border-neutral-700/60 pt-2 flex flex-col gap-1.5">
-                      <div className="text-xs font-semibold text-neutral-300">
+                    <div className="border-t border-gray-600/60 pt-2 flex flex-col gap-1.5">
+                      <div className="text-xs font-semibold text-gray-300">
                         Entities killed
                       </div>
-                      <div className="text-xs text-neutral-400 flex justify-between font-mono">
+                      <div className="text-xs text-gray-400 flex justify-between font-mono">
                         <span>Total</span>
                         <strong className="text-white">{totalEntitiesKilled.toLocaleString()}</strong>
                       </div>
@@ -1616,17 +1616,17 @@ export default function PlayerManagerContainer() {
                         {(playerDetail?.game_statistics?.entities_killed || []).map((e) => (
                           <div
                             key={e.id}
-                            className="flex items-center justify-between text-xs text-neutral-300 font-medium"
+                            className="flex items-center justify-between text-xs text-gray-300 font-medium"
                           >
                             <span className="truncate text-[11px]">{e.name}</span>
-                            <span className="font-mono text-[11px] text-neutral-400 ml-2">
+                            <span className="font-mono text-[11px] text-gray-400 ml-2">
                               {e.count.toLocaleString()}
                             </span>
                           </div>
                         ))}
                         {(!playerDetail?.game_statistics?.entities_killed ||
                           playerDetail.game_statistics.entities_killed.length === 0) && (
-                          <div className="text-[11px] text-neutral-500 italic">None recorded</div>
+                          <div className="text-[11px] text-gray-500 italic">None recorded</div>
                         )}
                       </div>
                     </div>
@@ -1635,14 +1635,14 @@ export default function PlayerManagerContainer() {
               </div>
 
               {/* 4. DELETE PLAYER DATA SECTION */}
-              <div className="bg-[#242b37] border border-neutral-700/60 rounded-xl p-4 flex flex-col gap-3">
-                <div className="text-xs font-bold text-neutral-300">
+              <div className="bg-gray-800/80 border border-gray-600/60 rounded-box p-4 flex flex-col gap-3">
+                <div className="text-xs font-bold text-gray-300">
                   Delete player data
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   {/* Checkboxes */}
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-300 select-none">
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-gray-300 select-none">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1650,7 +1650,7 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, experience: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Experience points</span>
                     </label>
@@ -1662,7 +1662,7 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, inventory: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Inventory</span>
                     </label>
@@ -1674,7 +1674,7 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, ender_chest: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Ender Chest</span>
                     </label>
@@ -1686,7 +1686,7 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, playerdata: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Player data file</span>
                     </label>
@@ -1698,7 +1698,7 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, stats: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Statistics file</span>
                     </label>
@@ -1710,17 +1710,17 @@ export default function PlayerManagerContainer() {
                         onChange={(e) =>
                           setDeleteTargets((cur) => ({ ...cur, advancements: e.target.checked }))
                         }
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Advancements file</span>
                     </label>
 
-                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-neutral-200">
+                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-200">
                       <input
                         type="checkbox"
                         checked={allDeleteSelected}
                         onChange={toggleSelectAllDelete}
-                        className="rounded bg-[#181d26] border-neutral-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
+                        className="rounded bg-gray-900 border-gray-600 text-rose-500 focus:ring-0 w-3.5 h-3.5"
                       />
                       <span>Select all</span>
                     </label>
@@ -1736,7 +1736,7 @@ export default function PlayerManagerContainer() {
                       setDeleteConfirmOpen(true);
                     }}
                     disabled={actionLoading !== null || !hasAnyDeleteTarget}
-                    className="px-4 py-2 rounded-lg bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-all shadow disabled:opacity-40 active:scale-95 whitespace-nowrap self-start sm:self-auto"
+                    className="px-4 py-2 rounded-component bg-[#eb6f5e] hover:bg-[#de5d4b] text-white text-xs font-bold transition-all shadow disabled:opacity-40 active:scale-95 whitespace-nowrap self-start sm:self-auto"
                   >
                     Delete player data
                   </button>
@@ -1755,12 +1755,12 @@ export default function PlayerManagerContainer() {
       {/* Delete Confirmation Modal */}
       {deleteConfirmOpen && selectedPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-neutral-900 border border-rose-700/60 rounded-2xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-gray-700 backdrop boxBorder rounded-box border border-rose-500/50 p-6 shadow-2xl">
             <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
               <FontAwesomeIcon icon={faTrashAlt} className="text-rose-400" />
               <span>Confirm Player Data Deletion</span>
             </h3>
-            <p className="text-xs text-neutral-300 mb-4 leading-relaxed">
+            <p className="text-xs text-gray-300 mb-4 leading-relaxed">
               Are you sure you want to permanently delete selected data for{' '}
               <strong className="text-white">{selectedPlayer.name}</strong>? This action cannot be
               undone.
@@ -1769,7 +1769,7 @@ export default function PlayerManagerContainer() {
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setDeleteConfirmOpen(false)}
-                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -1781,7 +1781,7 @@ export default function PlayerManagerContainer() {
                     .map(([k]) => k);
                   executePlayerAction('delete_player_data', { targets: selectedKeys });
                 }}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg"
+                className="px-4 py-2 rounded-component bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg transition-colors"
               >
                 Confirm Delete
               </button>
@@ -1793,50 +1793,50 @@ export default function PlayerManagerContainer() {
       {/* Teleport Modal */}
       {teleportModalOpen && selectedPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-neutral-900 border border-neutral-700 rounded-2xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-gray-700 backdrop boxBorder rounded-box border border-gray-600 p-6 shadow-2xl">
             <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-              <FontAwesomeIcon icon={faLocationArrow} className="text-primary-400" />
+              <FontAwesomeIcon icon={faLocationArrow} className="text-arix" />
               <span>Teleport {selectedPlayer.name}</span>
             </h3>
-            <p className="text-xs text-neutral-400 mb-4">
+            <p className="text-xs text-gray-400 mb-4">
               Teleport this player to custom coordinates or to another online player.
             </p>
 
             <div className="grid grid-cols-3 gap-2 mb-3">
               <div>
-                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">X Coord</label>
+                <label className="text-[11px] font-semibold text-gray-400 block mb-1">X Coord</label>
                 <input
                   type="text"
                   value={teleportCoords.x}
                   onChange={(e) => setTeleportCoords({ ...teleportCoords, x: e.target.value })}
                   placeholder="0"
-                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                  className="w-full px-3 py-2 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-arix"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">Y Coord</label>
+                <label className="text-[11px] font-semibold text-gray-400 block mb-1">Y Coord</label>
                 <input
                   type="text"
                   value={teleportCoords.y}
                   onChange={(e) => setTeleportCoords({ ...teleportCoords, y: e.target.value })}
                   placeholder="64"
-                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                  className="w-full px-3 py-2 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-arix"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-neutral-400 block mb-1">Z Coord</label>
+                <label className="text-[11px] font-semibold text-gray-400 block mb-1">Z Coord</label>
                 <input
                   type="text"
                   value={teleportCoords.z}
                   onChange={(e) => setTeleportCoords({ ...teleportCoords, z: e.target.value })}
                   placeholder="0"
-                  className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                  className="w-full px-3 py-2 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-arix"
                 />
               </div>
             </div>
 
             <div className="mb-5">
-              <label className="text-[11px] font-semibold text-neutral-400 block mb-1">
+              <label className="text-[11px] font-semibold text-gray-400 block mb-1">
                 Or Destination Player
               </label>
               <input
@@ -1844,14 +1844,14 @@ export default function PlayerManagerContainer() {
                 value={teleportCoords.target}
                 onChange={(e) => setTeleportCoords({ ...teleportCoords, target: e.target.value })}
                 placeholder="Target Player Username"
-                className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-primary-500"
+                className="w-full px-3 py-2 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-arix"
               />
             </div>
 
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setTeleportModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -1865,7 +1865,7 @@ export default function PlayerManagerContainer() {
                     target: teleportCoords.target || undefined,
                   });
                 }}
-                className="px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-500 text-white text-xs font-bold shadow-lg"
+                className="px-4 py-2 rounded-component bg-arix hover:opacity-90 text-white text-xs font-bold shadow-lg transition-all"
               >
                 Teleport
               </button>
@@ -1877,27 +1877,27 @@ export default function PlayerManagerContainer() {
       {/* Kick Modal */}
       {kickModalOpen && selectedPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-neutral-900 border border-neutral-700 rounded-2xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-gray-700 backdrop boxBorder rounded-box border border-gray-600 p-6 shadow-2xl">
             <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
               <FontAwesomeIcon icon={faSignOutAlt} className="text-amber-400" />
               <span>Kick {selectedPlayer.name}</span>
             </h3>
-            <p className="text-xs text-neutral-400 mb-4">
+            <p className="text-xs text-gray-400 mb-4">
               Disconnect this player immediately from the server.
             </p>
 
-            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">Kick Reason</label>
+            <label className="text-xs font-semibold text-gray-300 block mb-1.5">Kick Reason</label>
             <input
               type="text"
               value={kickReason}
               onChange={(e) => setKickReason(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-amber-500 mb-5"
+              className="w-full px-3.5 py-2.5 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-amber-500 mb-5"
             />
 
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setKickModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -1906,7 +1906,7 @@ export default function PlayerManagerContainer() {
                   setKickModalOpen(false);
                   executePlayerAction('kick', { reason: kickReason });
                 }}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg"
+                className="px-4 py-2 rounded-component bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg transition-colors"
               >
                 Confirm Kick
               </button>
@@ -1918,29 +1918,29 @@ export default function PlayerManagerContainer() {
       {/* Ban Modal */}
       {banModalOpen && selectedPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-neutral-900 border border-neutral-700 rounded-2xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-gray-700 backdrop boxBorder rounded-box border border-gray-600 p-6 shadow-2xl">
             <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
               <FontAwesomeIcon icon={faGavel} className="text-rose-400" />
               <span>Ban {selectedPlayer.name}</span>
             </h3>
-            <p className="text-xs text-neutral-400 mb-4">
+            <p className="text-xs text-gray-400 mb-4">
               Add this player to banned-players.json and prevent reconnection.
             </p>
 
-            <label className="text-xs font-semibold text-neutral-300 block mb-1.5">Ban Reason</label>
+            <label className="text-xs font-semibold text-gray-300 block mb-1.5">Ban Reason</label>
             <input
               type="text"
               value={banReason}
               onChange={(e) => setBanReason(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 text-sm focus:outline-none focus:border-rose-500 mb-3"
+              className="w-full px-3.5 py-2.5 rounded-component bg-gray-800 border border-gray-600 text-white text-sm focus:outline-none focus:border-rose-500 mb-3"
             />
 
-            <label className="flex items-center gap-2.5 cursor-pointer text-xs text-neutral-300 mb-5 select-none">
+            <label className="flex items-center gap-2.5 cursor-pointer text-xs text-gray-300 mb-5 select-none">
               <input
                 type="checkbox"
                 checked={banIpChecked}
                 onChange={(e) => setBanIpChecked(e.target.checked)}
-                className="rounded bg-neutral-950 border-neutral-700 text-rose-500 focus:ring-0 w-4 h-4"
+                className="rounded bg-gray-800 border-gray-600 text-rose-500 focus:ring-0 w-4 h-4"
               />
               <span>Also Ban IP Address (/ban-ip)</span>
             </label>
@@ -1948,7 +1948,7 @@ export default function PlayerManagerContainer() {
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setBanModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-component bg-gray-600/80 hover:bg-gray-600 text-gray-200 text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -1957,7 +1957,7 @@ export default function PlayerManagerContainer() {
                   setBanModalOpen(false);
                   executePlayerAction('ban', { reason: banReason, ban_ip: banIpChecked });
                 }}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg"
+                className="px-4 py-2 rounded-component bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg transition-colors"
               >
                 Confirm Ban
               </button>
@@ -2051,7 +2051,7 @@ function InventorySlot({
               >
                 {item.name}
               </div>
-              <div className="text-[10px] font-mono text-neutral-400 mb-1">{item.id}</div>
+              <div className="text-[10px] font-mono text-gray-400 mb-1">{item.id}</div>
 
               {item.enchantments && item.enchantments.length > 0 && (
                 <div className="border-t border-[#380e68] pt-1 mt-1 flex flex-col gap-0.5">
