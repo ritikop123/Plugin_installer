@@ -763,7 +763,7 @@ export default function OptionsContainer() {
 
   return (
     <ServerContentBlock title="Server Options">
-      <div className="space-y-5 pb-8 w-full min-w-0 max-w-full">
+      <div className="space-y-5 pb-8 w-full min-w-0 max-w-full overflow-x-hidden">
         {/* Hidden File Inputs */}
         <input
           ref={fileInputRef}
@@ -837,9 +837,9 @@ export default function OptionsContainer() {
         {/* ========================================================================= */}
         <div className="bg-gray-700 backdrop boxBorder overflow-hidden rounded-box p-5 space-y-4 w-full min-w-0">
           {/* Header Row: Server Icon, Name, Software Badge, and Live Status */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-600/60">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-gray-600/60 min-w-0">
             {/* Left: Icon & Server Info */}
-            <div className="flex items-center gap-3.5 min-w-0">
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
               {/* Server Icon with upload & revert */}
               <div
                 onClick={() => !uploadingIcon && fileInputRef.current?.click()}
@@ -909,7 +909,7 @@ export default function OptionsContainer() {
             </div>
 
             {/* Right: Auto-save status and Quick Action Buttons */}
-            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap flex-shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Auto-save status indicator */}
               <div className="text-xs font-mono">
                 {autoSaveStatus === 'saving' && (
@@ -964,16 +964,16 @@ export default function OptionsContainer() {
           </div>
 
           {/* 3 Metric-Style Info Boxes (exact same layout as ServerExpiryCard) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 w-full min-w-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 w-full min-w-0">
             {/* Box 1: Server Connection Address */}
-            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between min-w-0 overflow-hidden">
               <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
                 <FontAwesomeIcon icon={faLock} className="text-arix text-xs" />
                 <span>Connection Address</span>
               </div>
               <div
                 onClick={handleCopyAddress}
-                className="flex items-center justify-between bg-black/40 border border-white/10 hover:border-arix px-3 py-1.5 rounded-component text-xs font-mono text-white cursor-pointer transition-colors shadow-inner select-all"
+                className="flex items-center justify-between bg-black/40 border border-white/10 hover:border-arix px-3 py-1.5 rounded-component text-xs font-mono text-white cursor-pointer transition-colors shadow-inner select-all min-w-0"
                 title="Click to copy server IP"
               >
                 <span className="truncate mr-2 font-medium">{serverAddress || 'Allocating port...'}</span>
@@ -982,7 +982,7 @@ export default function OptionsContainer() {
                   className={copiedAddress ? 'text-emerald-400 flex-shrink-0' : 'text-gray-400 hover:text-white flex-shrink-0'}
                 />
               </div>
-              <div className="text-[11px] text-gray-400 mt-1.5">
+              <div className="text-[11px] text-gray-400 mt-1.5 truncate">
                 {copiedAddress ? (
                   <span className="text-emerald-400 font-semibold">Address copied to clipboard!</span>
                 ) : (
@@ -992,30 +992,30 @@ export default function OptionsContainer() {
             </div>
 
             {/* Box 2: Player Capacity & Default Gamemode */}
-            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between min-w-0 overflow-hidden">
               <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
                 <FontAwesomeIcon icon={faGamepad} className="text-arix text-xs" />
                 <span>Slots & Gamemode</span>
               </div>
-              <div className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <div className="text-base font-bold text-white tracking-tight flex items-center gap-2 truncate">
                 <span>{getProp('max-players', '20')} Slots</span>
                 <span className="text-xs text-gray-400 font-normal">•</span>
                 <span className="text-xs font-medium capitalize bg-white/10 px-2 py-0.5 rounded-component text-gray-200">
                   {getProp('gamemode', 'survival')}
                 </span>
               </div>
-              <div className="text-[11px] text-gray-400 mt-1.5">
+              <div className="text-[11px] text-gray-400 mt-1.5 truncate">
                 Difficulty: <span className="capitalize text-gray-300 font-medium">{getProp('difficulty', 'easy')}</span> • PvP: <span className="text-gray-300">{getBoolProp('pvp', true) ? 'Enabled' : 'Disabled'}</span>
               </div>
             </div>
 
             {/* Box 3: Synchronisation & Restart State */}
-            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between">
+            <div className="p-3.5 rounded-component bg-black/20 border border-white/10 flex flex-col justify-between min-w-0 overflow-hidden">
               <div className="flex items-center gap-2 text-xs font-medium text-gray-300 uppercase tracking-wider mb-1.5">
                 <FontAwesomeIcon icon={faCheckCircle} className="text-emerald-400 text-xs" />
                 <span>Configuration Sync</span>
               </div>
-              <div className="text-sm font-semibold tracking-tight">
+              <div className="text-sm font-semibold tracking-tight truncate">
                 {hasChangedInSession ? (
                   <span className="text-amber-300 flex items-center gap-1.5">
                     <FontAwesomeIcon icon={faRedo} className="text-xs animate-spin" />
@@ -1028,7 +1028,7 @@ export default function OptionsContainer() {
                   </span>
                 )}
               </div>
-              <div className="text-[11px] text-gray-400 mt-1.5">
+              <div className="text-[11px] text-gray-400 mt-1.5 truncate">
                 {hasChangedInSession ? 'Some changes require server restart' : 'server.properties up to date'}
               </div>
             </div>
@@ -1048,7 +1048,7 @@ export default function OptionsContainer() {
               </div>
             </div>
 
-            <div className="bg-black/50 border border-white/10 rounded-component px-3.5 py-2.5 min-h-[46px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-x-auto select-none">
+            <div className="bg-black/50 border border-white/10 rounded-component px-3.5 py-2.5 min-h-[46px] flex items-center font-mono text-sm leading-relaxed tracking-wide shadow-inner overflow-hidden break-words select-none">
               <div className="w-full">
                 {renderMotdSpans(getProp('motd', DEFAULT_MOTD))}
               </div>
@@ -1201,8 +1201,8 @@ export default function OptionsContainer() {
             )}
           </div>
 
-          {/* Segmented Category Filter Tabs (constrained scroll without stretching parent) */}
-          <div className="flex items-center gap-2 overflow-x-auto max-w-full min-w-0 pb-1 scrollbar-none">
+          {/* Segmented Category Filter Tabs (Wrapping naturally - no horizontal slider) */}
+          <div className="flex flex-wrap items-center gap-2 w-full min-w-0">
             {[
               { id: 'all', label: 'All Options', icon: faLayerGroup, count: tabCounts.all },
               { id: 'general', label: 'General', icon: faGamepad, count: tabCounts.general },
@@ -1219,7 +1219,7 @@ export default function OptionsContainer() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-component text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-component text-xs font-semibold transition-all shadow-sm ${
                     active
                       ? 'bg-arix text-white shadow-arix/30'
                       : 'bg-black/30 hover:bg-black/40 text-gray-300 border border-white/10'
