@@ -350,18 +350,36 @@ class ModInstallerController extends ClientApiController
             return response()->json(['error' => "Untrusted download host ({$host}). Only verified mod CDN URLs are allowed."], 400);
         }
 
-        // 2. Validate Filename
+        // 2. Validate and Sanitize Filename
+        $filename = trim((string) urldecode($filename));
         if (empty($filename)) {
-            return response()->json(['error' => 'Filename is required.'], 400);
+            $urlPath = parse_url($url, PHP_URL_PATH) ?? '';
+            $filename = basename($urlPath);
         }
 
+        // Remove path traversal characters, directory separators, and null bytes
         $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', $filename));
+        $cleanFilename = trim($cleanFilename);
+
+        // Sanitize characters: allow alphanumeric, spaces, hyphens, underscores, dots, plus, brackets, parentheses, commas
+        $cleanFilename = preg_replace('/[^a-zA-Z0-9_\-\.\+\s\(\)\[\],]/', '_', $cleanFilename);
+        $cleanFilename = preg_replace('/\s+/', ' ', $cleanFilename);
+        $cleanFilename = preg_replace('/\.{2,}/', '.', $cleanFilename);
+        $cleanFilename = trim($cleanFilename, " .");
+
+        // Ensure file ends with .jar or .zip
+        if (!preg_match('/\.(jar|zip)$/i', $cleanFilename)) {
+            $cleanFilename .= '.jar';
+        }
+
+        if (empty($cleanFilename) || $cleanFilename === '.jar' || $cleanFilename === '.zip') {
+            $cleanFilename = 'mod.jar';
+        }
 
         if (
-            empty($cleanFilename) ||
-            $cleanFilename === '.' ||
-            $cleanFilename === '..' ||
-            !preg_match('/^[a-zA-Z0-9_\-\.\+]+$/', $cleanFilename) ||
+            str_contains($cleanFilename, '/') ||
+            str_contains($cleanFilename, '\\') ||
+            str_contains($cleanFilename, '..') ||
             !preg_match('/\.(jar|zip)$/i', $cleanFilename)
         ) {
             return response()->json(['error' => 'Invalid mod filename. Filename must end with .jar or .zip and contain no path characters.'], 400);
@@ -408,9 +426,18 @@ class ModInstallerController extends ClientApiController
         }
 
         $filename = (string) $request->input('filename', '');
-        $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', $filename));
+        $cleanFilename = basename(str_replace(['\\', '/', "\0"], '', urldecode($filename)));
+        $cleanFilename = trim($cleanFilename);
 
-        if (empty($cleanFilename) || !preg_match('/\.(jar|zip)$/i', $cleanFilename)) {
+        if (
+            empty($cleanFilename) ||
+            $cleanFilename === '.' ||
+            $cleanFilename === '..' ||
+            str_contains($cleanFilename, '/') ||
+            str_contains($cleanFilename, '\\') ||
+            str_contains($cleanFilename, '..') ||
+            !preg_match('/\.(jar|zip)$/i', $cleanFilename)
+        ) {
             return response()->json(['error' => 'Invalid mod filename to delete.'], 400);
         }
 
