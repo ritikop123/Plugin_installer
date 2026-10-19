@@ -14,6 +14,8 @@ use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
 use Pterodactyl\Repositories\Wings\DaemonFileRepository;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
+use Illuminate\Support\Facades\Cache;
+use GuzzleHttp\Promise\Utils;
 
 class PluginInstallerController extends ClientApiController
 {
@@ -717,6 +719,26 @@ class PluginInstallerController extends ClientApiController
                 ]
             );
 
+            // 5. Cache icon if provided and update /plugins/.plugins_meta.json
+            $iconUrl = (string) $request->input('icon_url', '');
+            $pluginTitle = (string) $request->input('title', $cleanFilename);
+            if (!empty($iconUrl) && filter_var($iconUrl, FILTER_VALIDATE_URL)) {
+                Cache::put('ptero_plugin_icon_' . md5(strtolower($cleanFilename)), $iconUrl, 604800);
+                try {
+                    $meta = [];
+                    try {
+                        $metaContent = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+                        $meta = json_decode($metaContent, true) ?: [];
+                    } catch (Throwable $e) {}
+                    $meta[$cleanFilename] = [
+                        'icon_url' => $iconUrl,
+                        'title' => $pluginTitle,
+                        'installed_at' => date('c'),
+                    ];
+                    $this->fileRepository->setServer($server)->putContent('/plugins/.plugins_meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                } catch (Throwable $e) {}
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => "Plugin {$cleanFilename} installed successfully into /plugins.",
@@ -756,10 +778,119 @@ class PluginInstallerController extends ClientApiController
                     }
                 }
             }
+
+            if (!empty($files)) {
+                $files = $this->enrichPluginIcons($server, $files);
+            }
+
             return response()->json($files);
         } catch (Exception $e) {
             return response()->json([]);
         }
+    }
+
+    /**
+     * Enrich installed plugin file items with their icons.
+     */
+    protected function enrichPluginIcons(Server $server, array $files): array
+    {
+        $meta = [];
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+            $meta = json_decode($content, true) ?: [];
+        } catch (Throwable $e) {}
+
+        $toQuery = [];
+        foreach ($files as $idx => &$file) {
+            $name = $file['name'];
+            $cleanName = strtolower(trim($name));
+            $file['icon_url'] = null;
+
+            // 1. Check .plugins_meta.json
+            if (!empty($meta[$name]['icon_url'])) {
+                $file['icon_url'] = $meta[$name]['icon_url'];
+                continue;
+            }
+
+            // 2. Check Laravel Cache
+            $cacheKey = 'ptero_plugin_icon_' . md5($cleanName);
+            if (Cache::has($cacheKey)) {
+                $cached = Cache::get($cacheKey);
+                $file['icon_url'] = !empty($cached) ? $cached : null;
+                continue;
+            }
+
+            // 3. Mark for external query from Modrinth
+            $cleanQuery = preg_replace('/\.(jar|zip)$/i', '', $name);
+            $cleanQuery = preg_replace('/\s*\(\d+\)$/', '', $cleanQuery);
+            $cleanQuery = preg_replace('/[-_]v?\d+(\.\d+).*$/i', '', $cleanQuery);
+            $cleanQuery = preg_replace('/[-_](velocity|paper|spigot|purpur|bungee|bukkit|fabric|forge)$/i', '', $cleanQuery);
+            $cleanQuery = trim($cleanQuery, " \t\n\r\0\x0B-_");
+
+            if (!empty($cleanQuery)) {
+                $toQuery[$idx] = [
+                    'clean_name' => $cleanName,
+                    'query' => $cleanQuery,
+                ];
+            }
+        }
+        unset($file);
+
+        // Fetch missing icons concurrently from Modrinth
+        if (!empty($toQuery)) {
+            $promises = [];
+            foreach ($toQuery as $idx => $info) {
+                $promises[$idx] = $this->httpClient->getAsync(
+                    self::MODRINTH_API . 'search',
+                    [
+                        'query' => [
+                            'query' => $info['query'],
+                            'limit' => 1,
+                        ],
+                        'timeout' => 4.0,
+                    ]
+                );
+            }
+
+            try {
+                $results = Utils::settle($promises)->wait();
+                foreach ($results as $idx => $res) {
+                    $cleanName = $toQuery[$idx]['clean_name'];
+                    $cacheKey = 'ptero_plugin_icon_' . md5($cleanName);
+                    $iconUrl = null;
+
+                    if ($res['state'] === 'fulfilled' && $res['value']->getStatusCode() === 200) {
+                        $body = json_decode($res['value']->getBody()->getContents(), true);
+                        $hits = $body['hits'] ?? [];
+                        if (!empty($hits[0]['icon_url'])) {
+                            $hit = $hits[0];
+                            $slug = strtolower($hit['slug'] ?? '');
+                            $title = strtolower(preg_replace('/[^a-z0-9]/', '', $hit['title'] ?? ''));
+                            $qNorm = strtolower(preg_replace('/[^a-z0-9]/', '', $toQuery[$idx]['query']));
+
+                            if (
+                                str_contains($title, $qNorm) ||
+                                str_contains($qNorm, $title) ||
+                                str_contains($slug, $qNorm) ||
+                                str_contains($qNorm, $slug)
+                            ) {
+                                $iconUrl = $hit['icon_url'];
+                            }
+                        }
+                    }
+
+                    if (!empty($iconUrl)) {
+                        $files[$idx]['icon_url'] = $iconUrl;
+                        Cache::put($cacheKey, $iconUrl, 604800); // Cache for 7 days
+                    } else {
+                        $files[$idx]['icon_url'] = null;
+                        Cache::put($cacheKey, '', 86400); // Negative cache 24h
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
+        return $files;
     }
 
     /**
@@ -790,6 +921,17 @@ class PluginInstallerController extends ClientApiController
 
         try {
             $this->fileRepository->setServer($server)->deleteFiles('/plugins', [$cleanFilename]);
+
+            // Remove from .plugins_meta.json if present
+            try {
+                $metaContent = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+                $meta = json_decode($metaContent, true) ?: [];
+                if (isset($meta[$cleanFilename])) {
+                    unset($meta[$cleanFilename]);
+                    $this->fileRepository->setServer($server)->putContent('/plugins/.plugins_meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                }
+            } catch (Throwable $e) {}
+
             return response()->json([
                 'success' => true,
                 'message' => "Plugin {$cleanFilename} uninstalled successfully.",

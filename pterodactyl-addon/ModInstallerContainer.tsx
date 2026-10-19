@@ -58,6 +58,7 @@ interface PteroFileItem {
   size: number;
   isFile: boolean;
   modifiedAt: string;
+  icon_url?: string | null;
 }
 
 const COMMON_LOADERS = [
@@ -211,12 +212,13 @@ export default function ModInstallerContainer() {
             size: Number(attr.size || 0),
             isFile: attr.is_file ?? attr.isFile ?? !attr.directory ?? true,
             modifiedAt: String(attr.modified_at || attr.modifiedAt || ''),
+            icon_url: attr.icon_url || null,
           };
         })
         .filter((f) => f.isFile && /\.(jar|zip)$/i.test(f.name));
     };
 
-    http.get<Array<{ name: string; size: number; modified_at?: string }>>(
+    http.get<Array<{ name: string; size: number; modified_at?: string; icon_url?: string | null }>>(
       `/api/client/servers/${uuid}/mods/installed`
     )
       .then((res) => {
@@ -228,6 +230,7 @@ export default function ModInstallerContainer() {
               size: item.size || 0,
               isFile: true,
               modifiedAt: item.modified_at || '',
+              icon_url: item.icon_url || null,
             }))
           );
           setLoadingInstalled(false);
@@ -375,6 +378,8 @@ export default function ModInstallerContainer() {
         {
           url: file.url,
           filename: file.filename,
+          icon_url: activeMod.icon_url,
+          title: activeMod.title,
         }
       );
 
@@ -423,6 +428,21 @@ export default function ModInstallerContainer() {
         (slugClean.length >= 3 && fn.includes(slugClean))
       );
     });
+  };
+
+  // Resolve icon for an installed mod file
+  const getModIconForFile = (filename: string, fileIcon?: string | null): string | null => {
+    if (fileIcon) return fileIcon;
+    const fnClean = filename.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const found = mods.find((m) => {
+      const titleClean = m.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const slugClean = (m.slug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return (
+        (titleClean.length >= 3 && fnClean.includes(titleClean)) ||
+        (slugClean.length >= 3 && fnClean.includes(slugClean))
+      );
+    });
+    return found?.icon_url || null;
   };
 
   // Modal filtered versions
@@ -856,35 +876,53 @@ export default function ModInstallerContainer() {
               </div>
             ) : (
               <div className={'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'}>
-                {installedFiles.map((file) => (
-                  <div
-                    key={file.name}
-                    className={'bg-neutral-800/60 backdrop-blur-md border border-neutral-700/60 rounded-xl p-4 flex items-center justify-between gap-3 shadow-sm hover:border-neutral-600 transition-colors'}
-                  >
-                    <div className={'flex items-center gap-3 min-w-0'}>
-                      <div className={'w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0'}>
-                        <FontAwesomeIcon icon={faCubes} />
-                      </div>
-                      <div className={'min-w-0'}>
-                        <p className={'text-xs font-bold text-neutral-100 truncate'} title={file.name}>
-                          {file.name}
-                        </p>
-                        <p className={'text-[11px] text-neutral-400'}>
-                          {formatSize(file.size)} {file.modifiedAt ? `• ${formatTimeAgo(file.modifiedAt)}` : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleUninstallFile(file.name)}
-                      disabled={uninstallingFile === file.name}
-                      className={'p-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-300 text-xs rounded-lg transition-colors shrink-0'}
-                      title={`Delete ${file.name}`}
+                {installedFiles.map((file) => {
+                  const resolvedIcon = getModIconForFile(file.name, file.icon_url);
+                  return (
+                    <div
+                      key={file.name}
+                      className={'bg-neutral-800/60 backdrop-blur-md border border-neutral-700/60 rounded-xl p-4 flex items-center justify-between gap-3 shadow-sm hover:border-neutral-600 transition-colors'}
                     >
-                      <FontAwesomeIcon icon={uninstallingFile === file.name ? faSpinner : faTrash} spin={uninstallingFile === file.name} />
-                    </button>
-                  </div>
-                ))}
+                      <div className={'flex items-center gap-3 min-w-0'}>
+                        {resolvedIcon ? (
+                          <img
+                            src={resolvedIcon}
+                            alt={file.name}
+                            className={'w-10 h-10 rounded-lg object-cover bg-neutral-900/60 border border-neutral-700/60 shrink-0'}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.style.display = 'none';
+                              const fallback = target.nextElementSibling as HTMLElement;
+                              if (fallback) fallback.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/30 items-center justify-center text-cyan-400 shrink-0 ${resolvedIcon ? 'hidden' : 'flex'}`}
+                        >
+                          <FontAwesomeIcon icon={faCubes} />
+                        </div>
+                        <div className={'min-w-0'}>
+                          <p className={'text-xs font-bold text-neutral-100 truncate'} title={file.name}>
+                            {file.name}
+                          </p>
+                          <p className={'text-[11px] text-neutral-400'}>
+                            {formatSize(file.size)} {file.modifiedAt ? `• ${formatTimeAgo(file.modifiedAt)}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleUninstallFile(file.name)}
+                        disabled={uninstallingFile === file.name}
+                        className={'p-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-300 text-xs rounded-lg transition-colors shrink-0'}
+                        title={`Delete ${file.name}`}
+                      >
+                        <FontAwesomeIcon icon={uninstallingFile === file.name ? faSpinner : faTrash} spin={uninstallingFile === file.name} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
