@@ -613,9 +613,7 @@ SYS;
                     Log::info("[AIAssistant] Suppressed unauthorized action '{$actionName}' for message: '{$message}'");
                     $actionName = 'none';
                     $actionParams = [];
-                    if (preg_match('/(I have|I\'ve|successfully|configured|installed|restarted|updated)/i', $parsed['message'] ?? '')) {
-                        $parsed['message'] .= "\n\n*(Note: No server changes were made yet. Please confirm if you want me to proceed with this action.)*";
-                    }
+                    $parsed['message'] .= "\n\n*(Note: No server changes were made yet. Would you like me to proceed with this fix?)*";
                 }
             }
 
@@ -1622,6 +1620,13 @@ YAML;
                 return true;
             }
             if ($action === 'delete_file' && preg_match('/\b(delete|remove|erase|file|world|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
+                return true;
+            }
+        }
+
+        // Allow if user is providing a crash log or reporting a crash / failure and action fixes it
+        if (preg_match('/\b(crash|crashed|crashing|exit code|invalid or corrupt|corrupt jarfile|not starting|failed to start|startup failure|fix.*crash)\b/i', $msg)) {
+            if ($action === 'install_software' || $action === 'delete_file') {
                 return true;
             }
         }

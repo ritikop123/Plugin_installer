@@ -16,6 +16,11 @@ import {
   faTerminal,
   faCheck,
   faTimes,
+  faDownload,
+  faServer,
+  faCheckCircle,
+  faSync,
+  faCogs,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface Message {
@@ -24,6 +29,7 @@ interface Message {
   content: string;
   thought?: string;
   action?: string;
+  action_params?: Record<string, any>;
   action_result?: {
     success: boolean;
     text: string;
@@ -87,7 +93,39 @@ export default function AiAssistantContainer() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [activeTask, setActiveTask] = useState<string | null>(null);
+  const [loadingStep, setLoadingStep] = useState<string>('Analyzing server logs & diagnostic state...');
+  const [loadingProgress, setLoadingProgress] = useState<number>(18);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Dynamic status tracker for background activities
+  useEffect(() => {
+    if (!loading) {
+      setLoadingProgress(18);
+      return;
+    }
+
+    const steps = [
+      { text: '🔍 Reading server logs & diagnosing issue...', progress: 28 },
+      { text: '⚙️ Inspecting server files, JARs, and configurations...', progress: 52 },
+      { text: '⚡ Executing background action (downloading software / updating files)...', progress: 78 },
+      { text: '🚀 Finalizing changes and monitoring server container...', progress: 92 },
+    ];
+
+    let currentStep = 0;
+    setLoadingStep(steps[0].text);
+    setLoadingProgress(steps[0].progress);
+
+    const interval = setInterval(() => {
+      currentStep++;
+      if (currentStep < steps.length) {
+        setLoadingStep(steps[currentStep].text);
+        setLoadingProgress(steps[currentStep].progress);
+      }
+    }, 2200);
+
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Scroll strictly within chat messages container (NEVER scrolls outer window)
   const scrollToBottom = () => {
@@ -98,7 +136,7 @@ export default function AiAssistantContainer() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages.length, loading]);
+  }, [messages.length, loading, loadingStep]);
 
   const handleSendMessage = (textToSend?: string) => {
     const text = (textToSend || input).trim();
@@ -132,10 +170,18 @@ export default function AiAssistantContainer() {
           content: res.data.message || 'Action executed successfully.',
           thought: res.data.thought,
           action: res.data.action,
+          action_params: res.data.action_params,
           action_result: res.data.action_result,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+
+        if (res.data.action && res.data.action !== 'none' && res.data.action_result?.success) {
+          setActiveTask(res.data.action_result?.text || `Action '${res.data.action.replace(/_/g, ' ')}' executed successfully.`);
+          setTimeout(() => {
+            setActiveTask(null);
+          }, 20000);
+        }
       })
       .catch((err) => {
         const errMsg: Message = {
@@ -204,6 +250,27 @@ export default function AiAssistantContainer() {
           </button>
         </div>
 
+        {/* Live Background Task Active Banner */}
+        {activeTask && (
+          <div className="bg-emerald-950/70 border-b border-emerald-500/30 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-200 transition-all animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <span className="font-semibold text-emerald-300">Background Server Activity:</span>
+              <span className="opacity-95">{activeTask}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTask(null)}
+              className="text-emerald-400/70 hover:text-emerald-200 text-xs px-2 py-0.5 rounded transition-all"
+            >
+              <FontAwesomeIcon icon={faTimes} />
+            </button>
+          </div>
+        )}
+
         {/* Message Thread - Self-contained scroll container */}
         <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 bg-[#12161f]">
           {messages.map((msg) => (
@@ -236,7 +303,7 @@ export default function AiAssistantContainer() {
 
                 {/* Interactive Confirmation Action Buttons */}
                 {msg.role === 'assistant' &&
-                  /(confirm|want me to proceed|Shall I proceed|Would you like me to|want me to delete|want me to install|want me to fix|No server changes were made yet)/i.test(
+                  /(confirm|want me to proceed|Shall I proceed|Would you like me to|want me to delete|want me to install|want me to fix|No server changes were made yet|proceed with this fix)/i.test(
                     msg.content
                   ) && (
                     <div className="mt-3.5 pt-2.5 border-t border-gray-700/60 flex items-center gap-2">
@@ -261,24 +328,111 @@ export default function AiAssistantContainer() {
                     </div>
                 )}
 
-                {/* Executed Action Badge */}
+                {/* Prominent Executed Action Card */}
                 {msg.action && msg.action !== 'none' && (
-                  <div className="mt-3 pt-2.5 border-t border-gray-700/60">
+                  <div className="mt-3.5 pt-3 border-t border-gray-700/60">
                     <div
-                      className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                      className={`rounded-xl p-3.5 border transition-all ${
                         msg.action_result?.success
-                          ? 'bg-emerald-950/40 border border-emerald-500/40 text-emerald-300'
-                          : 'bg-blue-950/40 border border-blue-500/40 text-blue-300'
+                          ? 'bg-gradient-to-br from-emerald-950/40 via-gray-900/60 to-emerald-950/20 border-emerald-500/40 shadow-sm'
+                          : 'bg-gradient-to-br from-blue-950/40 via-gray-900/60 to-blue-950/20 border-blue-500/40 shadow-sm'
                       }`}
                     >
-                      <FontAwesomeIcon
-                        icon={msg.action_result?.success ? faCheck : faTerminal}
-                        className={msg.action_result?.success ? 'text-emerald-400' : 'text-blue-400'}
-                      />
-                      <span className="font-semibold uppercase tracking-wider text-[11px]">
-                        Action: {msg.action.replace(/_/g, ' ')}
-                      </span>
-                      {msg.action_result?.text && <span className="opacity-90">• {msg.action_result.text}</span>}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs ${
+                              msg.action_result?.success
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                            }`}
+                          >
+                            <FontAwesomeIcon
+                              icon={
+                                msg.action === 'install_software'
+                                  ? faDownload
+                                  : msg.action === 'delete_file'
+                                  ? faTrashAlt
+                                  : msg.action === 'configure_universal_access'
+                                  ? faServer
+                                  : msg.action === 'restart_server'
+                                  ? faRedo
+                                  : msg.action === 'setup_voicechat'
+                                  ? faMicrophone
+                                  : msg.action === 'setup_geyser' || msg.action === 'enable_geyser_clone_port'
+                                  ? faGamepad
+                                  : msg.action === 'optimize_server'
+                                  ? faBolt
+                                  : faCheck
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="font-bold uppercase tracking-wider text-[11px] text-gray-200">
+                              {msg.action.replace(/_/g, ' ')}
+                            </div>
+                            <div className="text-[10px] text-gray-400">
+                              {msg.action === 'install_software' && 'Official Server JAR Installation'}
+                              {msg.action === 'delete_file' && 'Corrupted File Cleanup'}
+                              {msg.action === 'configure_universal_access' && 'Universal Client & Cracked Support'}
+                              {msg.action === 'disable_whitelist' && 'Server Whitelist Disabled'}
+                              {msg.action === 'enable_geyser_clone_port' && 'Bedrock Port Synchronization'}
+                              {msg.action === 'restart_server' && 'Server Restart Dispatched'}
+                              {msg.action === 'optimize_server' && 'Lag-reduction Configuration'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1 ${
+                            msg.action_result?.success
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          }`}
+                        >
+                          <FontAwesomeIcon icon={msg.action_result?.success ? faCheck : faTerminal} className="text-[9px]" />
+                          <span>{msg.action_result?.success ? 'Completed' : 'Dispatched'}</span>
+                        </span>
+                      </div>
+
+                      {/* Target details if params exist */}
+                      {msg.action_params && Object.keys(msg.action_params).length > 0 && (
+                        <div className="bg-black/40 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-gray-300 mb-2 border border-white/5 flex flex-wrap gap-x-3 gap-y-1">
+                          {msg.action_params.software && (
+                            <span>Software: <strong className="text-emerald-400">{msg.action_params.software}</strong></span>
+                          )}
+                          {msg.action_params.version && (
+                            <span>Version: <strong className="text-blue-400">{msg.action_params.version}</strong></span>
+                          )}
+                          {msg.action_params.file && (
+                            <span>Target: <strong className="text-amber-400">{msg.action_params.file}</strong></span>
+                          )}
+                          {msg.action_params.key && (
+                            <span>{msg.action_params.key} = <strong className="text-emerald-400">{msg.action_params.value}</strong></span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Result description */}
+                      {msg.action_result?.text && (
+                        <div className="text-xs text-gray-200 flex items-start gap-1.5 pt-0.5">
+                          <span className="text-emerald-400">⚡</span>
+                          <span>{msg.action_result.text}</span>
+                        </div>
+                      )}
+
+                      {/* Step checklist */}
+                      <div className="mt-2.5 pt-2 border-t border-gray-700/50 flex items-center gap-4 text-[10px] text-gray-400">
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <FontAwesomeIcon icon={faCheck} className="text-[9px]" /> Dispatched
+                        </span>
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <FontAwesomeIcon icon={faCheck} className="text-[9px]" /> Container Updated
+                        </span>
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <FontAwesomeIcon icon={faCheck} className="text-[9px]" /> Server Notified
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -294,14 +448,40 @@ export default function AiAssistantContainer() {
             </div>
           ))}
 
+          {/* Interactive Live Background Activity Progress Card */}
           {loading && (
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 text-xs flex-shrink-0 animate-pulse">
+              <div className="w-8 h-8 rounded-xl bg-gray-800 border border-blue-500/40 flex items-center justify-center text-blue-400 text-xs flex-shrink-0 animate-pulse">
                 <FontAwesomeIcon icon={faRobot} />
               </div>
-              <div className="bg-gray-800 border border-gray-700 text-gray-300 rounded-2xl px-5 py-3.5 text-xs flex items-center gap-2.5">
-                <FontAwesomeIcon icon={faSpinner} spin className="text-blue-400" />
-                <span className="animate-pulse">Thinking & executing server action...</span>
+              <div className="bg-gray-800/95 border border-blue-500/30 text-gray-100 rounded-2xl p-4 text-xs max-w-[85%] sm:max-w-[75%] shadow-lg space-y-2.5">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-700/60 pb-2">
+                  <div className="flex items-center gap-2 text-blue-400 font-semibold text-[11px] uppercase tracking-wider">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                    <span>Background Task in Progress</span>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-mono">{loadingProgress}%</span>
+                </div>
+
+                <div className="flex items-center gap-2.5 text-gray-200">
+                  <FontAwesomeIcon icon={faSpinner} spin className="text-blue-400 text-sm" />
+                  <span className="font-medium">{loadingStep}</span>
+                </div>
+
+                <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-emerald-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${loadingProgress}%` }}
+                  />
+                </div>
+
+                <div className="text-[10px] text-gray-400 flex items-center justify-between pt-0.5">
+                  <span>Executing server operations...</span>
+                  <span className="opacity-75">Please wait</span>
+                </div>
               </div>
             </div>
           )}
