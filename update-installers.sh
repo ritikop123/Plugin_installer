@@ -66,7 +66,7 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSupportId.tsx?t=${CAC
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=${CACHE_BUST}" -o resources/scripts/components/dashboard/AdminSupportIdSearch.tsx
 cp resources/scripts/components/dashboard/AdminSupportIdSearch.tsx resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx 2>/dev/null || true
 
-echo -e "\033[0;32m[+] 3/9 Registering API and Frontend routes (including /world & /worlds)...\033[0m"
+echo -e "\033[0;32m[+] 3/9 Registering API and Frontend routes for all installed addons...\033[0m"
 cat << 'PHP_ROUTER_PATCH_EOF' > /tmp/ptero_sync_routes.php
 <?php
 $routesPhp = 'routes/api-client.php';
@@ -74,57 +74,185 @@ $routesTs = 'resources/scripts/routers/routes.ts';
 
 if (file_exists($routesPhp)) {
     $c = file_get_contents($routesPhp);
-    
-    // Ensure Client namespace is imported
+
     if (strpos($c, 'use Pterodactyl\Http\Controllers\Api\Client;') === false) {
         $c = preg_replace('/<\?php\s*/', "<?php\n\nuse Pterodactyl\\Http\\Controllers\\Api\\Client;\n", $c, 1);
     }
-    
-    // Clean old world manager routes
-    $c = preg_replace('/\/\*\s*>>>\s*ARIX WORLD MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX WORLD MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    
-    $worldRoute = <<<'PHP'
 
-/* >>> ARIX WORLD MANAGER START >>> */
-Route::group(['prefix' => '/servers/{server}/worlds'], function () {
-    Route::get('/', [Client\Servers\WorldManagerController::class, 'index']);
-    Route::get('/options', [Client\Servers\WorldManagerController::class, 'options']);
-    Route::post('/options', [Client\Servers\WorldManagerController::class, 'updateOptions']);
-    Route::post('/gamerule', [Client\Servers\WorldManagerController::class, 'updateGamerule']);
-    Route::post('/optimize', [Client\Servers\WorldManagerController::class, 'optimize']);
-    Route::post('/force-upgrade', [Client\Servers\WorldManagerController::class, 'forceUpgrade']);
-    Route::post('/download', [Client\Servers\WorldManagerController::class, 'download']);
-    Route::post('/upload', [Client\Servers\WorldManagerController::class, 'upload']);
-    Route::post('/active', [Client\Servers\WorldManagerController::class, 'setActive']);
-    Route::post('/create', [Client\Servers\WorldManagerController::class, 'create']);
-    Route::post('/reset-dimension', [Client\Servers\WorldManagerController::class, 'resetDimension']);
-    Route::post('/delete', [Client\Servers\WorldManagerController::class, 'delete']);
-    Route::post('/backup', [Client\Servers\WorldManagerController::class, 'backup']);
-});
-/* <<< ARIX WORLD MANAGER END <<< */
-PHP;
-    $c = rtrim($c) . "\n" . $worldRoute . "\n";
+    // Clean old route blocks
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLUGIN INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLUGIN INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX MOD INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MOD INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX MODPACK INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX PLAYER MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLAYER MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX WORLD MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX WORLD MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+
+    $append = '';
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php')) {
+        $append .= "\n/* >>> ARIX PLUGIN INSTALLER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/plugins'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\PluginInstallerController::class, 'index']);\n" .
+                   "    Route::get('/versions', [Client\\Servers\\PluginInstallerController::class, 'versions']);\n" .
+                   "    Route::get('/tags', [Client\\Servers\\PluginInstallerController::class, 'tags']);\n" .
+                   "    Route::get('/installed', [Client\\Servers\\PluginInstallerController::class, 'installed']);\n" .
+                   "    Route::post('/install', [Client\\Servers\\PluginInstallerController::class, 'install']);\n" .
+                   "    Route::post('/delete', [Client\\Servers\\PluginInstallerController::class, 'delete']);\n" .
+                   "});\n/* <<< ARIX PLUGIN INSTALLER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/ModInstallerController.php')) {
+        $append .= "\n/* >>> ARIX MOD INSTALLER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/mods'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\ModInstallerController::class, 'index']);\n" .
+                   "    Route::get('/versions', [Client\\Servers\\ModInstallerController::class, 'versions']);\n" .
+                   "    Route::get('/tags', [Client\\Servers\\ModInstallerController::class, 'tags']);\n" .
+                   "    Route::get('/installed', [Client\\Servers\\ModInstallerController::class, 'installed']);\n" .
+                   "    Route::post('/install', [Client\\Servers\\ModInstallerController::class, 'install']);\n" .
+                   "    Route::post('/delete', [Client\\Servers\\ModInstallerController::class, 'delete']);\n" .
+                   "});\n/* <<< ARIX MOD INSTALLER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/ModpackInstallerController.php')) {
+        $append .= "\n/* >>> ARIX MODPACK INSTALLER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/modpacks'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\ModpackInstallerController::class, 'index']);\n" .
+                   "    Route::get('/versions', [Client\\Servers\\ModpackInstallerController::class, 'versions']);\n" .
+                   "    Route::get('/categories', [Client\\Servers\\ModpackInstallerController::class, 'categories']);\n" .
+                   "    Route::get('/installed', [Client\\Servers\\ModpackInstallerController::class, 'installed']);\n" .
+                   "    Route::post('/prepare', [Client\\Servers\\ModpackInstallerController::class, 'prepare']);\n" .
+                   "    Route::post('/install-batch', [Client\\Servers\\ModpackInstallerController::class, 'installBatch']);\n" .
+                   "    Route::post('/finalize', [Client\\Servers\\ModpackInstallerController::class, 'finalize']);\n" .
+                   "    Route::post('/uninstall', [Client\\Servers\\ModpackInstallerController::class, 'uninstall']);\n" .
+                   "});\n/* <<< ARIX MODPACK INSTALLER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php')) {
+        $append .= "\n/* >>> ARIX SOFTWARE INSTALLER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/software'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\SoftwareInstallerController::class, 'index']);\n" .
+                   "    Route::get('/current', [Client\\Servers\\SoftwareInstallerController::class, 'current']);\n" .
+                   "    Route::get('/versions', [Client\\Servers\\SoftwareInstallerController::class, 'versions']);\n" .
+                   "    Route::get('/builds', [Client\\Servers\\SoftwareInstallerController::class, 'builds']);\n" .
+                   "    Route::post('/install', [Client\\Servers\\SoftwareInstallerController::class, 'install']);\n" .
+                   "});\n/* <<< ARIX SOFTWARE INSTALLER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/OptionsController.php')) {
+        $append .= "\n/* >>> ARIX OPTIONS MANAGER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/options'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\OptionsController::class, 'index']);\n" .
+                   "    Route::post('/', [Client\\Servers\\OptionsController::class, 'update']);\n" .
+                   "    Route::post('/icon', [Client\\Servers\\OptionsController::class, 'uploadIcon']);\n" .
+                   "    Route::delete('/icon', [Client\\Servers\\OptionsController::class, 'deleteIcon']);\n" .
+                   "    Route::post('/resourcepack', [Client\\Servers\\OptionsController::class, 'uploadResourcePack']);\n" .
+                   "    Route::delete('/resourcepack', [Client\\Servers\\OptionsController::class, 'deleteResourcePack']);\n" .
+                   "});\n/* <<< ARIX OPTIONS MANAGER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php')) {
+        $append .= "\n/* >>> ARIX PLAYER MANAGER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/players'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\PlayerManagerController::class, 'index']);\n" .
+                   "    Route::get('/detail', [Client\\Servers\\PlayerManagerController::class, 'detail']);\n" .
+                   "    Route::post('/action', [Client\\Servers\\PlayerManagerController::class, 'action']);\n" .
+                   "});\n/* <<< ARIX PLAYER MANAGER END <<< */\n";
+    }
+
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/WorldManagerController.php')) {
+        $append .= "\n/* >>> ARIX WORLD MANAGER START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/worlds'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\WorldManagerController::class, 'index']);\n" .
+                   "    Route::post('/active', [Client\\Servers\\WorldManagerController::class, 'setActive']);\n" .
+                   "    Route::post('/create', [Client\\Servers\\WorldManagerController::class, 'create']);\n" .
+                   "    Route::post('/reset-dimension', [Client\\Servers\\WorldManagerController::class, 'resetDimension']);\n" .
+                   "    Route::post('/delete', [Client\\Servers\\WorldManagerController::class, 'delete']);\n" .
+                   "    Route::post('/backup', [Client\\Servers\\WorldManagerController::class, 'backup']);\n" .
+                   "});\n/* <<< ARIX WORLD MANAGER END <<< */\n";
+    }
+
+    $c = rtrim($c) . "\n" . $append;
     file_put_contents($routesPhp, $c);
 }
 
 if (file_exists($routesTs)) {
     $c = file_get_contents($routesTs);
-    
-    // Clean existing world routes & imports
+
+    // Clean old imports & routes
+    $c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
     $c = preg_replace('/import\s+WorldManagerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/worlds?[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
     $c = preg_replace('/[^\n]*WorldManagerContainer[^\n]*\n?/', '', $c);
-    
-    $import = "import WorldManagerContainer from '@/components/server/world-manager/WorldManagerContainer';\n";
-    $routeEntries = "\n        { path: '/worlds', permission: 'file.*', name: 'World Manager', component: WorldManagerContainer, exact: true }," .
+
+    $imports = '';
+    $routes = '';
+
+    if (file_exists('resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx')) {
+        $imports .= "import PluginInstallerContainer from '@/components/server/plugin-installer/PluginInstallerContainer';\n";
+        $routes .= "\n        { path: '/plugins', permission: 'file.*', name: 'Plugins', component: PluginInstallerContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/mod-installer/ModInstallerContainer.tsx')) {
+        $imports .= "import ModInstallerContainer from '@/components/server/mod-installer/ModInstallerContainer';\n";
+        $routes .= "\n        { path: '/mods', permission: 'file.*', name: 'Mods', component: ModInstallerContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/modpack-installer/ModpackInstallerContainer.tsx')) {
+        $imports .= "import ModpackInstallerContainer from '@/components/server/modpack-installer/ModpackInstallerContainer';\n";
+        $routes .= "\n        { path: '/modpacks', permission: 'file.*', name: 'Modpacks', component: ModpackInstallerContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/software-installer/SoftwareInstallerContainer.tsx')) {
+        $imports .= "import SoftwareInstallerContainer from '@/components/server/software-installer/SoftwareInstallerContainer';\n";
+        $routes .= "\n        { path: '/software', permission: 'file.*', name: 'Software', component: SoftwareInstallerContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/options/OptionsContainer.tsx')) {
+        $imports .= "import OptionsContainer from '@/components/server/options/OptionsContainer';\n";
+        $routes .= "\n        { path: '/options', permission: 'file.*', name: 'Options', component: OptionsContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/player-manager/PlayerManagerContainer.tsx')) {
+        $imports .= "import PlayerManagerContainer from '@/components/server/player-manager/PlayerManagerContainer';\n";
+        $routes .= "\n        { path: '/players', permission: 'file.*', name: 'Players', component: PlayerManagerContainer, exact: true },";
+    }
+
+    if (file_exists('resources/scripts/components/server/world-manager/WorldManagerContainer.tsx')) {
+        $imports .= "import WorldManagerContainer from '@/components/server/world-manager/WorldManagerContainer';\n";
+        $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World Manager', component: WorldManagerContainer, exact: true }," .
                     "\n        { path: '/world', permission: 'file.*', component: WorldManagerContainer, exact: true },";
-    
-    $c = $import . $c;
-    $c = preg_replace('/(server:\s*\[)/', '$1' . $routeEntries, $c, 1);
+    }
+
+    $c = $imports . $c;
+    $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
     file_put_contents($routesTs, $c);
 }
-echo "[✓] World routes registered in routes/api-client.php and routes.ts\n";
+echo "[✓] All addon routes synced successfully in routes/api-client.php and routes.ts\n";
 PHP_ROUTER_PATCH_EOF
 
 php /tmp/ptero_sync_routes.php || true
