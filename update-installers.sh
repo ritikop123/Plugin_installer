@@ -111,12 +111,17 @@ try {
 } catch (\Throwable \$e) {}
 " || true
 
-echo -e "\033[0;32m[+] Clearing backend cache...\033[0m"
+echo -e "\033[0;32m[+] Clearing backend & blade view caches...\033[0m"
 php artisan optimize:clear
+php artisan view:clear
 
 echo -e "\033[0;32m[+] Building production frontend assets (this may take a minute)...\033[0m"
 export NODE_OPTIONS="--max-old-space-size=4096"
 yarn build:production
+
+echo -e "\033[0;32m[+] Reloading web server & PHP-FPM...\033[0m"
+systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || systemctl reload php8.1-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
+systemctl reload nginx 2>/dev/null || systemctl reload apache2 2>/dev/null || true
 
 echo -e "\033[0;32m[+] Setting correct permissions...\033[0m"
 chown -R www-data:www-data "$PTERO_DIR"/* 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR"/* 2>/dev/null || true
