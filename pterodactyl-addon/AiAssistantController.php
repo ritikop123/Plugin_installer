@@ -306,8 +306,29 @@ PROMPT;
                 $rawLogs = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
                 if (!empty($rawLogs)) {
                     $logLines = explode("\n", str_replace("\r", '', $rawLogs));
-                    $lastLines = array_slice($logLines, -80);
-                    $recentConsoleLogs = implode("\n", $lastLines);
+                    $filteredLines = [];
+                    $interestingKw = ['logged in', 'lost connection', 'disconnecting', 'whitelist', 'white-list', 'uuid of player', 'warn', 'error', 'exception', 'cannot', 'outdated'];
+                    $total = count($logLines);
+                    for ($i = max(0, $total - 120); $i < $total; $i++) {
+                        $line = trim($logLines[$i]);
+                        if (empty($line)) continue;
+                        $lower = strtolower($line);
+                        foreach ($interestingKw as $kw) {
+                            if (str_contains($lower, $kw)) {
+                                $filteredLines[] = $line;
+                                break;
+                            }
+                        }
+                    }
+                    if (count($filteredLines) < 5) {
+                        $filteredLines = array_slice($logLines, -20);
+                    } else {
+                        $filteredLines = array_slice($filteredLines, -25);
+                    }
+                    $recentConsoleLogs = implode("\n", array_map('trim', $filteredLines));
+                    if (strlen($recentConsoleLogs) > 1500) {
+                        $recentConsoleLogs = substr($recentConsoleLogs, -1500);
+                    }
                 }
             } catch (Throwable $e) {}
 
@@ -325,7 +346,7 @@ Current Server State:
 - Simple Voice Chat Status: {$voiceStatus}
 - ALL Installed Plugins ({$pluginCount} total): {$pluginsList}
 
-- Recent Server Console & Join Logs (/logs/latest.log - last 80 lines):
+- Recent Server Console & Join Logs (/logs/latest.log - concise recent activity):
 ```
 {$recentConsoleLogs}
 ```
@@ -420,13 +441,17 @@ SYS;
                 ['role' => 'system', 'content' => $systemPrompt],
             ];
 
-            // Append recent history (last 12 messages from the past 5 minutes)
-            $recentHistory = array_slice($history, -12);
+            // Append recent history (last 4 messages, trimmed to preserve Groq token limit)
+            $recentHistory = array_slice($history, -4);
             foreach ($recentHistory as $h) {
                 if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'])) {
+                    $contentStr = is_string($h['content']) ? $h['content'] : json_encode($h['content']);
+                    if (strlen($contentStr) > 300) {
+                        $contentStr = substr($contentStr, 0, 300) . '...';
+                    }
                     $messages[] = [
                         'role' => $h['role'],
-                        'content' => is_string($h['content']) ? $h['content'] : json_encode($h['content']),
+                        'content' => $contentStr,
                     ];
                 }
             }
@@ -1042,6 +1067,62 @@ YAML;
 
             $status = $response->getStatusCode();
             $raw = $response->getBody()->getContents();
+
+            if ($status === 429) {
+                Log::warning("[AIAssistant] Groq Rate limit hit on {$model}. Checking retry...");
+                $errData = json_decode($raw, true);
+                $retrySec = 0;
+                if (!empty($errData['error']['message']) && preg_match('/try again in ([\d\.]+)s/i', $errData['error']['message'], $rm)) {
+                    $retrySec = (float) $rm[1];
+                }
+
+                // If wait time is short (<= 8s), auto sleep and retry once
+                if ($retrySec > 0 && $retrySec <= 8.0) {
+                    usleep((int) ($retrySec * 1000000) + 300000);
+                    try {
+                        $retryRes = $this->httpClient->post('https://api.groq.com/openai/v1/chat/completions', [
+                            'headers' => [
+                                'Authorization' => 'Bearer ' . $apiKey,
+                                'Content-Type' => 'application/json',
+                                'Accept' => 'application/json',
+                            ],
+                            'json' => $body,
+                        ]);
+                        if ($retryRes->getStatusCode() === 200) {
+                            $data = json_decode($retryRes->getBody()->getContents(), true);
+                            return $data['choices'][0]['message']['content'] ?? '';
+                        }
+                    } catch (Throwable $e) {}
+                }
+
+                // Fallback to llama-3.3-70b-versatile (12k TPM pool) if current model was qwen
+                if (str_contains($model, 'qwen')) {
+                    $fallbackBody = $body;
+                    $fallbackBody['model'] = 'llama-3.3-70b-versatile';
+                    try {
+                        $fbRes = $this->httpClient->post('https://api.groq.com/openai/v1/chat/completions', [
+                            'headers' => [
+                                'Authorization' => 'Bearer ' . $apiKey,
+                                'Content-Type' => 'application/json',
+                                'Accept' => 'application/json',
+                            ],
+                            'json' => $fallbackBody,
+                        ]);
+                        if ($fbRes->getStatusCode() === 200) {
+                            $data = json_decode($fbRes->getBody()->getContents(), true);
+                            return $data['choices'][0]['message']['content'] ?? '';
+                        }
+                    } catch (Throwable $e) {}
+                }
+
+                $waitSeconds = ceil($retrySec > 0 ? $retrySec : 6);
+                return json_encode([
+                    'thought' => 'API rate limit cooldown',
+                    'message' => "The AI engine is briefly cooling down (Groq free-tier rate limit). Please wait {$waitSeconds} seconds and send your message again!",
+                    'action' => 'none',
+                    'action_params' => [],
+                ]);
+            }
 
             if ($status !== 200) {
                 Log::error("[AIAssistant] Groq API returned status {$status}: {$raw}");
