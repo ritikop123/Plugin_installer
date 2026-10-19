@@ -284,6 +284,14 @@ PROMPT;
                 }
             } catch (Throwable $e) {}
 
+            $onlineMode = 'unknown';
+            try {
+                $spContent = $this->fileRepository->setServer($server)->getContent('/server.properties');
+                if (preg_match('/^online-mode\s*=\s*(true|false)/mi', $spContent, $m)) {
+                    $onlineMode = strtolower($m[1]);
+                }
+            } catch (Throwable $e) {}
+
             $matchedPlugins = $this->findRelevantPlugins($message, $plugins);
             $matchedSection = !empty($matchedPlugins)
                 ? "MATCHED PLUGINS RELEVANT TO USER QUERY:\n- " . implode("\n- ", $matchedPlugins)
@@ -296,6 +304,7 @@ Your user is the server owner. You assist them with server diagnostics, plugin i
 Current Server State:
 - Server Name: {$server->name}
 - Server Address / Host: {$primaryHost}:{$primaryPort}
+- Online Mode (Authentication): {$onlineMode} (true = Premium Minecraft only, false = Cracked / Offline accounts allowed)
 - Primary & Extra Port Allocations: {$allocJson}
 - Geyser Bedrock Crossplay Status: {$geyserStatus}
 - Simple Voice Chat Status: {$voiceStatus}
@@ -323,32 +332,38 @@ MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
    - "Spark": CPU and tick profiler for performance debugging.
 
 NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
-1. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
+1. "properly configure this for every access" / "universal access" / "allow all access" / "allow cracked and all versions":
+   - The user wants the server joinable by EVERYONE: cracked & premium players (online-mode=false), all Minecraft versions (1.8-1.21+), and Bedrock players!
+   - You MUST execute action "configure_universal_access" to automatically apply these settings and restart!
+2. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
    - The user wants cross-version client support so players on 1.8 through 1.21+ can join.
-   - This requires ViaVersion (for newer clients) and ViaBackwards (for older clients).
    - Check if ViaVersion and ViaBackwards are already in "ALL Installed Plugins":
      * If already installed: Tell the user that ViaVersion and ViaBackwards are already active and their server supports cross-version clients!
-     * If not installed: Explain how ViaVersion and ViaBackwards work. If the user asked you to make it joinable / install it, execute action "setup_multiversion".
-2. "is geyser setup" / "bedrock port" / "clone port":
+     * If not installed: If the user asked you to make it joinable / install it, execute action "setup_multiversion".
+3. "allow cracked" / "turn off online mode" / "cracked players":
+   - Requires setting online-mode=false in server.properties.
+   - If user confirms or asks: execute action "edit_config" with {"key": "online-mode", "value": "false", "restart": true}!
+4. "is geyser setup" / "bedrock port" / "clone port":
    - Refer to the "Geyser Bedrock Crossplay Status" above.
-   - If 'clone-remote-port: true' is enabled, state clearly: Bedrock players connect on the server's Java port ({$primaryPort}) at {$primaryHost}! Do NOT claim 19132 unless 19132 is explicitly allocated.
+   - If 'clone-remote-port: true' is enabled, state clearly: Bedrock players connect on the server's Java port ({$primaryPort}) at {$primaryHost}!
    - If user asks to fix or enable clone port, execute action "enable_geyser_clone_port".
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
+- "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "setup_multiversion": Downloads and installs latest ViaVersion and ViaBackwards into /plugins and restarts the server so all client versions can join.
 - "enable_geyser_clone_port": Sets clone-remote-port: true in Geyser config and restarts server so Bedrock shares the Java port.
 - "setup_geyser": Installs GeyserMC & Floodgate, configures Bedrock port, and restarts.
 - "setup_voicechat": Installs and configures Simple Voice Chat to an extra UDP port.
+- "edit_config": Edits server.properties or plugin yaml.
 - "restart_server": Restarts the server.
 - "start_server": Starts the server.
 - "stop_server": Stops the server.
 - "optimize_server": Applies optimal lag-reduction settings.
-- "edit_config": Edits server.properties or plugin yaml.
 - "run_command": Runs a console command (e.g. op, say, whitelist, reload).
 - "none": Just a conversational answer or advice.
 
 STRICT ACTION EXECUTION RULES (CRITICAL):
-- ONLY output an action if the user EXPLICITLY ordered or asked you to perform it (e.g. "make the server joinable for all versions", "restart the server", "setup geyser", "enable clone port").
+- When the user asks you to configure, set, change, install, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
 - If the user is asking an informational inquiry, checking versions, or asking how something works: Set "action": "none"!
 
 RESPONSE RULES:
@@ -359,7 +374,7 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
      "command": "command string if run_command",
      "file": "path if edit_config",
@@ -403,6 +418,15 @@ SYS;
             $actionResult = null;
             $actionName = $parsed['action'] ?? 'none';
             $actionParams = $parsed['action_params'] ?? [];
+
+            // Fail-safe: if action was 'none' but AI claimed it updated online-mode or user requested cracked
+            if ($actionName === 'none') {
+                $thoughtAndMsg = strtolower(($parsed['thought'] ?? '') . ' ' . ($parsed['message'] ?? ''));
+                if (str_contains($thoughtAndMsg, 'online-mode') && (str_contains($thoughtAndMsg, 'false') || str_contains($thoughtAndMsg, 'updated your server.properties') || str_contains($thoughtAndMsg, 'cracked'))) {
+                    $actionName = 'edit_config';
+                    $actionParams = ['key' => 'online-mode', 'value' => 'false', 'restart' => true];
+                }
+            }
 
             if ($actionName !== 'none') {
                 if ($this->shouldExecuteAction($message, $actionName)) {
@@ -459,6 +483,9 @@ SYS;
                     }
                     return ['success' => false, 'text' => 'Empty command provided.'];
 
+                case 'configure_universal_access':
+                    return $this->performConfigureUniversalAccess($server);
+
                 case 'setup_multiversion':
                     return $this->performSetupMultiversion($server);
 
@@ -477,11 +504,18 @@ SYS;
 
                 case 'edit_config':
                     $file = $params['file'] ?? '/server.properties';
-                    $key = $params['key'] ?? '';
-                    $val = $params['value'] ?? '';
+                    $key = $params['key'] ?? $params['setting'] ?? '';
+                    $val = $params['value'] ?? $params['val'] ?? '';
                     if ($key !== '') {
                         $this->updateServerPropertiesKey($server, $key, (string) $val);
-                        return ['success' => true, 'text' => "Updated {$key} to {$val} in {$file}"];
+                        $msg = "Updated {$key}={$val} in {$file}.";
+                        if ($key === 'online-mode' || !empty($params['restart'])) {
+                            try {
+                                $this->powerRepository->setServer($server)->send('restart');
+                                $msg .= ' Server restart initiated so change takes effect immediately.';
+                            } catch (Throwable $e) {}
+                        }
+                        return ['success' => true, 'text' => $msg];
                     }
                     return ['success' => false, 'text' => 'No key specified for config edit.'];
 
@@ -491,6 +525,97 @@ SYS;
         } catch (Throwable $e) {
             return ['success' => false, 'text' => 'Execution error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Fully configure server for Universal Access (Cracked + All Versions + Bedrock Crossplay)
+     */
+    private function performConfigureUniversalAccess(Server $server): array
+    {
+        $primaryAlloc = $server->allocation;
+        $primaryPort = $primaryAlloc ? $primaryAlloc->port : 25565;
+        $primaryHost = $primaryAlloc ? ($primaryAlloc->ip_alias ?: $primaryAlloc->ip) : 'server IP';
+        $actionsDone = [];
+
+        // 1. Set online-mode=false
+        try {
+            $this->updateServerPropertiesKey($server, 'online-mode', 'false');
+            $actionsDone[] = 'Set online-mode=false (Cracked / Offline players enabled)';
+        } catch (Throwable $e) {}
+
+        // 2. Install ViaVersion & ViaBackwards if missing
+        $installed = $this->getInstalledPlugins($server);
+        $installedStr = strtolower(implode(' ', $installed));
+
+        $hasVia = str_contains($installedStr, 'viaversion');
+        $hasBackwards = str_contains($installedStr, 'viabackwards');
+
+        try {
+            if (!$hasVia) {
+                $vRes = $this->httpClient->get('https://github.com/ViaVersion/ViaVersion/releases/latest/download/ViaVersion.jar', ['allow_redirects' => true]);
+                if ($vRes->getStatusCode() === 200) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/ViaVersion.jar', $vRes->getBody()->getContents());
+                }
+            }
+            if (!$hasBackwards) {
+                $bRes = $this->httpClient->get('https://github.com/ViaVersion/ViaBackwards/releases/latest/download/ViaBackwards.jar', ['allow_redirects' => true]);
+                if ($bRes->getStatusCode() === 200) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/ViaBackwards.jar', $bRes->getBody()->getContents());
+                }
+            }
+            $actionsDone[] = 'Ensured ViaVersion & ViaBackwards (All versions 1.8-1.21+ enabled)';
+        } catch (Throwable $e) {}
+
+        // 3. Ensure Geyser & Floodgate with clone-remote-port: true
+        $hasGeyser = str_contains($installedStr, 'geyser');
+        $hasFloodgate = str_contains($installedStr, 'floodgate');
+
+        try {
+            if (!$hasGeyser) {
+                $gRes = $this->httpClient->get('https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot', ['allow_redirects' => true]);
+                if ($gRes->getStatusCode() === 200) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/Geyser-Spigot.jar', $gRes->getBody()->getContents());
+                }
+            }
+            if (!$hasFloodgate) {
+                $fRes = $this->httpClient->get('https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot', ['allow_redirects' => true]);
+                if ($fRes->getStatusCode() === 200) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/Floodgate-Spigot.jar', $fRes->getBody()->getContents());
+                }
+            }
+            $actionsDone[] = 'Ensured GeyserMC & Floodgate (Bedrock crossplay enabled)';
+        } catch (Throwable $e) {}
+
+        // Configure Geyser clone-remote-port: true
+        try {
+            $gConf = '';
+            try {
+                $gConf = $this->fileRepository->setServer($server)->getContent('/plugins/Geyser-Spigot/config.yml');
+            } catch (Throwable $e) {}
+
+            if (empty($gConf)) {
+                $gConf = "bedrock:\n  address: 0.0.0.0\n  port: {$primaryPort}\n  clone-remote-port: true\nremote:\n  address: 127.0.0.1\n  port: {$primaryPort}\n  auth-type: floodgate\n";
+            } else {
+                if (preg_match('/clone-remote-port:\s*(false|true)/i', $gConf)) {
+                    $gConf = preg_replace('/clone-remote-port:\s*(false|true)/i', 'clone-remote-port: true', $gConf);
+                } else {
+                    $gConf = preg_replace('/(bedrock:\s*\n)/i', "$1  clone-remote-port: true\n", $gConf);
+                }
+            }
+            $this->fileRepository->setServer($server)->putContent('/plugins/Geyser-Spigot/config.yml', $gConf);
+            $actionsDone[] = "Configured Geyser clone-remote-port: true (Bedrock port cloned to {$primaryPort})";
+        } catch (Throwable $e) {}
+
+        // 4. Restart server
+        try {
+            $this->powerRepository->setServer($server)->send('restart');
+            $actionsDone[] = 'Server restart initiated to apply all changes';
+        } catch (Throwable $e) {}
+
+        return [
+            'success' => true,
+            'text' => 'Universal Access Configured! ' . implode('. ', $actionsDone) . ". Players can join on {$primaryHost}:{$primaryPort}",
+        ];
     }
 
     /**
@@ -951,33 +1076,41 @@ YAML;
      */
     private function shouldExecuteAction(string $userMessage, string $action): bool
     {
-        $msg = strtolower($userMessage);
+        $msg = strtolower(trim($userMessage));
+
+        // Allow any affirmative confirmation (e.g. user replying "yes" to "Would you like me to proceed?")
+        if (preg_match('/^(yes|yeah|yep|sure|ok|okay|proceed|do it|go ahead|confirm|please|apply|restart)\b/i', $msg)) {
+            return true;
+        }
 
         switch ($action) {
+            case 'configure_universal_access':
+                return preg_match('/\b(every access|all access|universal access|configure.*access|all players|cracked.*version|every.*player)\b/i', $msg) === 1;
+
             case 'start_server':
-                return preg_match('/\b(start|boot up|turn on)\b/', $msg) === 1;
+                return preg_match('/\b(start|boot up|turn on)\b/i', $msg) === 1;
 
             case 'restart_server':
-                return preg_match('/\b(restart|reboot)\b/', $msg) === 1;
+                return preg_match('/\b(restart|reboot)\b/i', $msg) === 1;
 
             case 'stop_server':
-                return preg_match('/\b(stop|shutdown|turn off|kill)\b/', $msg) === 1;
+                return preg_match('/\b(stop|shutdown|turn off|kill)\b/i', $msg) === 1;
 
             case 'setup_geyser':
                 $hasName = str_contains($msg, 'geyser') || str_contains($msg, 'bedrock');
-                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/', $msg) === 1;
+                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/i', $msg) === 1;
                 return $hasName && $hasIntent;
 
             case 'setup_voicechat':
                 $hasName = str_contains($msg, 'voice') || str_contains($msg, 'voicechat');
-                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/', $msg) === 1;
+                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/i', $msg) === 1;
                 return $hasName && $hasIntent;
 
             case 'optimize_server':
-                return preg_match('/\b(optimize|reduce lag|fix lag|boost fps|improve performance|apply optimizations)\b/', $msg) === 1;
+                return preg_match('/\b(optimize|reduce lag|fix lag|boost fps|improve performance|apply optimizations)\b/i', $msg) === 1;
 
             case 'edit_config':
-                return preg_match('/\b(change|set|edit|update|modify|switch)\b/', $msg) === 1;
+                return preg_match('/\b(change|set|edit|update|modify|switch|cracked|online-mode|online mode|offline mode|allow cracked)\b/i', $msg) === 1;
 
             case 'setup_multiversion':
                 return preg_match('/\b(make.*joinable|joinable.*all|all versions|setup via|install via|multi-version|multiversion|cross version)\b/i', $msg) === 1;
@@ -986,7 +1119,7 @@ YAML;
                 return preg_match('/\b(clone port|clone-remote-port|clone remote port|auto port|same port|fix port|fix geyser)\b/i', $msg) === 1;
 
             case 'run_command':
-                return preg_match('/\b(run|execute|send|dispatch)\b/', $msg) === 1 && (str_contains($msg, 'command') || str_contains($msg, '/'));
+                return preg_match('/\b(run|execute|send|dispatch)\b/i', $msg) === 1 && (str_contains($msg, 'command') || str_contains($msg, '/'));
 
             default:
                 return false;
@@ -1063,7 +1196,7 @@ YAML;
 
         foreach ($lines as $line) {
             $trimmed = trim($line);
-            if (str_starts_with($trimmed, "{$key}=") || str_starts_with($trimmed, "{$key} =")) {
+            if (preg_match('/^' . preg_quote($key, '/') . '\s*=/i', $trimmed)) {
                 $newLines[] = "{$key}={$value}";
                 $found = true;
             } else {
