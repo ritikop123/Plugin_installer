@@ -15,6 +15,7 @@ import {
   faTrashAlt,
   faTerminal,
   faCheck,
+  faTimes,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface Message {
@@ -232,6 +233,33 @@ export default function AiAssistantContainer() {
 
                 {/* Formatted Content */}
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+
+                {/* Interactive Confirmation Action Buttons */}
+                {msg.role === 'assistant' &&
+                  /(confirm|want me to proceed|Shall I proceed|Would you like me to|want me to delete|want me to install|want me to fix|No server changes were made yet)/i.test(
+                    msg.content
+                  ) && (
+                    <div className="mt-3.5 pt-2.5 border-t border-gray-700/60 flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => handleSendMessage('Yes, do it')}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <FontAwesomeIcon icon={faCheck} className="text-[11px]" />
+                        <span>Yes, do it</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => handleSendMessage("No, don't do that. Cancel.")}
+                        className="px-3 py-1.5 rounded-xl bg-gray-700/90 hover:bg-gray-600 text-gray-200 font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <FontAwesomeIcon icon={faTimes} className="text-[11px]" />
+                        <span>No, don't do</span>
+                      </button>
+                    </div>
+                )}
 
                 {/* Executed Action Badge */}
                 {msg.action && msg.action !== 'none' && (

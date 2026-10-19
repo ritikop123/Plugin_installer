@@ -111,7 +111,7 @@ Return a JSON object with EXACTLY these keys:
   "cause": "Clear 1-2 sentence explanation of why it happened",
   "solution": "Clear explanation of how to fix it",
   "auto_fixable": boolean,
-  "action_type": "One of: accept_eula, fix_port_conflict, install_geyser, install_voicechat, optimize_config, remove_corrupted_jar, none",
+  "action_type": "One of: accept_eula, fix_port_conflict, install_geyser, install_voicechat, optimize_config, remove_corrupted_jar, delete_file, none",
   "action_params": {},
   "requires_restart": boolean
 }
@@ -128,17 +128,31 @@ PROMPT;
             // Heuristic fallback if LLM returned non-JSON
             $isEula = str_contains($logData['raw'], 'eula.txt');
             $isPort = str_contains($logData['raw'], 'FAILED TO BIND TO PORT') || str_contains($logData['raw'], 'Address already in use');
+            $isWorldGen = str_contains($logData['raw'], 'world_gen_settings.dat');
 
-            $parsed = [
-                'has_error' => ($isEula || $isPort || str_contains($logData['raw'], 'Exception')),
-                'issue_title' => $isEula ? 'EULA Not Accepted' : ($isPort ? 'Port Already in Use' : 'Server Startup Exception'),
-                'cause' => $isEula ? 'The Minecraft EULA has not been agreed to.' : 'Server crashed or encountered an error.',
-                'solution' => $isEula ? 'Set eula=true in eula.txt.' : 'Check the server logs for missing dependencies or conflicting plugins.',
-                'auto_fixable' => ($isEula || $isPort),
-                'action_type' => $isEula ? 'accept_eula' : ($isPort ? 'fix_port_conflict' : 'none'),
-                'action_params' => [],
-                'requires_restart' => true,
-            ];
+            if ($isWorldGen) {
+                $parsed = [
+                    'has_error' => true,
+                    'issue_title' => 'Corrupted World Gen Settings',
+                    'cause' => 'The world_gen_settings.dat file is corrupted or incompatible with the current server software version.',
+                    'solution' => 'Delete /world/world_gen_settings.dat and restart the server so a clean, valid version is generated.',
+                    'auto_fixable' => true,
+                    'action_type' => 'delete_file',
+                    'action_params' => ['file' => '/world/world_gen_settings.dat'],
+                    'requires_restart' => true,
+                ];
+            } else {
+                $parsed = [
+                    'has_error' => ($isEula || $isPort || str_contains($logData['raw'], 'Exception')),
+                    'issue_title' => $isEula ? 'EULA Not Accepted' : ($isPort ? 'Port Already in Use' : 'Server Startup Exception'),
+                    'cause' => $isEula ? 'The Minecraft EULA has not been agreed to.' : 'Server crashed or encountered an error.',
+                    'solution' => $isEula ? 'Set eula=true in eula.txt.' : 'Check the server logs for missing dependencies or conflicting plugins.',
+                    'auto_fixable' => ($isEula || $isPort),
+                    'action_type' => $isEula ? 'accept_eula' : ($isPort ? 'fix_port_conflict' : 'none'),
+                    'action_params' => [],
+                    'requires_restart' => true,
+                ];
+            }
         }
 
         return response()->json([
@@ -174,6 +188,16 @@ PROMPT;
                         $message = "Bound server-port to primary allocation: {$primaryAlloc->port}.";
                     } else {
                         $message = 'No primary allocation found to bind.';
+                    }
+                    break;
+
+                case 'delete_file':
+                    $targetFile = (string) $request->input('action_params.file', $request->input('file', ''));
+                    if (!empty($targetFile)) {
+                        $delRes = $this->performDeleteFile($server, ['file' => $targetFile, 'restart' => false]);
+                        $message = $delRes['text'] ?? "File {$targetFile} removed.";
+                    } else {
+                        $message = 'No target file specified for deletion.';
                     }
                     break;
 
@@ -376,6 +400,8 @@ PROMPT;
                 }
             } catch (Throwable $e) {}
 
+            $learnedMemory = $this->getLearnedMemory($server);
+
             $systemPrompt = <<<SYS
 You are an expert Minecraft Server Administrator and AI Co-Pilot with real-time visibility and direct administrative control over this server.
 Your user is the server owner. You assist them with server diagnostics, plugin inquiries, updates, Bedrock crossplay, voice chat, port allocations, and optimizations.
@@ -396,13 +422,19 @@ Current Server State:
 ```
 {$recentConsoleLogs}
 ```
+- Server Memory & Proven Fixes Learned Over Time:
+{$learnedMemory}
 
 {$matchedSection}
 
 MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
+0. Minecraft Modern Versioning (2026+):
+   - In 2026, Minecraft versions have transitioned to year-based release versioning: 26.1, 26.2, 26.3, 26.4 (along with legacy 1.21.x, 1.20.x, etc.).
+   - The current modern release line is 26.x (e.g. 26.1, 26.2, 26.3, 26.4). NEVER tell the user that 1.21.11 or older is the latest version when 26.x is out!
+   - When the user asks for the latest version, latest Paper, Purpur, or 26.x builds, recognize that 26.4 / 26.x is the current 2026 release line.
 1. ViaVersion / ViaBackwards / ViaRewind:
-   - "ViaVersion": Allows newer Minecraft client versions to connect to an older server (e.g. 1.21.x client joining a 1.20 server).
-   - "ViaBackwards": Allows older Minecraft client versions to connect to a newer server (e.g. 1.16 client joining a 1.21 server).
+   - "ViaVersion": Allows newer Minecraft client versions to connect to an older server (e.g. 1.21.x or 26.x client joining a 1.20 server).
+   - "ViaBackwards": Allows older Minecraft client versions to connect to a newer server (e.g. 1.16 client joining a 1.21 or 26.x server).
    - "ViaRewind": Allows 1.7 / 1.8 clients to join 1.9+ servers.
    - Version checking: Inspect the exact filename in the list (e.g. "ViaVersion-5.2.1.jar" means version 5.2.1 is installed). The active stable release branch is 5.5.x+. If installed version is 5.2.x, inform the user they have 5.2.1 and that version 5.5.x+ is available for newer Minecraft releases.
 2. Crossplay & Bedrock (GeyserMC + Floodgate & clone-remote-port):
@@ -420,12 +452,12 @@ MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
 
 NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
 1. "properly configure this for every access" / "universal access" / "allow all access" / "allow cracked and all versions":
-   - The user wants the server joinable by EVERYONE: cracked & premium players (online-mode=false), disabled whitelist, all Minecraft versions (1.8-1.21+), and Bedrock players!
+   - The user wants the server joinable by EVERYONE: cracked & premium players (online-mode=false), disabled whitelist, all Minecraft versions (1.8-26.x), and Bedrock players!
    - You MUST execute action "configure_universal_access" to automatically apply these settings and restart!
 2. "disable whitelist" / "turn off whitelist" / "remove whitelist":
    - Disables whitelist in server.properties and executes /whitelist off. Execute action "disable_whitelist"!
 3. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
-   - The user wants cross-version client support so players on 1.8 through 1.21+ can join.
+   - The user wants cross-version client support so players on 1.8 through 26.x can join.
    - Check if ViaVersion and ViaBackwards are already in "ALL Installed Plugins":
      * If already installed: Tell the user that ViaVersion and ViaBackwards are already active and their server supports cross-version clients!
      * If not installed: If the user asked you to make it joinable / install it, execute action "setup_multiversion".
@@ -448,11 +480,15 @@ NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
 7. "download software" / "install paper" / "install purpur" / "download server jar" / "install server" / "server crashing download paper":
    - You HAVE FULL DIRECT ABILITY to download and install server software jars!
    - NEVER tell the user "I cannot directly download files to your server's file system"! You have direct access to Wings and MCJars/Paper APIs.
-   - You MUST execute action "install_software" with {"software": "paper", "version": "latest"} (or requested software/version)!
+   - You MUST execute action "install_software" with {"software": "paper", "version": "latest"} (or requested software/version like "26.4")!
+8. "delete file" / "remove corrupted" / "world_gen_settings.dat" / "session.lock" / "server crashing due to corrupted file":
+   - When a world generation file (/world/world_gen_settings.dat), session lock (/world/session.lock), or conflicting plugin crashes the server, execute action "delete_file" with {"file": "/path/to/file", "restart": true}!
+   - Minecraft will automatically regenerate fresh, uncorrupted files upon restart!
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
-- "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|1.21.4"}
-- "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
+- "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|26.4|1.21.4"}
+- "delete_file": Safely deletes a corrupted file, broken world gen data, or crashing plugin. Params: {"file": "/world/world_gen_settings.dat", "restart": true}
+- "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-26.x), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
 - "setup_multiversion": Downloads and installs latest ViaVersion and ViaBackwards into /plugins and restarts the server so all client versions can join.
 - "enable_geyser_clone_port": Sets clone-remote-port: true in Geyser config and restarts server so Bedrock shares the Java port.
@@ -467,7 +503,7 @@ CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "none": Just a conversational answer or advice.
 
 STRICT ACTION EXECUTION RULES (CRITICAL):
-- When the user asks you to configure, set, change, install, download software, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
+- When the user asks you to configure, set, change, install, download software, delete a file, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
 - If the user is asking an informational inquiry, checking versions, or asking how something works: Set "action": "none"!
 
 RESPONSE RULES:
@@ -478,12 +514,12 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: install_software, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: install_software, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
+     "file": "path if delete_file or edit_config",
      "software": "paper or purpur if install_software",
      "version": "version string if install_software",
      "command": "command string if run_command",
-     "file": "path if edit_config",
      "key": "setting key",
      "value": "setting value"
   }
@@ -548,16 +584,30 @@ SYS;
                     if (str_contains($userMsgLower, 'spigot')) $software = 'spigot';
                     if (str_contains($userMsgLower, 'vanilla')) $software = 'vanilla';
                     $ver = 'latest';
-                    if (preg_match('/1\.\d+(\.\d+)?/', $userMsgLower, $vm)) {
+                    if (preg_match('/(2\d(\.\d+)+|1\.\d+(\.\d+)?)/', $userMsgLower, $vm)) {
                         $ver = $vm[0];
                     }
                     $actionParams = ['software' => $software, 'version' => $ver];
+                } elseif (preg_match('/\b(delete|remove|erase|clear)\b/i', $userMsgLower) && preg_match('/\b(world_gen_settings|session\.lock|crash|file|\.dat|\.lock|\.log|\.jar)\b/i', $userMsgLower)) {
+                    $actionName = 'delete_file';
+                    $targetFile = '';
+                    if (str_contains($userMsgLower, 'world_gen_settings')) {
+                        $targetFile = '/world/world_gen_settings.dat';
+                    } elseif (str_contains($userMsgLower, 'session.lock')) {
+                        $targetFile = '/world/session.lock';
+                    } elseif (preg_match('/\/[a-zA-Z0-9_\-\.\/]+/', $message, $pathMatch)) {
+                        $targetFile = $pathMatch[0];
+                    }
+                    $actionParams = ['file' => $targetFile, 'restart' => true];
                 }
             }
 
             if ($actionName !== 'none') {
                 if ($this->shouldExecuteAction($message, $actionName)) {
                     $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
+                    if (!empty($actionResult['success'])) {
+                        $this->recordSuccessfulLearning($server, $message, $actionName, $actionParams);
+                    }
                 } else {
                     // Suppress unsolicited hallucinated actions
                     Log::info("[AIAssistant] Suppressed unauthorized action '{$actionName}' for message: '{$message}'");
@@ -615,6 +665,9 @@ SYS;
 
                 case 'install_software':
                     return $this->performInstallSoftware($server, $params);
+
+                case 'delete_file':
+                    return $this->performDeleteFile($server, $params);
 
                 case 'configure_universal_access':
                     return $this->performConfigureUniversalAccess($server);
@@ -677,13 +730,12 @@ SYS;
 
         $targetUrl = '';
 
-        // 1. Purpur direct API
-        if ($software === 'PURPUR') {
-            $purpurVer = ($version === 'latest' || empty($version)) ? '1.21.4' : $version;
-            $targetUrl = "https://api.purpurmc.org/v2/purpur/{$purpurVer}/latest/download";
+        // 1. Purpur direct API (if specific 1.x version requested)
+        if ($software === 'PURPUR' && $version !== 'latest' && !empty($version) && !str_starts_with($version, '26.')) {
+            $targetUrl = "https://api.purpurmc.org/v2/purpur/{$version}/latest/download";
         }
 
-        // 2. MCJars API for Paper, Fabric, Vanilla, Folia, etc.
+        // 2. MCJars API for Paper, Purpur, Fabric, Vanilla, Folia, etc.
         if (empty($targetUrl)) {
             try {
                 $mcjarsType = ($software === 'PURPUR') ? 'PURPUR' : 'PAPER';
@@ -702,10 +754,15 @@ SYS;
                     if (!empty($builds)) {
                         $chosenBuild = null;
                         if ($version !== 'latest' && !empty($version)) {
-                            foreach ($builds as $vKey => $vData) {
-                                if (str_starts_with($vKey, $version) || $vKey === $version) {
-                                    $chosenBuild = $vData['latest'] ?? null;
-                                    break;
+                            if (isset($builds[$version])) {
+                                $chosenBuild = $builds[$version]['latest'] ?? null;
+                            } else {
+                                foreach ($builds as $vKey => $vData) {
+                                    if (str_starts_with($vKey, $version) || str_starts_with($version, $vKey)) {
+                                        $chosenBuild = $vData['latest'] ?? null;
+                                        $version = $vKey;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -1551,7 +1608,7 @@ YAML;
         }
 
         // Allow if user is complaining that action wasn't done or demanding to do it
-        if (preg_match('/\b(not done|did nothing|didn\'t do|did not|why did you not|failed|fix it|do it|properly|configure|apply|setup|install|enable|disable|remove|turn off|allow|switch|add)\b/i', $msg)) {
+        if (preg_match('/\b(not done|did nothing|didn\'t do|did not|why did you not|failed|fix it|do it|properly|configure|apply|setup|install|enable|disable|remove|turn off|allow|switch|add|delete)\b/i', $msg)) {
             if ($action === 'configure_universal_access' && preg_match('/\b(access|acess|universal|all|every|eveyr|cracked|whitelist|plugin)\b/i', $msg)) {
                 return true;
             }
@@ -1564,9 +1621,16 @@ YAML;
             if ($action === 'install_software' && preg_match('/\b(software|paper|purpur|spigot|fabric|vanilla|jar|download)\b/i', $msg)) {
                 return true;
             }
+            if ($action === 'delete_file' && preg_match('/\b(delete|remove|erase|file|world|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
+                return true;
+            }
         }
 
         switch ($action) {
+            case 'delete_file':
+                return preg_match('/\b(delete|remove|erase|clear|trash|wipe)\b/i', $msg) === 1
+                    || preg_match('/\b(world_gen_settings|session\.lock|\.dat|\.log|\.jar)\b/i', $msg) === 1;
+
             case 'install_software':
                 return preg_match('/\b(install|download|setup|switch|change|get|reinstall).*(software|paper|purpur|spigot|fabric|vanilla|jar|server\.jar)\b/i', $msg) === 1
                     || preg_match('/\b(install|download)\s*(paper|purpur|spigot|fabric|vanilla|software)\b/i', $msg) === 1;
@@ -1723,5 +1787,153 @@ YAML;
                 $this->fileRepository->setServer($server)->putContent('/spigot.yml', $spigot);
             }
         } catch (Throwable $e) {}
+    }
+
+    /**
+     * Safely deletes a file or directory inside the server container
+     */
+    private function performDeleteFile(Server $server, array $params): array
+    {
+        $rawPath = trim((string) ($params['file'] ?? $params['path'] ?? $params['target'] ?? ''));
+        if (empty($rawPath)) {
+            return ['success' => false, 'text' => 'No target file specified to delete.'];
+        }
+
+        // Normalize path and remove traversal attempts
+        $cleanPath = '/' . ltrim(str_replace(['\\', '..'], ['/', ''], $rawPath), '/');
+
+        // Prevent root deletion or empty path
+        if ($cleanPath === '/' || empty(trim($cleanPath, '/'))) {
+            return ['success' => false, 'text' => 'Deleting the root server directory is strictly prohibited for security.'];
+        }
+
+        $dir = dirname($cleanPath);
+        if ($dir === '\\' || $dir === '.') {
+            $dir = '/';
+        }
+        $filename = basename($cleanPath);
+
+        if (empty($filename)) {
+            return ['success' => false, 'text' => 'Invalid file path specified.'];
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->deleteFiles($dir, [$filename]);
+
+            $msg = "Successfully removed '{$cleanPath}'.";
+
+            $shouldRestart = $params['restart'] ?? true;
+            if ($shouldRestart) {
+                try {
+                    $this->powerRepository->setServer($server)->send('restart');
+                    $msg .= ' Server restart initiated so clean files will regenerate.';
+                } catch (Throwable $e) {}
+            }
+
+            return ['success' => true, 'text' => $msg];
+        } catch (Throwable $e) {
+            Log::error("[AIAssistant] Delete file error for '{$cleanPath}': " . $e->getMessage());
+            return ['success' => false, 'text' => "Failed to delete '{$cleanPath}': " . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Persistently saves successful resolutions and actions to server-specific memory
+     */
+    private function recordSuccessfulLearning(Server $server, string $userQuery, string $action, array $params): void
+    {
+        if (empty($action) || $action === 'none') {
+            return;
+        }
+
+        try {
+            $memPath = storage_path("app/ai_memory_server_{$server->id}.json");
+            $memory = [];
+            if (file_exists($memPath)) {
+                $content = @file_get_contents($memPath);
+                if (!empty($content)) {
+                    $memory = json_decode($content, true) ?: [];
+                }
+            }
+
+            // Clean and compact user query keywords
+            $cleanQuery = strtolower(trim(preg_replace('/[^\w\s\.\-]/', '', $userQuery)));
+            if (strlen($cleanQuery) > 80) {
+                $cleanQuery = substr($cleanQuery, 0, 80);
+            }
+
+            // Find existing matching memory entry by action
+            $foundIndex = -1;
+            foreach ($memory as $idx => $entry) {
+                if (($entry['action'] ?? '') === $action) {
+                    $foundIndex = $idx;
+                    break;
+                }
+            }
+
+            if ($foundIndex >= 0) {
+                $memory[$foundIndex]['count'] = ($memory[$foundIndex]['count'] ?? 1) + 1;
+                $memory[$foundIndex]['last_used'] = now()->toIso8601String();
+                if (!in_array($cleanQuery, $memory[$foundIndex]['sample_queries'] ?? [])) {
+                    $memory[$foundIndex]['sample_queries'][] = $cleanQuery;
+                    if (count($memory[$foundIndex]['sample_queries']) > 3) {
+                        array_shift($memory[$foundIndex]['sample_queries']);
+                    }
+                }
+            } else {
+                $memory[] = [
+                    'action' => $action,
+                    'params' => $params,
+                    'sample_queries' => [$cleanQuery],
+                    'count' => 1,
+                    'created_at' => now()->toIso8601String(),
+                    'last_used' => now()->toIso8601String(),
+                ];
+            }
+
+            // Keep max 15 memory entries to keep prompt lightweight
+            if (count($memory) > 15) {
+                $memory = array_slice($memory, -15);
+            }
+
+            @file_put_contents($memPath, json_encode($memory, JSON_PRETTY_PRINT));
+        } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Failed to save learning memory: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Retrieves concise learned patterns for this server to inject into system prompt
+     */
+    private function getLearnedMemory(Server $server): string
+    {
+        try {
+            $memPath = storage_path("app/ai_memory_server_{$server->id}.json");
+            if (!file_exists($memPath)) {
+                return 'No previous server-specific patterns stored yet.';
+            }
+
+            $content = @file_get_contents($memPath);
+            if (empty($content)) {
+                return 'No previous server-specific patterns stored yet.';
+            }
+
+            $memory = json_decode($content, true);
+            if (empty($memory) || !is_array($memory)) {
+                return 'No previous server-specific patterns stored yet.';
+            }
+
+            $lines = [];
+            foreach ($memory as $entry) {
+                $act = $entry['action'] ?? 'unknown';
+                $cnt = $entry['count'] ?? 1;
+                $queries = implode(', ', array_slice($entry['sample_queries'] ?? [], 0, 2));
+                $lines[] = "- Pattern: When user asks about [{$queries}], action '{$act}' was successfully executed ({$cnt}x verified).";
+            }
+
+            return !empty($lines) ? implode("\n", array_slice($lines, -10)) : 'No previous server-specific patterns stored yet.';
+        } catch (Throwable $e) {
+            return 'No previous server-specific patterns stored yet.';
+        }
     }
 }
