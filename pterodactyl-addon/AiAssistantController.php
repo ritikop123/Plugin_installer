@@ -302,12 +302,27 @@ PROMPT;
                 : "No specific plugin keywords matched directly from query.";
 
             $recentConsoleLogs = 'No recent logs generated yet.';
+            $crashNotice = '';
+            try {
+                $crashFiles = $this->fileRepository->setServer($server)->getDirectory('/crash-reports');
+                if (!empty($crashFiles) && is_array($crashFiles)) {
+                    $latestCrash = end($crashFiles);
+                    $crashName = $latestCrash['name'] ?? '';
+                    if (!empty($crashName)) {
+                        $crashContent = $this->fileRepository->setServer($server)->getContent("/crash-reports/{$crashName}");
+                        $crashLines = explode("\n", str_replace("\r", '', $crashContent));
+                        $crashSnippet = implode("\n", array_slice($crashLines, 0, 25));
+                        $crashNotice = "\n- CRASH REPORT DETECTED (/crash-reports/{$crashName}):\n```\n{$crashSnippet}\n```\n";
+                    }
+                }
+            } catch (Throwable $e) {}
+
             try {
                 $rawLogs = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
                 if (!empty($rawLogs)) {
                     $logLines = explode("\n", str_replace("\r", '', $rawLogs));
                     $filteredLines = [];
-                    $interestingKw = ['logged in', 'lost connection', 'disconnecting', 'whitelist', 'white-list', 'uuid of player', 'warn', 'error', 'exception', 'cannot', 'outdated'];
+                    $interestingKw = ['logged in', 'lost connection', 'disconnecting', 'whitelist', 'white-list', 'uuid of player', 'warn', 'error', 'exception', 'cannot', 'outdated', 'failed to bind', 'stopping server'];
                     $total = count($logLines);
                     for ($i = max(0, $total - 120); $i < $total; $i++) {
                         $line = trim($logLines[$i]);
@@ -332,6 +347,35 @@ PROMPT;
                 }
             } catch (Throwable $e) {}
 
+            $jarStatus = 'server.jar present';
+            $eulaStatus = 'eula=true';
+            try {
+                $rootFiles = $this->fileRepository->setServer($server)->getDirectory('/');
+                $hasJar = false;
+                $jarSize = 0;
+                foreach ($rootFiles as $rf) {
+                    $rname = strtolower($rf['name'] ?? '');
+                    if (preg_match('/\.jar$/i', $rname)) {
+                        $hasJar = true;
+                        $jarSize = (int) ($rf['size'] ?? 0);
+                        $jarStatus = "Executable jar '{$rf['name']}' found (" . round($jarSize / (1024 * 1024), 1) . ' MB)';
+                        break;
+                    }
+                }
+                if (!$hasJar || $jarSize < 5000000) {
+                    $jarStatus = 'CRITICAL: No valid server executable JAR found in root directory! The server will crash or exit immediately upon startup until software (Paper/Purpur) is installed.';
+                }
+
+                try {
+                    $eulaTxt = $this->fileRepository->setServer($server)->getContent('/eula.txt');
+                    if (!preg_match('/eula\s*=\s*true/i', $eulaTxt)) {
+                        $eulaStatus = 'eula=false (Server will stop immediately until EULA is accepted)';
+                    }
+                } catch (Throwable $e) {
+                    $eulaStatus = 'eula.txt missing';
+                }
+            } catch (Throwable $e) {}
+
             $systemPrompt = <<<SYS
 You are an expert Minecraft Server Administrator and AI Co-Pilot with real-time visibility and direct administrative control over this server.
 Your user is the server owner. You assist them with server diagnostics, plugin inquiries, updates, Bedrock crossplay, voice chat, port allocations, and optimizations.
@@ -339,13 +383,15 @@ Your user is the server owner. You assist them with server diagnostics, plugin i
 Current Server State:
 - Server Name: {$server->name}
 - Server Address / Host: {$primaryHost}:{$primaryPort}
+- Server Executable JAR Status: {$jarStatus}
+- EULA Status: {$eulaStatus}
 - Online Mode (Authentication): {$onlineMode} (true = Premium Minecraft only, false = Cracked / Offline accounts allowed)
 - Whitelist Status: {$whitelistMode} (false = Open to everyone, true = Only whitelisted players can join)
 - Primary & Extra Port Allocations: {$allocJson}
 - Geyser Bedrock Crossplay Status: {$geyserStatus}
 - Simple Voice Chat Status: {$voiceStatus}
 - ALL Installed Plugins ({$pluginCount} total): {$pluginsList}
-
+{$crashNotice}
 - Recent Server Console & Join Logs (/logs/latest.log - concise recent activity):
 ```
 {$recentConsoleLogs}
@@ -398,9 +444,14 @@ NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
      * Version mismatch: "Outdated client! Please use <version>" or "Outdated server!"
      * Errors or exceptions from plugins or server thread
    - Tell the user exactly what occurred in the console, citing timestamps, player names, and exact reasons!
-   - NEVER tell the user "I do not have access to read console logs" or "I cannot see your console"! You have full access to /logs/latest.log!
+   - NEVER tell the user "I do not have access to read console logs" or "I cannot see your console"! You have full access to /logs/latest.log and /crash-reports/!
+7. "download software" / "install paper" / "install purpur" / "download server jar" / "install server" / "server crashing download paper":
+   - You HAVE FULL DIRECT ABILITY to download and install server software jars!
+   - NEVER tell the user "I cannot directly download files to your server's file system"! You have direct access to Wings and MCJars/Paper APIs.
+   - You MUST execute action "install_software" with {"software": "paper", "version": "latest"} (or requested software/version)!
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
+- "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|1.21.4"}
 - "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
 - "setup_multiversion": Downloads and installs latest ViaVersion and ViaBackwards into /plugins and restarts the server so all client versions can join.
@@ -416,7 +467,7 @@ CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "none": Just a conversational answer or advice.
 
 STRICT ACTION EXECUTION RULES (CRITICAL):
-- When the user asks you to configure, set, change, install, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
+- When the user asks you to configure, set, change, install, download software, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
 - If the user is asking an informational inquiry, checking versions, or asking how something works: Set "action": "none"!
 
 RESPONSE RULES:
@@ -427,8 +478,10 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: install_software, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
+     "software": "paper or purpur if install_software",
+     "version": "version string if install_software",
      "command": "command string if run_command",
      "file": "path if edit_config",
      "key": "setting key",
@@ -487,6 +540,18 @@ SYS;
                     $actionName = 'configure_universal_access';
                 } elseif (preg_match('/\b(disable|turn off|remove)\s*whitelist\b/i', $userMsgLower)) {
                     $actionName = 'disable_whitelist';
+                } elseif (preg_match('/\b(install|download|get|setup)\s*(paper|purpur|spigot|fabric|vanilla|software|server jar)\b/i', $userMsgLower) || preg_match('/\b(download|install)\s*(paper|purpur)/i', $userMsgLower)) {
+                    $actionName = 'install_software';
+                    $software = 'paper';
+                    if (str_contains($userMsgLower, 'purpur')) $software = 'purpur';
+                    if (str_contains($userMsgLower, 'fabric')) $software = 'fabric';
+                    if (str_contains($userMsgLower, 'spigot')) $software = 'spigot';
+                    if (str_contains($userMsgLower, 'vanilla')) $software = 'vanilla';
+                    $ver = 'latest';
+                    if (preg_match('/1\.\d+(\.\d+)?/', $userMsgLower, $vm)) {
+                        $ver = $vm[0];
+                    }
+                    $actionParams = ['software' => $software, 'version' => $ver];
                 }
             }
 
@@ -548,6 +613,9 @@ SYS;
                     }
                     return ['success' => false, 'text' => 'Empty command provided.'];
 
+                case 'install_software':
+                    return $this->performInstallSoftware($server, $params);
+
                 case 'configure_universal_access':
                     return $this->performConfigureUniversalAccess($server);
 
@@ -592,6 +660,130 @@ SYS;
             }
         } catch (Throwable $e) {
             return ['success' => false, 'text' => 'Execution error: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Downloads and installs Minecraft server software directly to /server.jar
+     */
+    private function performInstallSoftware(Server $server, array $params): array
+    {
+        $software = strtoupper(trim((string) ($params['software'] ?? $params['type'] ?? 'PAPER')));
+        $version = trim((string) ($params['version'] ?? 'latest'));
+
+        if (empty($software)) {
+            $software = 'PAPER';
+        }
+
+        $targetUrl = '';
+
+        // 1. Purpur direct API
+        if ($software === 'PURPUR') {
+            $purpurVer = ($version === 'latest' || empty($version)) ? '1.21.4' : $version;
+            $targetUrl = "https://api.purpurmc.org/v2/purpur/{$purpurVer}/latest/download";
+        }
+
+        // 2. MCJars API for Paper, Fabric, Vanilla, Folia, etc.
+        if (empty($targetUrl)) {
+            try {
+                $mcjarsType = ($software === 'PURPUR') ? 'PURPUR' : 'PAPER';
+                if ($software === 'FABRIC') $mcjarsType = 'FABRIC';
+                if ($software === 'VANILLA') $mcjarsType = 'VANILLA';
+                if ($software === 'SPIGOT') $mcjarsType = 'SPIGOT';
+                if ($software === 'FOLIA') $mcjarsType = 'FOLIA';
+
+                $res = $this->httpClient->get("https://mcjars.app/api/v2/builds/{$mcjarsType}", [
+                    'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                    'timeout' => 10,
+                ]);
+                if ($res->getStatusCode() === 200) {
+                    $data = json_decode($res->getBody()->getContents(), true);
+                    $builds = $data['builds'] ?? [];
+                    if (!empty($builds)) {
+                        $chosenBuild = null;
+                        if ($version !== 'latest' && !empty($version)) {
+                            foreach ($builds as $vKey => $vData) {
+                                if (str_starts_with($vKey, $version) || $vKey === $version) {
+                                    $chosenBuild = $vData['latest'] ?? null;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!$chosenBuild) {
+                            $latestKey = array_key_last($builds);
+                            $chosenBuild = $builds[$latestKey]['latest'] ?? null;
+                            $version = $latestKey;
+                        }
+                        if ($chosenBuild && !empty($chosenBuild['jarUrl'])) {
+                            $targetUrl = $chosenBuild['jarUrl'];
+                        }
+                    }
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AIAssistant] MCJars API lookup failed: " . $e->getMessage());
+            }
+        }
+
+        // Fallback: If target URL could not be resolved, use Purpur 1.21.4 drop-in
+        if (empty($targetUrl)) {
+            $targetUrl = "https://api.purpurmc.org/v2/purpur/1.21.4/latest/download";
+            $software = 'Purpur';
+            $version = '1.21.4';
+        }
+
+        try {
+            $downloadRes = $this->httpClient->get($targetUrl, [
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => '*/*'],
+                'allow_redirects' => true,
+                'timeout' => 120,
+            ]);
+
+            $contents = $downloadRes->getBody()->getContents();
+            if ($downloadRes->getStatusCode() !== 200 || strlen($contents) < 5000000) {
+                return [
+                    'success' => false,
+                    'text' => "Failed to download server software from repository (HTTP {$downloadRes->getStatusCode()}).",
+                ];
+            }
+
+            // Write to /server.jar
+            $this->fileRepository->setServer($server)->putContent('/server.jar', $contents);
+
+            // Automatically accept EULA
+            try {
+                $this->fileRepository->setServer($server)->putContent('/eula.txt', "eula=true\n");
+            } catch (Throwable $e) {}
+
+            // Save manifest file
+            try {
+                $manifest = [
+                    'software' => $software,
+                    'software_id' => strtoupper($software),
+                    'version' => $version,
+                    'filename' => 'server.jar',
+                    'installed_at' => now()->toIso8601String(),
+                ];
+                $this->fileRepository->setServer($server)->putContent('/.pterodactyl-software.json', json_encode($manifest, JSON_PRETTY_PRINT));
+            } catch (Throwable $e) {}
+
+            // Restart / Start server
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {
+                try {
+                    $this->powerRepository->setServer($server)->send('start');
+                } catch (Throwable $e2) {}
+            }
+
+            return [
+                'success' => true,
+                'text' => "Successfully downloaded and installed {$software} ({$version}) as server.jar, accepted eula=true, and initiated server startup!",
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'text' => 'Software installation failed: ' . $e->getMessage(),
+            ];
         }
     }
 
@@ -1369,9 +1561,16 @@ YAML;
             if ($action === 'setup_multiversion' && preg_match('/\b(plugin|plugins|via|version|versions|joinable)\b/i', $msg)) {
                 return true;
             }
+            if ($action === 'install_software' && preg_match('/\b(software|paper|purpur|spigot|fabric|vanilla|jar|download)\b/i', $msg)) {
+                return true;
+            }
         }
 
         switch ($action) {
+            case 'install_software':
+                return preg_match('/\b(install|download|setup|switch|change|get|reinstall).*(software|paper|purpur|spigot|fabric|vanilla|jar|server\.jar)\b/i', $msg) === 1
+                    || preg_match('/\b(install|download)\s*(paper|purpur|spigot|fabric|vanilla|software)\b/i', $msg) === 1;
+
             case 'configure_universal_access':
                 return preg_match('/\b(every|all|universal|full|complete).*(access|acess|join|player|version|enter)\b/i', $msg) === 1
                     || preg_match('/\b(configure.*(access|acess|everything|all))\b/i', $msg) === 1
