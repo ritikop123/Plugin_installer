@@ -293,8 +293,8 @@ SYS;
                 ['role' => 'system', 'content' => $systemPrompt],
             ];
 
-            // Append recent history (last 6 messages max to stay well within 4k context)
-            $recentHistory = array_slice($history, -6);
+            // Append recent history (last 12 messages from the past 5 minutes)
+            $recentHistory = array_slice($history, -12);
             foreach ($recentHistory as $h) {
                 if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'])) {
                     $messages[] = [

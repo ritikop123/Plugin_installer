@@ -42,14 +42,47 @@ export default function AiAssistantContainer() {
     serverName = 'Server';
   }
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: `Hello! I am your AI Server Assistant. I have administrative control over **${serverName}**.\n\nYou can ask me to:\n- 🎮 **Setup Geyser & Floodgate** for Bedrock crossplay\n- 🎙️ **Setup Simple Voice Chat** with allocated UDP ports\n- ⚡ **Optimize server settings** to eliminate lag\n- 🛠️ **Diagnose crashes and auto-fix errors**\n- 🔄 **Restart, start, or stop** the server\n- 💻 **Run console commands** or configure server files`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    },
-  ]);
+  const EXPIRATION_MS = 5 * 60 * 1000; // 5 minutes TTL
+
+  const defaultWelcome: Message = {
+    id: 'welcome',
+    role: 'assistant',
+    content: `Hello! I am your AI Server Assistant. I have administrative control over **${serverName}**.\n\nYou can ask me to:\n- 🎮 **Setup Geyser & Floodgate** for Bedrock crossplay\n- 🎙️ **Setup Simple Voice Chat** with allocated UDP ports\n- ⚡ **Optimize server settings** to eliminate lag\n- 🛠️ **Diagnose crashes and auto-fix errors**\n- 🔄 **Restart, start, or stop** the server\n- 💻 **Run console commands** or configure server files`,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
+
+  // Load message history from localStorage if updated within the last 5 minutes
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!uuid) return [defaultWelcome];
+    try {
+      const raw = localStorage.getItem(`ptero_ai_history_${uuid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.lastUpdated && Date.now() - parsed.lastUpdated < EXPIRATION_MS) {
+          if (Array.isArray(parsed.messages) && parsed.messages.length > 0) {
+            return parsed.messages;
+          }
+        } else {
+          localStorage.removeItem(`ptero_ai_history_${uuid}`);
+        }
+      }
+    } catch (e) {}
+    return [defaultWelcome];
+  });
+
+  // Save to localStorage whenever messages update (auto-refreshes 5-minute window)
+  useEffect(() => {
+    if (!uuid || messages.length <= 1) return;
+    try {
+      localStorage.setItem(
+        `ptero_ai_history_${uuid}`,
+        JSON.stringify({
+          lastUpdated: Date.now(),
+          messages: messages.slice(-20),
+        })
+      );
+    } catch (e) {}
+  }, [messages, uuid]);
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -81,7 +114,7 @@ export default function AiAssistantContainer() {
     setInput('');
     setLoading(true);
 
-    const historyPayload = messages.slice(-6).map((m) => ({
+    const historyPayload = messages.slice(-12).map((m) => ({
       role: m.role,
       content: m.content,
     }));
@@ -149,7 +182,10 @@ export default function AiAssistantContainer() {
 
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              try {
+                localStorage.removeItem(`ptero_ai_history_${uuid}`);
+              } catch (e) {}
               setMessages([
                 {
                   id: 'reset',
@@ -157,8 +193,8 @@ export default function AiAssistantContainer() {
                   content: 'Chat cleared. How can I help you with your Minecraft server?',
                   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 },
-              ])
-            }
+              ]);
+            }}
             className="px-3.5 py-1.5 rounded-component bg-gray-800 hover:bg-gray-750 text-gray-300 hover:text-white border border-gray-600/60 text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
             title="Clear Chat"
           >
