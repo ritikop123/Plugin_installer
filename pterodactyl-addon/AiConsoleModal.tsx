@@ -33,7 +33,13 @@ interface DiagnosisData {
 }
 
 export default function AiConsoleModal({ visible, onClose }: Props) {
-  const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
+  let uuid = '';
+  try {
+    uuid = ServerContext.useStoreState((state) => state.server?.data?.uuid || '');
+  } catch (e) {
+    uuid = '';
+  }
+
   const [loading, setLoading] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [diagnosis, setDiagnosis] = useState<DiagnosisData | null>(null);
@@ -43,6 +49,7 @@ export default function AiConsoleModal({ visible, onClose }: Props) {
   const [fixSuccess, setFixSuccess] = useState<string | null>(null);
 
   const runDiagnosis = () => {
+    if (!uuid) return;
     setLoading(true);
     setErrorMsg(null);
     setFixSuccess(null);

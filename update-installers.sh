@@ -291,7 +291,7 @@ if (file_exists($routesTs)) {
 
     if (file_exists('resources/scripts/components/server/AiAssistantContainer.tsx')) {
         $imports .= "import AiAssistantContainer from '@/components/server/AiAssistantContainer';\n";
-        $routes .= "\n        { path: '/ai', permission: null, name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
+        $routes .= "\n        { path: '/ai', permission: 'file.*', name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
     }
 
     $c = $imports . $c;

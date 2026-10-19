@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faWrench } from '@fortawesome/free-solid-svg-icons';
+import { faRobot } from '@fortawesome/free-solid-svg-icons';
+import { ServerContext } from '@/state/server';
 import AiConsoleModal from '@/components/server/AiConsoleModal';
 
 interface Props {
@@ -9,6 +10,17 @@ interface Props {
 
 export default function AiConsoleButton({ className }: Props) {
   const [open, setOpen] = useState(false);
+
+  // Safe check for ServerContext to prevent any crash in admin / preview pages
+  let hasServer = false;
+  try {
+    hasServer = Boolean(ServerContext.useStoreState((state) => state.server?.data?.uuid));
+  } catch (e) {
+    hasServer = false;
+  }
+
+  // Never render outside active server context (e.g. in /admin/arix theme preview)
+  if (!hasServer) return null;
 
   return (
     <>
@@ -25,7 +37,7 @@ export default function AiConsoleButton({ className }: Props) {
         <span>AI Auto-Fix & Diagnose</span>
       </button>
 
-      <AiConsoleModal visible={open} onClose={() => setOpen(false)} />
+      {open && <AiConsoleModal visible={open} onClose={() => setOpen(false)} />}
     </>
   );
 }

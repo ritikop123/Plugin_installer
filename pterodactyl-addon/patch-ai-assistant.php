@@ -1,14 +1,56 @@
 <?php
 
 // patch-ai-assistant.php:
-// 1. Injects AiConsoleButton into Server Console / Dashboard above the console or next to power controls.
-// 2. Registers backend API routes in routes/api-client.php.
-// 3. Registers frontend route /ai in resources/scripts/routers/routes.ts.
+// 1. Cleans up any misplaced AiConsoleButton from cards/banners/previews.
+// 2. Injects AiConsoleButton ONLY into ServerConsoleContainer / DashboardContainer.
+// 3. Registers backend API routes in routes/api-client.php.
+// 4. Registers frontend route /ai in resources/scripts/routers/routes.ts with permission 'file.*'.
 
-echo "[*] Patching AI Assistant integration...\n";
+echo "[*] Patching AI Assistant integration safely...\n";
 
 // -------------------------------------------------------------
-// PART 1: Injects AiConsoleButton into Server Console
+// PART 1A: Clean up misplaced AiConsoleButton across all files
+// -------------------------------------------------------------
+$cleanDirs = [
+    "resources/scripts/components",
+    "resources/scripts/routers",
+];
+
+$validTargets = [
+    realpath("resources/scripts/components/server/console/ServerConsoleContainer.tsx"),
+    realpath("resources/scripts/components/server/ServerConsoleContainer.tsx"),
+    realpath("resources/scripts/components/server/dashboard/DashboardContainer.tsx"),
+];
+$validTargets = array_filter($validTargets);
+
+foreach ($cleanDirs as $dir) {
+    if (!is_dir($dir)) continue;
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+    foreach ($iterator as $file) {
+        if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
+            $fp = realpath($file->getPathname()) ?: $file->getPathname();
+            if (strpos($fp, "AiConsoleButton.tsx") !== false || strpos($fp, "AiConsoleModal.tsx") !== false || strpos($fp, "AiAssistantContainer.tsx") !== false) {
+                continue;
+            }
+
+            $c = file_get_contents($fp);
+            $orig = $c;
+
+            $c = preg_replace("/\/\*\s*>>>\s*ARIX AI BUTTON START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX AI BUTTON END\s*<<<\s*\*\/\s*/s", "", $c);
+            $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX AI BUTTON START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX AI BUTTON END\s*<<<\s*\*\/\}?\s*/s", "", $c);
+            $c = preg_replace("/<AiConsoleButton[^>]*\/>\s*/s", "", $c);
+            $c = preg_replace("/import\s+AiConsoleButton\s+from\s+[^;]+;\s*/s", "", $c);
+
+            if ($c !== $orig) {
+                file_put_contents($fp, $c);
+                echo "[✓] Cleaned up AiConsoleButton from: $fp\n";
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// PART 1B: Injects AiConsoleButton ONLY into real Console Containers
 // -------------------------------------------------------------
 $consoleCandidates = [
     "resources/scripts/components/server/console/ServerConsoleContainer.tsx",
@@ -16,38 +58,15 @@ $consoleCandidates = [
     "resources/scripts/components/server/dashboard/DashboardContainer.tsx",
 ];
 
-// Also scan components/server for any other files containing PowerButtons or <Console
-$baseDir = "resources/scripts/components/server";
-if (is_dir($baseDir)) {
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($baseDir));
-    foreach ($iterator as $file) {
-        if ($file->isFile() && preg_match("/\.(tsx|ts)$/", $file->getFilename())) {
-            $fn = $file->getPathname();
-            if (strpos($fn, "AiConsole") !== false || strpos($fn, "AiAssistant") !== false) continue;
-            $c = file_get_contents($fn);
-            if (strpos($c, "<PowerButtons") !== false || strpos($c, "<Console") !== false) {
-                if (!in_array($fn, $consoleCandidates)) {
-                    $consoleCandidates[] = $fn;
-                }
-            }
-        }
-    }
-}
-
 foreach ($consoleCandidates as $consoleFile) {
     if (!file_exists($consoleFile)) continue;
 
     $c = file_get_contents($consoleFile);
 
-    // Clean up previous patches
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX AI BUTTON START\s*>>>\s*\*\/[\s\S]*?\/\*\s*<<<\s*ARIX AI BUTTON END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/\{?\/\*\s*>>>\s*ARIX AI BUTTON START\s*>>>\s*\*\/\}?[\s\S]*?\{?\/\*\s*<<<\s*ARIX AI BUTTON END\s*<<<\s*\*\/\}?\s*/s", "", $c);
-    $c = preg_replace("/<AiConsoleButton[^>]*\/>\s*/s", "", $c);
-    $c = preg_replace("/import\s+AiConsoleButton\s+from\s+[^;]+;\s*/s", "", $c);
-
     // Insert Import
-    $import = "import AiConsoleButton from '@/components/server/AiConsoleButton';\n";
-    $c = $import . $c;
+    if (strpos($c, "import AiConsoleButton") === false) {
+        $c = "import AiConsoleButton from '@/components/server/AiConsoleButton';\n" . $c;
+    }
 
     $buttonJsx = <<<'JSX'
 {/* >>> ARIX AI BUTTON START >>> */}
@@ -64,19 +83,19 @@ JSX;
         $pos = $m[1][1];
         $c = substr($c, 0, $pos) . $buttonJsx . "\n                " . substr($c, $pos);
         $injected = true;
-    } elseif (strpos($c, "<PowerButtons") !== false) {
-        // Pattern 2: Right next to or after PowerButtons
-        $pattern = '/(<PowerButtons[^>]*\/>)/';
+    } elseif (strpos($c, "<StatGraphs") !== false) {
+        $pattern = '/(<StatGraphs[^>]*\/>)/';
         if (preg_match($pattern, $c, $m, PREG_OFFSET_CAPTURE)) {
             $pos = $m[1][1] + strlen($m[1][0]);
-            $c = substr($c, 0, $pos) . "\n                <AiConsoleButton className={'ml-2 hidden sm:flex'} />" . substr($c, $pos);
+            $c = substr($c, 0, $pos) . "\n" . $buttonJsx . substr($c, $pos);
             $injected = true;
         }
     }
 
     if ($injected) {
         file_put_contents($consoleFile, $c);
-        echo "[✓] Injected AiConsoleButton into $consoleFile\n";
+        echo "[✓] Injected AiConsoleButton cleanly into console container: $consoleFile\n";
+        break; // Only inject into the primary console container
     }
 }
 
@@ -118,9 +137,10 @@ if (file_exists($routesTs)) {
     // Clean old import & route
     $c = preg_replace('/import\s+AiAssistantContainer[^\n]*\n?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/ai[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/[^\n]*AiAssistantContainer[^\n]*\n?/', '', $c);
 
     $import = "import AiAssistantContainer from '@/components/server/AiAssistantContainer';\n";
-    $route = "\n        { path: '/ai', permission: null, name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
+    $route = "\n        { path: '/ai', permission: 'file.*', name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
 
     $c = $import . $c;
     $c = preg_replace('/(server:\s*\[)/', '$1' . $route, $c, 1);
@@ -141,4 +161,4 @@ if (file_exists($envFile)) {
     }
 }
 
-echo "[✓] AI Assistant patch successfully completed!\n";
+echo "[✓] AI Assistant patch safely completed!\n";

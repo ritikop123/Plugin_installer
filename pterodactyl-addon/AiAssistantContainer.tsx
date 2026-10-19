@@ -53,8 +53,15 @@ interface Allocation {
 }
 
 export default function AiAssistantContainer() {
-  const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
-  const serverName = ServerContext.useStoreState((state) => state.server.data!.name);
+  let uuid = '';
+  let serverName = 'Server';
+  try {
+    uuid = ServerContext.useStoreState((state) => state.server?.data?.uuid || '');
+    serverName = ServerContext.useStoreState((state) => state.server?.data?.name || 'Server');
+  } catch (e) {
+    uuid = '';
+    serverName = 'Server';
+  }
 
   const [messages, setMessages] = useState<Message[]>([
     {
