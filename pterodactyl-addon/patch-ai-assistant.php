@@ -155,9 +155,13 @@ $envFile = '.env';
 if (file_exists($envFile)) {
     $envContent = file_get_contents($envFile);
     if (strpos($envContent, 'GROQ_MODEL=') === false) {
-        $envContent = rtrim($envContent) . "\nGROQ_MODEL=allam-2-7b\n";
+        $envContent = rtrim($envContent) . "\nGROQ_MODEL=qwen/qwen3.8-27b\n";
         file_put_contents($envFile, $envContent);
-        echo "[✓] Configured GROQ_MODEL=allam-2-7b in .env\n";
+        echo "[✓] Configured GROQ_MODEL=qwen/qwen3.8-27b in .env\n";
+    } else {
+        $envContent = preg_replace('/^GROQ_MODEL=allam-2-7b/m', 'GROQ_MODEL=qwen/qwen3.8-27b', $envContent);
+        file_put_contents($envFile, $envContent);
+        echo "[✓] Updated GROQ_MODEL to qwen/qwen3.8-27b in .env\n";
     }
 }
 

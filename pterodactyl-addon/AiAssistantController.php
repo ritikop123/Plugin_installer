@@ -7,6 +7,7 @@ use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -17,7 +18,7 @@ use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 
 class AiAssistantController extends ClientApiController
 {
-    private const DEFAULT_MODEL = 'allam-2-7b';
+    private const DEFAULT_MODEL = 'qwen/qwen3.8-27b';
 
     protected DaemonFileRepository $fileRepository;
     protected DaemonPowerRepository $powerRepository;
@@ -63,7 +64,7 @@ class AiAssistantController extends ClientApiController
             'plugins' => array_slice($plugins, 0, 50),
             'ai' => [
                 'provider' => 'Groq (Ultra-Fast)',
-                'model' => config('ai.model', self::DEFAULT_MODEL),
+                'model' => $this->getGroqModel(),
                 'active' => true,
             ],
         ]);
@@ -243,42 +244,82 @@ PROMPT;
             $plugins = $this->getInstalledPlugins($server);
             $pluginCount = count($plugins);
             $allocJson = json_encode($allocations);
-            $pluginsList = implode(', ', $plugins);
+            $pluginsList = !empty($plugins) ? implode(', ', $plugins) : 'None detected or daemon unreachable';
+
+            $geyserStatus = 'Not configured or not installed';
+            try {
+                $gConf = $this->fileRepository->setServer($server)->getContent('/plugins/Geyser-Spigot/config.yml');
+                if (!empty($gConf)) {
+                    $bPort = '19132';
+                    if (preg_match('/port:\s*(\d+)/', $gConf, $m)) {
+                        $bPort = $m[1];
+                    }
+                    $geyserStatus = "INSTALLED & ACTIVE (Configured Bedrock Port: {$bPort})";
+                }
+            } catch (Throwable $e) {}
+
+            $voiceStatus = 'Not configured or not installed';
+            try {
+                $vConf = $this->fileRepository->setServer($server)->getContent('/plugins/voicechat/voicechat-server.properties');
+                if (!empty($vConf)) {
+                    $vPort = '24454';
+                    if (preg_match('/port\s*=\s*(\d+)/', $vConf, $m)) {
+                        $vPort = $m[1];
+                    }
+                    $voiceStatus = "INSTALLED & ACTIVE (Configured UDP Port: {$vPort})";
+                }
+            } catch (Throwable $e) {}
+
+            $matchedPlugins = $this->findRelevantPlugins($message, $plugins);
+            $matchedSection = !empty($matchedPlugins)
+                ? "MATCHED PLUGINS RELEVANT TO USER QUERY:\n- " . implode("\n- ", $matchedPlugins)
+                : "No specific plugin keywords matched directly from query.";
 
             $systemPrompt = <<<SYS
-You are an expert Minecraft Server AI Assistant with direct administrative access and real-time visibility into this server.
-Your user is the server owner. You can configure, diagnose, optimize, and manage their server.
+You are an expert Minecraft Server Administrator and AI Co-Pilot with real-time visibility and direct administrative control over this server.
+Your user is the server owner. You assist them with server diagnostics, plugin inquiries, updates, Bedrock crossplay, voice chat, port allocations, and optimizations.
 
 Current Server State:
 - Server Name: {$server->name}
 - Memory: {$server->memory} MB | Disk: {$server->disk} MB
-- Primary & Extra Allocations: {$allocJson}
+- Primary & Extra Port Allocations: {$allocJson}
+- Geyser Bedrock Crossplay Status: {$geyserStatus}
+- Simple Voice Chat Status: {$voiceStatus}
 - ALL Installed Plugins ({$pluginCount} total): {$pluginsList}
 
-CORE RULES FOR ANSWERING:
-1. When asked about plugins, versions, updates, or whether something is latest:
-   - DIRECTLY inspect the "ALL Installed Plugins" list above.
-   - Tell the user the exact JAR files and versions installed right now.
-   - State whether it is the latest version or if a newer build exists.
-   - If not installed, clearly state that it is missing from the /plugins directory.
-2. NEVER defer or say "I will check for you" or "I need access" — you ALREADY have full access to the list above. Always provide the complete, concrete findings immediately in your "message".
-3. When asked to restart, start, stop, or configure something, execute the respective action.
+{$matchedSection}
 
-CAPABILITIES YOU CAN EXECUTE (via JSON action):
-- "restart_server": Restarts the server.
-- "start_server": Starts the server.
-- "stop_server": Stops the server.
-- "setup_geyser": Installs GeyserMC & Floodgate, configures Bedrock port to an allocated extra port, and restarts.
-- "setup_voicechat": Installs and configures Simple Voice Chat to an extra UDP port.
-- "optimize_server": Applies optimal lag-reduction settings.
-- "edit_config": Edits server.properties or plugin yaml.
-- "run_command": Runs a console command (e.g. op, say, whitelist, reload).
-- "none": Just a conversational answer or advice.
+MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
+1. ViaVersion / ViaBackwards / ViaRewind:
+   - "ViaVersion": Allows newer Minecraft client versions to connect to an older server (e.g. 1.21.x client joining a 1.20 server).
+   - "ViaBackwards": Allows older Minecraft client versions to connect to a newer server (e.g. 1.16 client joining a 1.21 server).
+   - "ViaRewind": Allows 1.7 / 1.8 clients to join 1.9+ servers.
+   - Version checking: Inspect the exact filename in the list (e.g. "ViaVersion-5.2.1.jar" means version 5.2.1 is installed). The active stable release branch is 5.5.x+. If installed version is 5.2.x, inform the user they have 5.2.1 and that version 5.5.x+ is available for newer Minecraft releases.
+2. Crossplay & Bedrock:
+   - "GeyserMC" + "Floodgate": Allows Bedrock players (iOS, Android, Xbox, PlayStation, Switch, Windows Bedrock) to join Java Edition servers without purchasing a Java account.
+3. Voice Chat:
+   - "Simple Voice Chat" (voicechat): Proximity voice chat that requires a separate UDP port from allocations.
+4. Essential Administration & Optimization:
+   - "LuckPerms": Modern permissions manager.
+   - "EssentialsX": Player commands (/spawn, /home, /tpa, /sethome, economy).
+   - "CoreProtect": Block logging, rollbacks (/co inspect, /co rollback).
+   - "FastAsyncWorldEdit" (FAWE) / "WorldEdit": World manipulation.
+   - "Chunky": World pre-generation to eliminate chunk generation lag.
+   - "Spark": CPU and tick profiler for performance debugging.
 
-Always output a JSON object with:
+STRICT ACTION EXECUTION RULES (CRITICAL):
+- ONLY output an action if the user EXPLICITLY ordered you to perform it (e.g. "restart the server", "setup geyser", "install voice chat", "optimize my server").
+- If the user is asking a QUESTION, checking status or versions, asking for recommendations, or having a conversation: You MUST set "action": "none"! NEVER trigger setup, installation, or reboot actions when the user is only asking a question!
+
+RESPONSE RULES:
+- DIRECTLY answer the user using the concrete plugin files and versions listed above.
+- NEVER claim a plugin is not installed if it is present in the "ALL Installed Plugins" or "MATCHED PLUGINS" list.
+- Answer in friendly, precise, and professional English.
+
+Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
-  "message": "Clear, friendly, detailed response in English for the user",
+  "message": "Clear, friendly, detailed response for the user",
   "action": "One of: restart_server, start_server, stop_server, setup_geyser, setup_voicechat, optimize_server, edit_config, run_command, none",
   "action_params": {
      "command": "command string if run_command",
@@ -318,13 +359,20 @@ SYS;
                 ];
             }
 
-            // Execute action if specified
+            // Execute action if specified AND strictly verified against user request
             $actionResult = null;
             $actionName = $parsed['action'] ?? 'none';
             $actionParams = $parsed['action_params'] ?? [];
 
             if ($actionName !== 'none') {
-                $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
+                if ($this->shouldExecuteAction($message, $actionName)) {
+                    $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
+                } else {
+                    // Suppress unsolicited hallucinated actions
+                    Log::info("[AIAssistant] Suppressed unauthorized action '{$actionName}' for message: '{$message}'");
+                    $actionName = 'none';
+                    $actionParams = [];
+                }
             }
 
             return response()->json([
@@ -524,7 +572,7 @@ YAML;
             ]);
         }
 
-        $model = env('GROQ_MODEL', self::DEFAULT_MODEL);
+        $model = $this->getGroqModel();
 
         $body = [
             'model' => $model,
@@ -663,23 +711,158 @@ YAML;
     }
 
     /**
-     * Retrieve list of installed plugin jar filenames
+     * Retrieve list of installed plugin jar filenames with caching and daemon resilience
      */
     private function getInstalledPlugins(Server $server): array
     {
+        $cacheKey = "server_{$server->id}_installed_plugins";
         try {
             $files = $this->fileRepository->setServer($server)->getDirectory('/plugins');
             $plugins = [];
             foreach ($files as $f) {
                 $name = $f['name'] ?? '';
-                if (str_ends_with(strtolower($name), '.jar')) {
-                    $plugins[] = $name;
+                if (empty($name) || str_starts_with($name, '.')) {
+                    continue;
                 }
+                if (preg_match('/\.(jar|zip)$/i', $name)) {
+                    $plugins[] = $name;
+                } elseif (!empty($f['directory']) || !empty($f['is_directory']) || (isset($f['file']) && !$f['file'])) {
+                    $plugins[] = "{$name} (folder)";
+                }
+            }
+            if (!empty($plugins)) {
+                Cache::put($cacheKey, $plugins, now()->addMinutes(15));
             }
             return $plugins;
         } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Could not read /plugins from daemon: " . $e->getMessage());
+            // Fallback to cached plugins if Wings daemon was temporarily unreachable
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached) && !empty($cached)) {
+                return $cached;
+            }
             return [];
         }
+    }
+
+    /**
+     * Find plugins matching keywords or common aliases in user query
+     */
+    private function findRelevantPlugins(string $query, array $plugins): array
+    {
+        $queryLower = strtolower($query);
+        $matches = [];
+
+        $aliases = [
+            'via' => ['viaversion', 'viabackwards', 'viarewind'],
+            'viaversion' => ['viaversion'],
+            'viabackward' => ['viabackwards'],
+            'viabackwards' => ['viabackwards'],
+            'lp' => ['luckperms'],
+            'luckperms' => ['luckperms'],
+            'ess' => ['essentials', 'essentialsx'],
+            'essentials' => ['essentials', 'essentialsx'],
+            'geyser' => ['geyser', 'floodgate'],
+            'floodgate' => ['floodgate'],
+            'bedrock' => ['geyser', 'floodgate'],
+            'voice' => ['voicechat', 'plasmovoice', 'simplevoicechat'],
+            'voicechat' => ['voicechat', 'plasmovoice'],
+            'coreprotect' => ['coreprotect'],
+            'co' => ['coreprotect'],
+            'worldedit' => ['worldedit', 'fastasyncworldedit', 'fawe'],
+            'fawe' => ['fastasyncworldedit', 'worldedit'],
+            'vault' => ['vault'],
+            'protocollib' => ['protocollib'],
+            'cmi' => ['cmi'],
+            'chunky' => ['chunky'],
+            'discordsrv' => ['discordsrv'],
+            'spark' => ['spark'],
+            'multiverse' => ['multiverse-core', 'multiverse'],
+            'authme' => ['authme', 'authmereloaded'],
+            'skinsrestorer' => ['skinsrestorer'],
+            'clearlag' => ['clearlag'],
+            'placeholderapi' => ['placeholderapi', 'papi'],
+            'papi' => ['placeholderapi'],
+            'dynmap' => ['dynmap', 'bluemap'],
+            'bluemap' => ['bluemap', 'dynmap'],
+        ];
+
+        $tokens = preg_split('/[\s,\?!\._\-]+/', $queryLower);
+        foreach ($plugins as $pluginFile) {
+            $pFileLower = strtolower($pluginFile);
+            foreach ($tokens as $tok) {
+                if (strlen($tok) >= 3 && str_contains($pFileLower, $tok)) {
+                    $matches[] = $pluginFile;
+                    continue 2;
+                }
+                if (isset($aliases[$tok])) {
+                    foreach ($aliases[$tok] as $target) {
+                        if (str_contains($pFileLower, $target)) {
+                            $matches[] = $pluginFile;
+                            continue 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($matches));
+    }
+
+    /**
+     * Strict verification to prevent AI from executing actions unless the user explicitly requested it.
+     */
+    private function shouldExecuteAction(string $userMessage, string $action): bool
+    {
+        $msg = strtolower($userMessage);
+
+        switch ($action) {
+            case 'start_server':
+                return preg_match('/\b(start|boot up|turn on)\b/', $msg) === 1;
+
+            case 'restart_server':
+                return preg_match('/\b(restart|reboot)\b/', $msg) === 1;
+
+            case 'stop_server':
+                return preg_match('/\b(stop|shutdown|turn off|kill)\b/', $msg) === 1;
+
+            case 'setup_geyser':
+                $hasName = str_contains($msg, 'geyser') || str_contains($msg, 'bedrock');
+                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/', $msg) === 1;
+                return $hasName && $hasIntent;
+
+            case 'setup_voicechat':
+                $hasName = str_contains($msg, 'voice') || str_contains($msg, 'voicechat');
+                $hasIntent = preg_match('/\b(install|setup|set up|add|enable|configure|download)\b/', $msg) === 1;
+                return $hasName && $hasIntent;
+
+            case 'optimize_server':
+                return preg_match('/\b(optimize|reduce lag|fix lag|boost fps|improve performance|apply optimizations)\b/', $msg) === 1;
+
+            case 'edit_config':
+                return preg_match('/\b(change|set|edit|update|modify|switch)\b/', $msg) === 1;
+
+            case 'run_command':
+                return preg_match('/\b(run|execute|send|dispatch)\b/', $msg) === 1 && (str_contains($msg, 'command') || str_contains($msg, '/'));
+
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Resolves the configured Groq model with .env fallback
+     */
+    private function getGroqModel(): string
+    {
+        $model = env('GROQ_MODEL');
+        if (empty($model) && file_exists(base_path('.env'))) {
+            $envContent = file_get_contents(base_path('.env'));
+            if (preg_match('/^GROQ_MODEL=(.*)$/m', $envContent, $m)) {
+                $model = trim(trim($m[1]), " \"'");
+            }
+        }
+        return !empty($model) ? $model : self::DEFAULT_MODEL;
     }
 
     /**
