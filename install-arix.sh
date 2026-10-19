@@ -81,21 +81,25 @@ HAS_EXISTING_OPTIONS=false
 HAS_EXISTING_PLAYERS=false
 [ -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" ] && HAS_EXISTING_PLAYERS=true
 
+HAS_EXISTING_WORLDS=false
+[ -f "app/Http/Controllers/Api/Client/Servers/WorldManagerController.php" ] && HAS_EXISTING_WORLDS=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
   if [ -t 0 ]; then
     echo -e "\n${BOLD}Select an installation option:${NC}"
-    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options + Players${NC} ${GREEN}(Recommended)${NC}"
+    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options + Players + Worlds${NC} ${GREEN}(Recommended)${NC}"
     echo -e "  ${CYAN}2)${NC} Plugin Installer only (/plugins)"
     echo -e "  ${CYAN}3)${NC} Mods Installer only (/mods)"
     echo -e "  ${CYAN}4)${NC} Modpacks Installer only (/modpacks)"
     echo -e "  ${CYAN}5)${NC} Software Installer only (/software)"
     echo -e "  ${CYAN}6)${NC} Server Options & Properties only (/options)"
     echo -e "  ${CYAN}7)${NC} Player Manager only (/players)"
-    echo -e "  ${CYAN}8)${NC} Uninstall All"
-    read -r -p "Enter choice [1-8] (Default: 1): " USER_INPUT
+    echo -e "  ${CYAN}8)${NC} World Manager only (/worlds & /world)"
+    echo -e "  ${CYAN}9)${NC} Uninstall All"
+    read -r -p "Enter choice [1-9] (Default: 1): " USER_INPUT
     USER_INPUT="${USER_INPUT:-1}"
     case "$USER_INPUT" in
       1) CHOICE="all" ;;
@@ -105,7 +109,8 @@ if [ -z "$CHOICE" ]; then
       5) CHOICE="software" ;;
       6) CHOICE="options" ;;
       7) CHOICE="players" ;;
-      8) CHOICE="uninstall" ;;
+      8) CHOICE="worlds" ;;
+      9) CHOICE="uninstall" ;;
       *) CHOICE="all" ;;
     esac
   else
@@ -122,7 +127,8 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=true
     INSTALL_PLAYERS=true
-    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options + Players)...${NC}"
+    INSTALL_WORLDS=true
+    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options + Players + Worlds)...${NC}"
     ;;
   plugins|plugin)
     INSTALL_PLUGINS=true
@@ -176,7 +182,18 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
     INSTALL_PLAYERS=true
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Player Manager only...${NC}"
+    ;;
+  worlds|world)
+    INSTALL_PLUGINS=false
+    INSTALL_MODS=false
+    INSTALL_MODPACKS=false
+    INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
+    INSTALL_WORLDS=true
+    echo -e "${GREEN}[*] Selected mode: Installing World Manager only...${NC}"
     ;;
   uninstall)
     echo -e "${YELLOW}[*] Selected mode: Uninstalling addons...${NC}"
@@ -190,6 +207,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=true
     INSTALL_PLAYERS=true
+    INSTALL_WORLDS=true
     echo -e "${GREEN}[*] Defaulting to: Installing ALL addons...${NC}"
     ;;
 esac
@@ -223,6 +241,11 @@ fi
 ENABLE_PLAYERS=false
 if [ "$INSTALL_PLAYERS" = true ] || [ "$HAS_EXISTING_PLAYERS" = true ]; then
   ENABLE_PLAYERS=true
+fi
+
+ENABLE_WORLDS=false
+if [ "$INSTALL_WORLDS" = true ] || [ "$HAS_EXISTING_WORLDS" = true ]; then
+  ENABLE_WORLDS=true
 fi
 
 # 5. Create Safe Backup
@@ -402,6 +425,16 @@ if [ "$INSTALL_PLAYERS" = true ]; then
   fetch_addon_file "PlayerManagerContainer.tsx" "resources/scripts/components/server/player-manager/PlayerManagerContainer.tsx"
 fi
 
+# 13. Download World Manager (if installing worlds)
+if [ "$INSTALL_WORLDS" = true ]; then
+  echo -e "${CYAN}[*] Obtaining World Manager files...${NC}"
+  mkdir -p "app/Http/Controllers/Api/Client/Servers"
+  fetch_addon_file "WorldManagerController.php" "app/Http/Controllers/Api/Client/Servers/WorldManagerController.php"
+
+  mkdir -p "resources/scripts/components/server/world-manager"
+  fetch_addon_file "WorldManagerContainer.tsx" "resources/scripts/components/server/world-manager/WorldManagerContainer.tsx"
+fi
+
 # 11. Register API Routes in routes/api-client.php
 echo -e "${CYAN}[*] Registering API routes in routes/api-client.php...${NC}"
 
@@ -414,6 +447,7 @@ $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
 $enableOptions = (isset($argv[6]) && $argv[6] === 'true');
 $enablePlayers = (isset($argv[7]) && $argv[7] === 'true');
+$enableWorlds = (isset($argv[8]) && $argv[8] === 'true');
 
 if (!file_exists($file)) {
     exit(0);
@@ -428,12 +462,14 @@ $c = preg_replace('/\/\*\s*>>>\s*ARIX MODPACK INSTALLER START\s*>>>\s*\*\/.*?\/\
 $c = preg_replace('/\/\*\s*>>>\s*ARIX SOFTWARE INSTALLER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX SOFTWARE INSTALLER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/\/\*\s*>>>\s*ARIX PLAYER MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLAYER MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+$c = preg_replace('/\/\*\s*>>>\s*ARIX WORLD MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX WORLD MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+$c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
 // Ensure Pterodactyl\Http\Controllers\Api\Client namespace is imported
 if (strpos($c, 'use Pterodactyl\Http\Controllers\Api\Client;') === false) {
@@ -512,11 +548,23 @@ if ($enablePlayers) {
     $append .= "});\n/* <<< ARIX PLAYER MANAGER END <<< */\n";
 }
 
+if ($enableWorlds) {
+    $append .= "\n/* >>> ARIX WORLD MANAGER START >>> */\n";
+    $append .= "Route::group(['prefix' => '/servers/{server}/worlds'], function () {\n";
+    $append .= "    Route::get('/', [Client\\Servers\\WorldManagerController::class, 'index']);\n";
+    $append .= "    Route::post('/active', [Client\\Servers\\WorldManagerController::class, 'setActive']);\n";
+    $append .= "    Route::post('/create', [Client\\Servers\\WorldManagerController::class, 'create']);\n";
+    $append .= "    Route::post('/reset-dimension', [Client\\Servers\\WorldManagerController::class, 'resetDimension']);\n";
+    $append .= "    Route::post('/delete', [Client\\Servers\\WorldManagerController::class, 'delete']);\n";
+    $append .= "    Route::post('/backup', [Client\\Servers\\WorldManagerController::class, 'backup']);\n";
+    $append .= "});\n/* <<< ARIX WORLD MANAGER END <<< */\n";
+}
+
 $c = rtrim($c) . "\n" . $append;
 file_put_contents($file, $c);
 PHP_REG_API_EOF
 
-php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS"
+php /tmp/ptero_reg_api.php "$ROUTES_PHP" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS" "$ENABLE_WORLDS"
 rm -f /tmp/ptero_reg_api.php
 
 # Verify PHP syntax of routes/api-client.php
@@ -537,6 +585,7 @@ $enableModpacks = ($argv[4] === 'true');
 $enableSoftware = ($argv[5] === 'true');
 $enableOptions = (isset($argv[6]) && $argv[6] === 'true');
 $enablePlayers = (isset($argv[7]) && $argv[7] === 'true');
+$enableWorlds = (isset($argv[8]) && $argv[8] === 'true');
 
 $c = file_get_contents($routesTs);
 
@@ -547,18 +596,21 @@ $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
+$c = preg_replace('/import\s+WorldManagerContainer[^\n]*\n?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
+$c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/worlds?[\x27\x22][^\}]*\},?/s', '', $c);
 $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
 $c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
+$c = preg_replace('/[^\n]*WorldManagerContainer[^\n]*\n?/', '', $c);
 
 $imports = '';
 $routes = '';
@@ -593,6 +645,12 @@ if ($enablePlayers) {
     $routes .= "\n        { path: '/players', permission: 'file.*', name: 'Players', component: PlayerManagerContainer, exact: true },";
 }
 
+if ($enableWorlds) {
+    $imports .= "import WorldManagerContainer from '@/components/server/world-manager/WorldManagerContainer';\n";
+    $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World Manager', component: WorldManagerContainer, exact: true },";
+    $routes .= "\n        { path: '/world', permission: 'file.*', component: WorldManagerContainer, exact: true },";
+}
+
 $c = $imports . $c;
 $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
 
@@ -600,7 +658,7 @@ file_put_contents($routesTs, $c);
 echo "Registered routes successfully in routes.ts\n";
 PHP_REG_EOF
 
-php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS"
+php /tmp/ptero_reg_routes.php "$ROUTES_TS" "$ENABLE_PLUGINS" "$ENABLE_MODS" "$ENABLE_MODPACKS" "$ENABLE_SOFTWARE" "$ENABLE_OPTIONS" "$ENABLE_PLAYERS" "$ENABLE_WORLDS"
 rm -f /tmp/ptero_reg_routes.php
 
 # Verify registrations
@@ -642,6 +700,13 @@ fi
 if [ "$ENABLE_PLAYERS" = true ]; then
   if ! grep -q "/players" "$ROUTES_TS" || ! grep -q "PlayerManagerContainer" "$ROUTES_TS"; then
     echo -e "${RED}[✗] Failed to verify /players in routes.ts.${NC}"
+    false
+  fi
+fi
+
+if [ "$ENABLE_WORLDS" = true ]; then
+  if ! grep -q "/world" "$ROUTES_TS" || ! grep -q "WorldManagerContainer" "$ROUTES_TS"; then
+    echo -e "${RED}[✗] Failed to verify /world in routes.ts.${NC}"
     false
   fi
 fi
@@ -853,6 +918,10 @@ fi
 
 # Configure cron jobs for schedule:run and auto-suspend checks (running every minute and logged)
 echo -e "${CYAN}[*] Configuring cron jobs for automated tasks and auto-suspension...${NC}"
+touch /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
+chown www-data:www-data /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
+chmod 664 /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
+
 setup_panel_cron() {
   local target_user="$1"
   local cmd_prefix=""
@@ -916,11 +985,17 @@ if [ "$ENABLE_PLAYERS" = true ]; then
   echo -e "  Arix Server Tools Link: URL=${CYAN}/players${NC}, Name=${CYAN}Player Manager${NC}, Icon=${CYAN}HiOutlineUsers${NC}"
 fi
 
+if [ "$ENABLE_WORLDS" = true ]; then
+  echo -e "• ${CYAN}World Manager${NC}: Accessible at ${BOLD}/server/<server-id>/worlds${NC} (or ${BOLD}/server/<server-id>/world${NC})"
+  echo -e "  Arix Server Tools Link: URL=${CYAN}/worlds${NC}, Name=${CYAN}World Manager${NC}, Icon=${CYAN}HiOutlineGlobe${NC}"
+fi
+
 echo -e "• ${CYAN}Auto Suspension & Expiry System${NC}: Active via scheduled command (${BOLD}ptero:auto-suspend${NC})"
 echo -e "  Admin Server Creation & Edit pages now feature ${CYAN}Expiration Date${NC}, ${CYAN}Plan Name${NC}, and ${CYAN}Plan Price${NC}."
 echo -e "  Servers approaching expiration receive a courteous notice 3 days prior."
 echo -e "• ${CYAN}Server Expiry & Plan Card${NC}: Displayed directly beneath stat cards on the dashboard."
 echo -e "  Color-coded: ${YELLOW}Yellow${NC} when ≤ 3 days, ${RED}Red${NC} when ≤ 24 hours / expired."
+echo -e "• ${CYAN}Admin Sales & Revenue Overview${NC}: Live card showing Total Sales, 7-day & 30-day sales, and Best Selling Plans."
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"
