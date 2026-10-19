@@ -32,6 +32,8 @@ interface Message {
   thought?: string;
   action?: string;
   action_params?: Record<string, any>;
+  pending_action?: string;
+  pending_action_params?: Record<string, any>;
   action_result?: {
     success: boolean;
     text: string;
@@ -173,6 +175,8 @@ export default function AiAssistantContainer() {
           thought: res.data.thought,
           action: res.data.action,
           action_params: res.data.action_params,
+          pending_action: res.data.pending_action,
+          pending_action_params: res.data.pending_action_params,
           action_result: res.data.action_result,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
@@ -304,30 +308,38 @@ export default function AiAssistantContainer() {
                 <div className="whitespace-pre-wrap">{msg.content}</div>
 
                 {/* Interactive Confirmation Action Buttons */}
-                {msg.role === 'assistant' &&
-                  /(confirm|want me to proceed|Shall I proceed|Would you like me to|want me to delete|want me to install|want me to fix|No server changes were made yet|proceed with this fix)/i.test(
-                    msg.content
-                  ) && (
-                    <div className="mt-3.5 pt-2.5 border-t border-gray-700/60 flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => handleSendMessage('Yes, do it')}
-                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        <FontAwesomeIcon icon={faCheck} className="text-[11px]" />
-                        <span>Yes, do it</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => handleSendMessage("No, don't do that. Cancel.")}
-                        className="px-3 py-1.5 rounded-xl bg-gray-700/90 hover:bg-gray-600 text-gray-200 font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        <FontAwesomeIcon icon={faTimes} className="text-[11px]" />
-                        <span>No, don't do</span>
-                      </button>
-                    </div>
+                {msg.role === 'assistant' && (
+                  Boolean(msg.pending_action && msg.pending_action !== 'none') ||
+                  /(confirm|want me to proceed|Shall I proceed|Would you like me to|want me to delete|want me to install|want me to fix|No server changes were made yet|proceed with this fix|do you want me to|should I|shall I|let me know if you want|reply with yes|can fix this|can remove|can delete|can install|\?)/i.test(msg.content)
+                ) && (
+                  <div className="mt-3.5 pt-2.5 border-t border-gray-700/60 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        const targetAction = msg.pending_action || (msg.action && msg.action !== 'none' ? msg.action : null);
+                        const targetParams = msg.pending_action_params || msg.action_params || {};
+                        if (targetAction) {
+                          handleSendMessage(`Yes, do it: execute ${targetAction} ${JSON.stringify(targetParams)}`);
+                        } else {
+                          handleSendMessage('Yes, do it');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      <FontAwesomeIcon icon={faCheck} className="text-[11px]" />
+                      <span>Yes, do it</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => handleSendMessage("No, don't do that. Cancel.")}
+                      className="px-3 py-1.5 rounded-xl bg-gray-700/90 hover:bg-gray-600 text-gray-200 font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      <FontAwesomeIcon icon={faTimes} className="text-[11px]" />
+                      <span>No, don't do</span>
+                    </button>
+                  </div>
                 )}
 
                 {/* Prominent Executed Action Card */}
@@ -355,7 +367,7 @@ export default function AiAssistantContainer() {
                                   ? faDownload
                                   : msg.action === 'install_modpack'
                                   ? faLayerGroup
-                                  : msg.action === 'delete_file'
+                                  : msg.action === 'delete_file' || msg.action === 'delete_world'
                                   ? faTrashAlt
                                   : msg.action === 'configure_universal_access'
                                   ? faServer
@@ -381,6 +393,7 @@ export default function AiAssistantContainer() {
                               {msg.action === 'install_mod' && 'Built-in Mod Installation (Modrinth)'}
                               {msg.action === 'install_modpack' && 'Built-in Modpack Installation (Modrinth / Overrides Engine)'}
                               {msg.action === 'delete_file' && 'Corrupted File Cleanup'}
+                              {msg.action === 'delete_world' && 'Corrupted World & Dimension Cleanup'}
                               {msg.action === 'configure_universal_access' && 'Universal Client & Cracked Support'}
                               {msg.action === 'disable_whitelist' && 'Server Whitelist Disabled'}
                               {msg.action === 'enable_geyser_clone_port' && 'Bedrock Port Synchronization'}
@@ -422,6 +435,9 @@ export default function AiAssistantContainer() {
                           )}
                           {msg.action_params.file && (
                             <span>Target: <strong className="text-amber-400">{msg.action_params.file}</strong></span>
+                          )}
+                          {msg.action_params.target && (
+                            <span>Dimension: <strong className="text-amber-400">{msg.action_params.target}</strong></span>
                           )}
                           {msg.action_params.key && (
                             <span>{msg.action_params.key} = <strong className="text-emerald-400">{msg.action_params.value}</strong></span>
@@ -467,35 +483,53 @@ export default function AiAssistantContainer() {
           {/* Interactive Live Background Activity Progress Card */}
           {loading && (
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gray-800 border border-blue-500/40 flex items-center justify-center text-blue-400 text-xs flex-shrink-0 animate-pulse">
-                <FontAwesomeIcon icon={faRobot} />
+              <div className="w-10 h-10 rounded-2xl bg-gray-800/95 border border-blue-500/40 flex items-center justify-center flex-shrink-0 shadow-md overflow-hidden relative">
+                <iframe
+                  src="https://embed.lottiefiles.com/animation/2053"
+                  className="w-16 h-16 border-0 pointer-events-none scale-125 transform"
+                  style={{ background: 'transparent' }}
+                  title="AI Loading"
+                />
               </div>
-              <div className="bg-gray-800/95 border border-blue-500/30 text-gray-100 rounded-2xl p-4 text-xs max-w-[85%] sm:max-w-[75%] shadow-lg space-y-2.5">
+              <div className="bg-gray-800/95 border border-blue-500/30 text-gray-100 rounded-2xl p-4 text-xs max-w-[85%] sm:max-w-[75%] shadow-lg space-y-3">
                 <div className="flex items-center justify-between gap-3 border-b border-gray-700/60 pb-2">
                   <div className="flex items-center gap-2 text-blue-400 font-semibold text-[11px] uppercase tracking-wider">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                     </span>
-                    <span>Background Task in Progress</span>
+                    <span>AI Server Assistant Working</span>
                   </div>
                   <span className="text-[10px] text-gray-400 font-mono">{loadingProgress}%</span>
                 </div>
 
-                <div className="flex items-center gap-2.5 text-gray-200">
-                  <FontAwesomeIcon icon={faSpinner} spin className="text-blue-400 text-sm" />
-                  <span className="font-medium">{loadingStep}</span>
+                <div className="flex items-center gap-3 text-gray-200">
+                  <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center overflow-hidden rounded-xl bg-gray-900/80 border border-gray-700/60">
+                    <iframe
+                      src="https://embed.lottiefiles.com/animation/2053"
+                      className="w-20 h-20 border-0 pointer-events-none scale-90 transform"
+                      style={{ background: 'transparent' }}
+                      title="AI Loading Animation"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-0.5">
+                    <div className="font-semibold text-gray-100 text-xs sm:text-sm">{loadingStep}</div>
+                    <div className="text-[10px] text-gray-400">Performing real-time server container operations...</div>
+                  </div>
                 </div>
 
                 <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="bg-gradient-to-r from-blue-500 to-emerald-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+                    className="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-1.5 rounded-full transition-all duration-500 ease-out"
                     style={{ width: `${loadingProgress}%` }}
                   />
                 </div>
 
                 <div className="text-[10px] text-gray-400 flex items-center justify-between pt-0.5">
-                  <span>Executing server operations...</span>
+                  <span className="flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faSpinner} spin className="text-blue-400 text-[10px]" />
+                    <span>Executing background server task...</span>
+                  </span>
                   <span className="opacity-75">Please wait</span>
                 </div>
               </div>

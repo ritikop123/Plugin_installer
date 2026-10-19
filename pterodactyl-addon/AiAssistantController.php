@@ -201,6 +201,11 @@ PROMPT;
                     }
                     break;
 
+                case 'delete_world':
+                    $delRes = $this->performDeleteWorld($server, (array) $request->input('action_params', []));
+                    $message = $delRes['text'] ?? 'World cleanup completed.';
+                    break;
+
                 case 'remove_session_lock':
                     try {
                         $this->fileRepository->setServer($server)->deleteFiles('/world', ['session.lock']);
@@ -496,6 +501,7 @@ CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "install_plugin": Installs any plugin directly into /plugins using the built-in Plugin Installer engine. Params: {"plugin": "LuckPerms"}
 - "install_mod": Installs any mod directly into /mods using the built-in Mod Installer engine. Params: {"mod": "Sodium"}
 - "install_modpack": Installs an entire Minecraft modpack and configs from Modrinth using the built-in Modpack Installer engine! Params: {"modpack": "Cobblemon"}
+- "delete_world": Safely stops server and resets/deletes corrupted world or dimension folders (/world, /world_nether, /world_the_end, /world/DIM-1, /world/DIM1, /world/dimensions, /world/world_gen_settings.dat). Minecraft automatically generates fresh, uncorrupted chunks and world data upon restart! Params: {"target": "all|nether|end|world_gen_settings|session.lock"}
 - "delete_file": Safely deletes a corrupted file, broken world gen data, or crashing plugin. Params: {"file": "/world/world_gen_settings.dat", "restart": true}
 - "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-26.x), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
@@ -525,13 +531,14 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: install_software, install_plugin, install_mod, install_modpack, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: install_software, install_plugin, install_mod, install_modpack, delete_world, delete_file, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
      "software": "paper or purpur if install_software",
      "version": "version string if install_software",
      "plugin": "plugin name if install_plugin",
      "mod": "mod name if install_mod",
      "modpack": "modpack name if install_modpack",
+     "target": "all|nether|end|world_gen_settings if delete_world",
      "file": "path if delete_file or edit_config",
      "command": "command string if run_command",
      "key": "setting key",
@@ -579,6 +586,43 @@ SYS;
             $actionName = $parsed['action'] ?? 'none';
             $actionParams = $parsed['action_params'] ?? [];
 
+            // Direct execution confirmation from Yes button
+            if (preg_match('/^Yes, do it:\s*execute\s+([a-zA-Z0-9_]+)(?:\s+(.*))?$/i', trim($message), $ym)) {
+                $actionName = $ym[1];
+                if (!empty($ym[2])) {
+                    $decodedParams = json_decode($ym[2], true);
+                    if (is_array($decodedParams)) {
+                        $actionParams = $decodedParams;
+                    }
+                }
+            } elseif (preg_match('/^(yes|do it|confirm|proceed|yes,?\s*(do it|proceed|please))/i', trim($message)) && $actionName === 'none' && !empty($history)) {
+                // Recover action from last assistant message
+                $lastAssistantMsg = '';
+                for ($i = count($history) - 1; $i >= 0; $i--) {
+                    if (($history[$i]['role'] ?? '') === 'assistant') {
+                        $lastAssistantMsg = strtolower($history[$i]['content'] ?? '');
+                        break;
+                    }
+                }
+                if (!empty($lastAssistantMsg)) {
+                    if (str_contains($lastAssistantMsg, 'world') && (str_contains($lastAssistantMsg, 'corrupt') || str_contains($lastAssistantMsg, 'delete') || str_contains($lastAssistantMsg, 'reset'))) {
+                        $actionName = 'delete_world';
+                        $actionParams = ['target' => str_contains($lastAssistantMsg, 'nether') ? 'nether' : (str_contains($lastAssistantMsg, 'end') ? 'end' : 'all')];
+                    } elseif (str_contains($lastAssistantMsg, 'paper') || str_contains($lastAssistantMsg, 'purpur') || str_contains($lastAssistantMsg, 'software')) {
+                        $actionName = 'install_software';
+                        $actionParams = ['software' => str_contains($lastAssistantMsg, 'purpur') ? 'purpur' : 'paper', 'version' => 'latest'];
+                    } elseif (str_contains($lastAssistantMsg, 'universal') || str_contains($lastAssistantMsg, 'cracked')) {
+                        $actionName = 'configure_universal_access';
+                    } elseif (str_contains($lastAssistantMsg, 'voice chat') || str_contains($lastAssistantMsg, 'voicechat')) {
+                        $actionName = 'setup_voicechat';
+                    } elseif (str_contains($lastAssistantMsg, 'geyser') || str_contains($lastAssistantMsg, 'bedrock')) {
+                        $actionName = 'setup_geyser';
+                    } elseif (str_contains($lastAssistantMsg, 'whitelist')) {
+                        $actionName = 'disable_whitelist';
+                    }
+                }
+            }
+
             // Fail-safe: if action was 'none' but AI claimed it updated online-mode or user requested cracked/universal/whitelist
             if ($actionName === 'none') {
                 $thoughtAndMsg = strtolower(($parsed['thought'] ?? '') . ' ' . ($parsed['message'] ?? ''));
@@ -592,6 +636,14 @@ SYS;
                     if (str_contains($thoughtAndMsg, 'purpur') || str_contains($userMsgLower, 'purpur')) $software = 'purpur';
                     if (str_contains($thoughtAndMsg, 'fabric') || str_contains($userMsgLower, 'fabric')) $software = 'fabric';
                     $actionParams = ['software' => $software, 'version' => 'latest'];
+                } elseif (preg_match('/\b(delete|reset|remove|clear|wipe)\s*(?:the\s+)?(?:corrupted\s+)?(world|nether|end|dimension|dimensions)\b/i', $userMsgLower) ||
+                    (preg_match('/\b(world.*corrupt|corrupt.*world|corrupted world|broken world)\b/i', $userMsgLower) && preg_match('/\b(delete|reset|fix|remove)\b/i', $userMsgLower))) {
+                    $actionName = 'delete_world';
+                    $target = 'all';
+                    if (str_contains($userMsgLower, 'nether')) $target = 'nether';
+                    elseif (str_contains($userMsgLower, 'end')) $target = 'end';
+                    elseif (str_contains($userMsgLower, 'settings') || str_contains($userMsgLower, 'world_gen')) $target = 'world_gen_settings';
+                    $actionParams = ['target' => $target];
                 } elseif (str_contains($thoughtAndMsg, 'online-mode') && (str_contains($thoughtAndMsg, 'false') || str_contains($thoughtAndMsg, 'updated your server.properties') || str_contains($thoughtAndMsg, 'cracked'))) {
                     $actionName = 'edit_config';
                     $actionParams = ['key' => 'online-mode', 'value' => 'false', 'restart' => true];
@@ -635,6 +687,9 @@ SYS;
                 }
             }
 
+            $pendingActionName = null;
+            $pendingActionParams = [];
+
             if ($actionName !== 'none') {
                 if ($this->shouldExecuteAction($message, $actionName)) {
                     $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
@@ -642,8 +697,10 @@ SYS;
                         $this->recordSuccessfulLearning($server, $message, $actionName, $actionParams);
                     }
                 } else {
-                    // Suppress unsolicited hallucinated actions
-                    Log::info("[AIAssistant] Suppressed unauthorized action '{$actionName}' for message: '{$message}'");
+                    // Suppress unsolicited hallucinated actions until user confirms
+                    Log::info("[AIAssistant] Awaiting confirmation for action '{$actionName}' for message: '{$message}'");
+                    $pendingActionName = $actionName;
+                    $pendingActionParams = $actionParams;
                     $actionName = 'none';
                     $actionParams = [];
                     $parsed['message'] .= "\n\n*(Note: No server changes were made yet. Would you like me to proceed with this fix?)*";
@@ -657,6 +714,8 @@ SYS;
                 'action' => $actionName,
                 'action_params' => $actionParams,
                 'action_result' => $actionResult,
+                'pending_action' => $pendingActionName,
+                'pending_action_params' => $pendingActionParams,
             ]);
         } catch (Throwable $e) {
             Log::error("[AIAssistant] Chat Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
@@ -705,6 +764,9 @@ SYS;
 
                 case 'install_modpack':
                     return $this->performInstallModpack($server, $params);
+
+                case 'delete_world':
+                    return $this->performDeleteWorld($server, $params);
 
                 case 'delete_file':
                     return $this->performDeleteFile($server, $params);
@@ -1274,6 +1336,27 @@ YAML;
 
         $voiceConfig = "port={$port}\nbind_address=0.0.0.0\nforce_voice_chat=false\n";
         try {
+            // Ensure voicechat Bukkit plugin is installed in /plugins
+            $installed = $this->getInstalledPlugins($server);
+            $hasPlugin = false;
+            foreach ($installed as $p) {
+                if (str_contains(strtolower($p), 'voicechat')) {
+                    $hasPlugin = true;
+                    break;
+                }
+            }
+            $pluginNotice = '';
+            if (!$hasPlugin) {
+                $pRes = $this->performInstallPlugin($server, ['plugin' => 'simple-voice-chat']);
+                if (!empty($pRes['success'])) {
+                    $pluginNotice = ' Downloaded verified Bukkit Voice Chat plugin.';
+                }
+            }
+
+            try {
+                $this->fileRepository->setServer($server)->createDirectory('voicechat', '/plugins');
+            } catch (Throwable $e) {}
+
             $this->fileRepository->setServer($server)->putContent('/plugins/voicechat/voicechat-server.properties', $voiceConfig);
             try {
                 $this->powerRepository->setServer($server)->send('restart');
@@ -1281,7 +1364,7 @@ YAML;
 
             return [
                 'success' => true,
-                'text' => "Configured Simple Voice Chat to port {$port} and restarted server.",
+                'text' => "Configured Simple Voice Chat to port {$port} and restarted server.{$pluginNotice}",
                 'port' => $port,
             ];
         } catch (Throwable $e) {
@@ -1345,8 +1428,15 @@ YAML;
                 Log::warning("[AIAssistant] Groq Rate limit hit on {$model}. Checking retry...");
                 $errData = json_decode($raw, true);
                 $retrySec = 0;
-                if (!empty($errData['error']['message']) && preg_match('/try again in ([\d\.]+)s/i', $errData['error']['message'], $rm)) {
-                    $retrySec = (float) $rm[1];
+                $errMsg = $errData['error']['message'] ?? '';
+                if (preg_match('/try again in ([\d\.]+)\s*(ms|s)/i', $errMsg, $rm)) {
+                    $val = (float) $rm[1];
+                    $unit = strtolower($rm[2]);
+                    $retrySec = ($unit === 'ms') ? ($val / 1000.0) : $val;
+                } elseif (preg_match('/([\d\.]+)\s*(ms|s)/i', $errMsg, $rm)) {
+                    $val = (float) $rm[1];
+                    $unit = strtolower($rm[2]);
+                    $retrySec = ($unit === 'ms') ? ($val / 1000.0) : $val;
                 }
 
                 // If wait time is short (<= 8s), auto sleep and retry once
@@ -1360,6 +1450,7 @@ YAML;
                                 'Accept' => 'application/json',
                             ],
                             'json' => $body,
+                            'timeout' => 25,
                         ]);
                         if ($retryRes->getStatusCode() === 200) {
                             $data = json_decode($retryRes->getBody()->getContents(), true);
@@ -1368,30 +1459,29 @@ YAML;
                     } catch (Throwable $e) {}
                 }
 
-                // Fallback to llama-3.3-70b-versatile (12k TPM pool) if current model was qwen
-                if (str_contains($model, 'qwen')) {
-                    $fallbackBody = $body;
-                    $fallbackBody['model'] = 'llama-3.3-70b-versatile';
-                    try {
-                        $fbRes = $this->httpClient->post('https://api.groq.com/openai/v1/chat/completions', [
-                            'headers' => [
-                                'Authorization' => 'Bearer ' . $apiKey,
-                                'Content-Type' => 'application/json',
-                                'Accept' => 'application/json',
-                            ],
-                            'json' => $fallbackBody,
-                        ]);
-                        if ($fbRes->getStatusCode() === 200) {
-                            $data = json_decode($fbRes->getBody()->getContents(), true);
-                            return $data['choices'][0]['message']['content'] ?? '';
-                        }
-                    } catch (Throwable $e) {}
-                }
+                // High-throughput fallback: llama-3.1-8b-instant (30,000 TPM pool)
+                $fallbackBody = $body;
+                $fallbackBody['model'] = 'llama-3.1-8b-instant';
+                try {
+                    $fbRes = $this->httpClient->post('https://api.groq.com/openai/v1/chat/completions', [
+                        'headers' => [
+                            'Authorization' => 'Bearer ' . $apiKey,
+                            'Content-Type' => 'application/json',
+                            'Accept' => 'application/json',
+                        ],
+                        'json' => $fallbackBody,
+                        'timeout' => 25,
+                    ]);
+                    if ($fbRes->getStatusCode() === 200) {
+                        $data = json_decode($fbRes->getBody()->getContents(), true);
+                        return $data['choices'][0]['message']['content'] ?? '';
+                    }
+                } catch (Throwable $e) {}
 
-                $waitSeconds = ceil($retrySec > 0 ? $retrySec : 6);
+                $waitSeconds = ceil($retrySec > 0 ? $retrySec : 3);
                 return json_encode([
                     'thought' => 'API rate limit cooldown',
-                    'message' => "The AI engine is briefly cooling down (Groq free-tier rate limit). Please wait {$waitSeconds} seconds and send your message again!",
+                    'message' => "The AI engine is briefly cooling down (Groq rate limit). Please wait {$waitSeconds} seconds and send your message again!",
                     'action' => 'none',
                     'action_params' => [],
                 ]);
@@ -1654,19 +1744,22 @@ YAML;
             if ($action === 'install_modpack' && preg_match('/\b(modpack|mod\s*pack)\b/i', $msg)) {
                 return true;
             }
-            if ($action === 'delete_file' && preg_match('/\b(delete|remove|erase|file|world|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
+            if (($action === 'delete_file' || $action === 'delete_world') && preg_match('/\b(delete|remove|erase|file|world|nether|end|dimension|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
                 return true;
             }
         }
 
         // Allow if user is providing a crash log or reporting a crash / failure and action fixes it
         if (preg_match('/\b(crash|crashed|crashing|exit code|invalid or corrupt|corrupt jarfile|not starting|failed to start|startup failure|fix.*crash)\b/i', $msg)) {
-            if ($action === 'install_software' || $action === 'delete_file') {
+            if ($action === 'install_software' || $action === 'delete_file' || $action === 'delete_world') {
                 return true;
             }
         }
 
         switch ($action) {
+            case 'delete_world':
+                return preg_match('/\b(delete|reset|remove|clear|trash|wipe|clean|fix)\b/i', $msg) === 1
+                    && preg_match('/\b(world|nether|end|dimension|dimensions|save|corrupt)\b/i', $msg) === 1;
             case 'install_plugin':
                 return preg_match('/\b(install|download|add|setup|get)\b/i', $msg) === 1
                     || preg_match('/\b(plugin|plugins)\b/i', $msg) === 1;
@@ -1889,6 +1982,103 @@ YAML;
     }
 
     /**
+     * Completely cleans or resets a corrupted world, removing all dimensions (overworld, nether, end)
+     * and session locks safely while server is halted.
+     */
+    private function performDeleteWorld(Server $server, array $params = []): array
+    {
+        try {
+            // 1. Fetch level-name from server.properties
+            $levelName = 'world';
+            try {
+                $props = $this->fileRepository->setServer($server)->getContent('/server.properties');
+                if (preg_match('/^level-name=(.*)$/m', $props, $m)) {
+                    $val = trim($m[1]);
+                    if (!empty($val)) {
+                        $levelName = $val;
+                    }
+                }
+            } catch (Throwable $e) {}
+
+            // 2. Stop server to unlock session.lock and region MCA files
+            try {
+                $this->powerRepository->setServer($server)->send('stop');
+                sleep(2);
+            } catch (Throwable $e) {}
+
+            $dimension = strtolower(trim((string) ($params['dimension'] ?? $params['target'] ?? 'all')));
+            $deletedPaths = [];
+
+            // Target dimensions
+            if ($dimension === 'nether') {
+                $targets = ["{$levelName}_nether", "world_nether"];
+                foreach ($targets as $t) {
+                    try {
+                        $this->fileRepository->setServer($server)->deleteFiles('/', [$t]);
+                        $deletedPaths[] = $t;
+                    } catch (Throwable $e) {}
+                }
+                try {
+                    $this->fileRepository->setServer($server)->deleteFiles("/{$levelName}", ['DIM-1']);
+                    $deletedPaths[] = "{$levelName}/DIM-1";
+                } catch (Throwable $e) {}
+            } elseif ($dimension === 'end' || $dimension === 'the_end') {
+                $targets = ["{$levelName}_the_end", "world_the_end"];
+                foreach ($targets as $t) {
+                    try {
+                        $this->fileRepository->setServer($server)->deleteFiles('/', [$t]);
+                        $deletedPaths[] = $t;
+                    } catch (Throwable $e) {}
+                }
+                try {
+                    $this->fileRepository->setServer($server)->deleteFiles("/{$levelName}", ['DIM1']);
+                    $deletedPaths[] = "{$levelName}/DIM1";
+                } catch (Throwable $e) {}
+            } else {
+                $foldersToDelete = [
+                    $levelName,
+                    "{$levelName}_nether",
+                    "{$levelName}_the_end",
+                ];
+                if ($levelName !== 'world') {
+                    $foldersToDelete[] = 'world';
+                    $foldersToDelete[] = 'world_nether';
+                    $foldersToDelete[] = 'world_the_end';
+                }
+
+                foreach (array_unique($foldersToDelete) as $f) {
+                    try {
+                        $this->fileRepository->setServer($server)->deleteFiles('/', [$f]);
+                        $deletedPaths[] = $f;
+                    } catch (Throwable $e) {}
+                }
+            }
+
+            // Remove any leftover session.lock or world_gen_settings if any folder remained
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles("/{$levelName}", ['session.lock', 'world_gen_settings.json']);
+            } catch (Throwable $e) {}
+
+            // Restart server so clean, uncorrupted world is generated
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            $delSummary = !empty($deletedPaths) ? implode(', ', $deletedPaths) : $levelName;
+            return [
+                'success' => true,
+                'text' => "Halted server, cleanly removed corrupted world directories ({$delSummary}) and dimension data (including Nether/End/DIM folders), and initiated server reboot to generate a pristine, uncorrupted world.",
+            ];
+        } catch (Throwable $e) {
+            Log::error("[AIAssistant] performDeleteWorld failed: " . $e->getMessage());
+            return [
+                'success' => false,
+                'text' => "World cleanup failed: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Persistently saves successful resolutions and actions to server-specific memory
      */
     private function recordSuccessfulLearning(Server $server, string $userQuery, string $action, array $params): void
@@ -2016,7 +2206,7 @@ YAML;
             }
         }
 
-        // 2. Query Modrinth API search
+        // 2. Query Modrinth API search specifically for Bukkit/Paper/Spigot plugins
         $downloadUrl = null;
         $fileName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $pluginQuery) . '.jar';
 
@@ -2025,29 +2215,64 @@ YAML;
                 'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
                 'query' => [
                     'query' => $pluginQuery,
-                    'facets' => '[["project_type:plugin"]]',
-                    'limit' => 1,
+                    'facets' => '[["project_type:plugin"],["categories:spigot","categories:paper","categories:purpur","categories:bukkit"]]',
+                    'limit' => 3,
                 ],
                 'timeout' => 8,
             ]);
 
-            if ($searchRes->getStatusCode() === 200) {
-                $searchData = json_decode($searchRes->getBody()->getContents(), true);
-                $hit = $searchData['hits'][0] ?? null;
-                if ($hit && !empty($hit['project_id'])) {
-                    $slug = $hit['slug'] ?? $hit['project_id'];
-                    $verRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$slug}/version", [
-                        'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
-                        'timeout' => 8,
-                    ]);
-                    if ($verRes->getStatusCode() === 200) {
-                        $vers = json_decode($verRes->getBody()->getContents(), true);
-                        if (!empty($vers) && is_array($vers)) {
-                            $primaryFile = $vers[0]['files'][0] ?? null;
-                            if ($primaryFile && !empty($primaryFile['url'])) {
-                                $downloadUrl = $primaryFile['url'];
-                                if (!empty($primaryFile['filename'])) {
-                                    $fileName = $primaryFile['filename'];
+            $searchData = ($searchRes->getStatusCode() === 200) ? json_decode($searchRes->getBody()->getContents(), true) : null;
+            $hit = $searchData['hits'][0] ?? null;
+
+            // If no match under plugin facets, try generic search
+            if (!$hit) {
+                $genSearch = $this->httpClient->get('https://api.modrinth.com/v2/search', [
+                    'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                    'query' => [
+                        'query' => $pluginQuery,
+                        'limit' => 3,
+                    ],
+                    'timeout' => 8,
+                ]);
+                $genData = ($genSearch->getStatusCode() === 200) ? json_decode($genSearch->getBody()->getContents(), true) : null;
+                $hit = $genData['hits'][0] ?? null;
+            }
+
+            if ($hit && !empty($hit['project_id'])) {
+                $slug = $hit['slug'] ?? $hit['project_id'];
+                // Query versions filtered strictly by Bukkit / Paper / Spigot loaders
+                $verRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$slug}/version", [
+                    'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                    'query' => [
+                        'loaders' => json_encode(['paper', 'spigot', 'purpur', 'bukkit']),
+                    ],
+                    'timeout' => 8,
+                ]);
+
+                if ($verRes->getStatusCode() === 200) {
+                    $vers = json_decode($verRes->getBody()->getContents(), true);
+                    if (!empty($vers) && is_array($vers)) {
+                        foreach ($vers as $v) {
+                            $vLoaders = array_map('strtolower', $v['loaders'] ?? []);
+                            $isPluginComp = false;
+                            foreach (['paper', 'spigot', 'purpur', 'bukkit'] as $reqLoader) {
+                                if (in_array($reqLoader, $vLoaders, true)) {
+                                    $isPluginComp = true;
+                                    break;
+                                }
+                            }
+                            if (!$isPluginComp) continue;
+
+                            foreach ($v['files'] ?? [] as $f) {
+                                $candidateFn = strtolower($f['filename'] ?? '');
+                                // Strictly reject Fabric, Forge, NeoForge, Quilt mod binaries
+                                if (preg_match('/-(fabric|forge|neoforge|quilt)\b/i', $candidateFn)) {
+                                    continue;
+                                }
+                                if (str_ends_with($candidateFn, '.jar') && !empty($f['url'])) {
+                                    $downloadUrl = $f['url'];
+                                    $fileName = $f['filename'];
+                                    break 2;
                                 }
                             }
                         }

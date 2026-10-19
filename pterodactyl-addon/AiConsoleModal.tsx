@@ -124,8 +124,15 @@ export default function AiConsoleModal({ visible, onClose }: Props) {
         {/* Content Body */}
         <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
           {loading && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-3">
-              <div className="w-12 h-12 rounded-full border-4 border-cyan-500/20 border-t-cyan-400 animate-spin" />
+            <div className="py-10 flex flex-col items-center justify-center space-y-3">
+              <div className="w-16 h-16 flex items-center justify-center overflow-hidden rounded-2xl bg-gray-900/60 border border-cyan-500/30 shadow-lg">
+                <iframe
+                  src="https://embed.lottiefiles.com/animation/2053"
+                  className="w-24 h-24 border-0 pointer-events-none scale-90 transform"
+                  style={{ background: 'transparent' }}
+                  title="AI Loading"
+                />
+              </div>
               <p className="text-cyan-300 font-medium text-sm animate-pulse">
                 Analyzing console logs & crash reports with AI...
               </p>
