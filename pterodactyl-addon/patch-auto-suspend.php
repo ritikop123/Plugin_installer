@@ -423,9 +423,26 @@ if (file_exists($adminIndexBlade)) {
             return ['amount' => $amount, 'currency' => $currency];
         };
 
-        // Determine dominant currency
+        // Helper function to detect free plans
+        $isFreePlan = function ($s) use ($extractPrice) {
+            $rawPrice = trim(strtolower((string)($s->plan_price ?: '')));
+            if (empty($rawPrice) || $rawPrice === 'free' || $rawPrice === '₹0' || $rawPrice === '$0' || $rawPrice === '0' || $rawPrice === '0.00' || $rawPrice === '0 inr' || $rawPrice === '0inr') {
+                return true;
+            }
+            $p = $extractPrice($s->plan_price);
+            return ($p['amount'] <= 0);
+        };
+
+        // Paid active servers only (strictly exclude free plans)
+        $paidServers = $activeServers->filter(function ($s) use ($isFreePlan) {
+            return !$isFreePlan($s);
+        });
+        $paidServersCount = $paidServers->count();
+        $freeServersCount = $activeCount - $paidServersCount;
+
+        // Determine dominant currency from paid servers
         $currCounts = ['₹' => 0, '$' => 0, '€' => 0, '£' => 0];
-        foreach ($activeServers as $s) {
+        foreach ($paidServers as $s) {
             $p = $extractPrice($s->plan_price);
             if (!empty($p['currency']) && isset($currCounts[$p['currency']])) {
                 $currCounts[$p['currency']]++;
@@ -437,16 +454,16 @@ if (file_exists($adminIndexBlade)) {
             $primaryCurr = '$';
         }
 
-        // 1. Total Ongoing Sells (Active Servers Only)
+        // 1. Total Ongoing Sells (Active Paid Servers Only)
         $totalOngoingSales = 0.0;
-        foreach ($activeServers as $s) {
+        foreach ($paidServers as $s) {
             $totalOngoingSales += $extractPrice($s->plan_price)['amount'];
         }
 
-        // 2. Last Week Sells (Past 7 Days, Active)
+        // 2. Last Week Sells (Past 7 Days, Active Paid)
         $now = \Carbon\Carbon::now();
         $sevenDaysAgo = $now->copy()->subDays(7);
-        $lastWeekServers = $activeServers->filter(function ($s) use ($sevenDaysAgo) {
+        $lastWeekServers = $paidServers->filter(function ($s) use ($sevenDaysAgo) {
             return $s->created_at && \Carbon\Carbon::parse($s->created_at)->gte($sevenDaysAgo);
         });
         $lastWeekSales = 0.0;
@@ -455,9 +472,9 @@ if (file_exists($adminIndexBlade)) {
         }
         $lastWeekCount = $lastWeekServers->count();
 
-        // 3. Last Month Sells (Past 30 Days, Active)
+        // 3. Last Month Sells (Past 30 Days, Active Paid)
         $thirtyDaysAgo = $now->copy()->subDays(30);
-        $lastMonthServers = $activeServers->filter(function ($s) use ($thirtyDaysAgo) {
+        $lastMonthServers = $paidServers->filter(function ($s) use ($thirtyDaysAgo) {
             return $s->created_at && \Carbon\Carbon::parse($s->created_at)->gte($thirtyDaysAgo);
         });
         $lastMonthSales = 0.0;
@@ -466,23 +483,30 @@ if (file_exists($adminIndexBlade)) {
         }
         $lastMonthCount = $lastMonthServers->count();
 
-        // 4. Best Selling Plans (Top 3 Ranking)
+        // 4. Best Selling Plans (Top 3 Ranking - EXCLUDES FREE PLANS)
         $plansMap = [];
-        foreach ($activeServers as $s) {
+        foreach ($paidServers as $s) {
             $rawPlan = trim((string)($s->plan_name ?: ''));
             if (empty($rawPlan)) {
                 $rawPlan = $s->memory ? (round($s->memory / 1024) . 'GB Plan') : 'Standard Plan';
             }
+
+            // Exclude if plan name is Free/Promo and amount is 0
+            $pAmount = $extractPrice($s->plan_price)['amount'];
+            if ($pAmount <= 0) {
+                continue;
+            }
+
             if (!isset($plansMap[$rawPlan])) {
                 $plansMap[$rawPlan] = [
                     'name' => $rawPlan,
                     'count' => 0,
                     'total_sales' => 0.0,
-                    'sample_price' => $s->plan_price ?: 'Free',
+                    'sample_price' => $s->plan_price,
                 ];
             }
             $plansMap[$rawPlan]['count']++;
-            $plansMap[$rawPlan]['total_sales'] += $extractPrice($s->plan_price)['amount'];
+            $plansMap[$rawPlan]['total_sales'] += $pAmount;
             if (!empty($s->plan_price)) {
                 $plansMap[$rawPlan]['sample_price'] = $s->plan_price;
             }
@@ -502,6 +526,8 @@ if (file_exists($adminIndexBlade)) {
         $lastWeekSales = 0;
         $lastMonthSales = 0;
         $activeCount = 0;
+        $paidServersCount = 0;
+        $freeServersCount = 0;
         $suspendedCount = 0;
         $totalServersCount = 0;
         $lastWeekCount = 0;
@@ -550,7 +576,7 @@ if (file_exists($adminIndexBlade)) {
                                         {{ $primaryCurr }}{{ number_format($totalOngoingSales, 2) }}
                                     </h2>
                                     <span style="color: #6ee7b7; font-size: 11px; font-weight: 600;">
-                                        <i class="fa fa-check-circle"></i> {{ $activeCount }} active servers counted
+                                        <i class="fa fa-check-circle"></i> {{ $paidServersCount }} paid servers counted
                                     </span>
                                 </div>
                                 <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: center; color: #34d399; font-size: 17px;">
@@ -570,7 +596,7 @@ if (file_exists($adminIndexBlade)) {
                                         {{ $primaryCurr }}{{ number_format($lastWeekSales, 2) }}
                                     </h2>
                                     <span style="color: #93c5fd; font-size: 11px; font-weight: 600;">
-                                        <i class="fa fa-calendar-check-o"></i> {{ $lastWeekCount }} servers added (last 7d)
+                                        <i class="fa fa-calendar-check-o"></i> {{ $lastWeekCount }} paid servers added (last 7d)
                                     </span>
                                 </div>
                                 <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.3); display: flex; align-items: center; justify-content: center; color: #60a5fa; font-size: 17px;">
@@ -590,7 +616,7 @@ if (file_exists($adminIndexBlade)) {
                                         {{ $primaryCurr }}{{ number_format($lastMonthSales, 2) }}
                                     </h2>
                                     <span style="color: #d8b4fe; font-size: 11px; font-weight: 600;">
-                                        <i class="fa fa-history"></i> {{ $lastMonthCount }} servers added (last 30d)
+                                        <i class="fa fa-history"></i> {{ $lastMonthCount }} paid servers added (last 30d)
                                     </span>
                                 </div>
                                 <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.3); display: flex; align-items: center; justify-content: center; color: #c084fc; font-size: 17px;">
@@ -612,7 +638,7 @@ if (file_exists($adminIndexBlade)) {
                                         <span style="color: #ef4444; font-size: 16px; font-weight: 700;">{{ $suspendedCount }} Susp</span>
                                     </div>
                                     <span style="color: #fdba74; font-size: 11px; font-weight: 600;">
-                                        <i class="fa fa-ban"></i> Suspended omitted from sells
+                                        <i class="fa fa-server"></i> {{ $paidServersCount }} Paid • {{ $freeServersCount }} Free Servers
                                     </span>
                                 </div>
                                 <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(234, 88, 12, 0.2); border: 1px solid rgba(234, 88, 12, 0.3); display: flex; align-items: center; justify-content: center; color: #fb923c; font-size: 17px;">
@@ -632,7 +658,7 @@ if (file_exists($adminIndexBlade)) {
                             </div>
                             <div>
                                 <h4 style="color: #f3f4f6; font-size: 16px; font-weight: 700; margin: 0;">Best Selling Plans (Top 1 • 2 • 3)</h4>
-                                <span style="color: #9ca3af; font-size: 12px;">Ranked dynamically by active ongoing servers adopting each plan</span>
+                                <span style="color: #9ca3af; font-size: 12px;">Ranked dynamically by paid active servers adopting each plan (free plans excluded)</span>
                             </div>
                         </div>
                     </div>
@@ -665,13 +691,13 @@ if (file_exists($adminIndexBlade)) {
                                         <span>Total Ongoing:</span>
                                         <strong style="color: #10b981; font-size: 15px;">{{ $primaryCurr }}{{ number_format($top3Plans[0]['total_sales'], 2) }}</strong>
                                     </div>
-                                    @php $pct1 = $activeCount > 0 ? round(($top3Plans[0]['count'] / $activeCount) * 100) : 0; @endphp
+                                    @php $pct1 = $paidServersCount > 0 ? round(($top3Plans[0]['count'] / $paidServersCount) * 100) : 0; @endphp
                                     <div style="background: #1f2937; border-radius: 6px; height: 6px; overflow: hidden;">
                                         <div style="background: linear-gradient(90deg, #f59e0b, #fbbf24); width: {{ $pct1 }}%; height: 100%;"></div>
                                     </div>
-                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct1 }}% of all ongoing servers</span>
+                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct1 }}% of all paid ongoing servers</span>
                                 @else
-                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No active servers assigned yet.</p>
+                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No paid servers assigned yet.</p>
                                 @endif
                             </div>
                         </div>
@@ -703,13 +729,13 @@ if (file_exists($adminIndexBlade)) {
                                         <span>Total Ongoing:</span>
                                         <strong style="color: #10b981; font-size: 15px;">{{ $primaryCurr }}{{ number_format($top3Plans[1]['total_sales'], 2) }}</strong>
                                     </div>
-                                    @php $pct2 = $activeCount > 0 ? round(($top3Plans[1]['count'] / $activeCount) * 100) : 0; @endphp
+                                    @php $pct2 = $paidServersCount > 0 ? round(($top3Plans[1]['count'] / $paidServersCount) * 100) : 0; @endphp
                                     <div style="background: #1f2937; border-radius: 6px; height: 6px; overflow: hidden;">
                                         <div style="background: linear-gradient(90deg, #94a3b8, #cbd5e1); width: {{ $pct2 }}%; height: 100%;"></div>
                                     </div>
-                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct2 }}% of all ongoing servers</span>
+                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct2 }}% of all paid ongoing servers</span>
                                 @else
-                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No 2nd plan tier recorded yet.</p>
+                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No 2nd paid plan recorded yet.</p>
                                 @endif
                             </div>
                         </div>
@@ -741,13 +767,13 @@ if (file_exists($adminIndexBlade)) {
                                         <span>Total Ongoing:</span>
                                         <strong style="color: #10b981; font-size: 15px;">{{ $primaryCurr }}{{ number_format($top3Plans[2]['total_sales'], 2) }}</strong>
                                     </div>
-                                    @php $pct3 = $activeCount > 0 ? round(($top3Plans[2]['count'] / $activeCount) * 100) : 0; @endphp
+                                    @php $pct3 = $paidServersCount > 0 ? round(($top3Plans[2]['count'] / $paidServersCount) * 100) : 0; @endphp
                                     <div style="background: #1f2937; border-radius: 6px; height: 6px; overflow: hidden;">
                                         <div style="background: linear-gradient(90deg, #d97706, #f59e0b); width: {{ $pct3 }}%; height: 100%;"></div>
                                     </div>
-                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct3 }}% of all ongoing servers</span>
+                                    <span style="color: #9ca3af; font-size: 11px; margin-top: 5px; display: block;">{{ $pct3 }}% of all paid ongoing servers</span>
                                 @else
-                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No 3rd plan tier recorded yet.</p>
+                                    <p style="color: #6b7280; font-size: 13px; margin: 20px 0;">No 3rd paid plan recorded yet.</p>
                                 @endif
                             </div>
                         </div>
