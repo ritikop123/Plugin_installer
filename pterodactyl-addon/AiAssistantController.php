@@ -301,6 +301,16 @@ PROMPT;
                 ? "MATCHED PLUGINS RELEVANT TO USER QUERY:\n- " . implode("\n- ", $matchedPlugins)
                 : "No specific plugin keywords matched directly from query.";
 
+            $recentConsoleLogs = 'No recent logs generated yet.';
+            try {
+                $rawLogs = $this->fileRepository->setServer($server)->getContent('/logs/latest.log');
+                if (!empty($rawLogs)) {
+                    $logLines = explode("\n", str_replace("\r", '', $rawLogs));
+                    $lastLines = array_slice($logLines, -80);
+                    $recentConsoleLogs = implode("\n", $lastLines);
+                }
+            } catch (Throwable $e) {}
+
             $systemPrompt = <<<SYS
 You are an expert Minecraft Server Administrator and AI Co-Pilot with real-time visibility and direct administrative control over this server.
 Your user is the server owner. You assist them with server diagnostics, plugin inquiries, updates, Bedrock crossplay, voice chat, port allocations, and optimizations.
@@ -314,6 +324,11 @@ Current Server State:
 - Geyser Bedrock Crossplay Status: {$geyserStatus}
 - Simple Voice Chat Status: {$voiceStatus}
 - ALL Installed Plugins ({$pluginCount} total): {$pluginsList}
+
+- Recent Server Console & Join Logs (/logs/latest.log - last 80 lines):
+```
+{$recentConsoleLogs}
+```
 
 {$matchedSection}
 
@@ -354,6 +369,15 @@ NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
    - Refer to the "Geyser Bedrock Crossplay Status" above.
    - If 'clone-remote-port: true' is enabled, state clearly: Bedrock players connect on the server's Java port ({$primaryPort}) at {$primaryHost}!
    - If user asks to fix or enable clone port, execute action "enable_geyser_clone_port".
+6. "check console" / "who tried to join" / "join attempts" / "why was I kicked" / "console logs" / "check logs" / "it should have it" / "read console":
+   - You HAVE REAL-TIME DIRECT ACCESS to the server console! Inspect the "Recent Server Console & Join Logs" section above.
+   - Look for entries such as:
+     * Kicked for not being on whitelist: "Disconnecting <player>: You are not white-listed on this server!"
+     * Connection attempts: "<player>[/<ip>:<port>] logged in with entity id", "lost connection", or "UUID of player"
+     * Version mismatch: "Outdated client! Please use <version>" or "Outdated server!"
+     * Errors or exceptions from plugins or server thread
+   - Tell the user exactly what occurred in the console, citing timestamps, player names, and exact reasons!
+   - NEVER tell the user "I do not have access to read console logs" or "I cannot see your console"! You have full access to /logs/latest.log!
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
