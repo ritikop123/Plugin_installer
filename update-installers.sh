@@ -93,7 +93,7 @@ if (file_exists($routesPhp)) {
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/software[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
-    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds?[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
     $append = '';
 
@@ -171,6 +171,28 @@ if (file_exists($routesPhp)) {
         $append .= "\n/* >>> ARIX WORLD MANAGER START >>> */\n" .
                    "Route::group(['prefix' => '/servers/{server}/worlds'], function () {\n" .
                    "    Route::get('/', [Client\\Servers\\WorldManagerController::class, 'index']);\n" .
+                   "    Route::get('/options', [Client\\Servers\\WorldManagerController::class, 'options']);\n" .
+                   "    Route::post('/options', [Client\\Servers\\WorldManagerController::class, 'updateOptions']);\n" .
+                   "    Route::post('/gamerule', [Client\\Servers\\WorldManagerController::class, 'updateGamerule']);\n" .
+                   "    Route::post('/optimize', [Client\\Servers\\WorldManagerController::class, 'optimize']);\n" .
+                   "    Route::post('/force-upgrade', [Client\\Servers\\WorldManagerController::class, 'forceUpgrade']);\n" .
+                   "    Route::post('/download', [Client\\Servers\\WorldManagerController::class, 'download']);\n" .
+                   "    Route::post('/upload', [Client\\Servers\\WorldManagerController::class, 'upload']);\n" .
+                   "    Route::post('/active', [Client\\Servers\\WorldManagerController::class, 'setActive']);\n" .
+                   "    Route::post('/create', [Client\\Servers\\WorldManagerController::class, 'create']);\n" .
+                   "    Route::post('/reset-dimension', [Client\\Servers\\WorldManagerController::class, 'resetDimension']);\n" .
+                   "    Route::post('/delete', [Client\\Servers\\WorldManagerController::class, 'delete']);\n" .
+                   "    Route::post('/backup', [Client\\Servers\\WorldManagerController::class, 'backup']);\n" .
+                   "});\n" .
+                   "Route::group(['prefix' => '/servers/{server}/world'], function () {\n" .
+                   "    Route::get('/', [Client\\Servers\\WorldManagerController::class, 'index']);\n" .
+                   "    Route::get('/options', [Client\\Servers\\WorldManagerController::class, 'options']);\n" .
+                   "    Route::post('/options', [Client\\Servers\\WorldManagerController::class, 'updateOptions']);\n" .
+                   "    Route::post('/gamerule', [Client\\Servers\\WorldManagerController::class, 'updateGamerule']);\n" .
+                   "    Route::post('/optimize', [Client\\Servers\\WorldManagerController::class, 'optimize']);\n" .
+                   "    Route::post('/force-upgrade', [Client\\Servers\\WorldManagerController::class, 'forceUpgrade']);\n" .
+                   "    Route::post('/download', [Client\\Servers\\WorldManagerController::class, 'download']);\n" .
+                   "    Route::post('/upload', [Client\\Servers\\WorldManagerController::class, 'upload']);\n" .
                    "    Route::post('/active', [Client\\Servers\\WorldManagerController::class, 'setActive']);\n" .
                    "    Route::post('/create', [Client\\Servers\\WorldManagerController::class, 'create']);\n" .
                    "    Route::post('/reset-dimension', [Client\\Servers\\WorldManagerController::class, 'resetDimension']);\n" .
