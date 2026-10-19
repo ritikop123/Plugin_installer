@@ -231,19 +231,21 @@ PROMPT;
      */
     public function chat(Request $request, Server $server): JsonResponse
     {
-        $message = trim((string) $request->input('message', ''));
-        $history = (array) $request->input('history', []);
+        try {
+            $message = trim((string) $request->input('message', ''));
+            $history = (array) $request->input('history', []);
 
-        if (empty($message)) {
-            return response()->json(['success' => false, 'message' => 'Message is required.'], 400);
-        }
+            if (empty($message)) {
+                return response()->json(['success' => false, 'message' => 'Message is required.'], 400);
+            }
 
-        $allocations = $this->getServerAllocations($server);
-        $plugins = $this->getInstalledPlugins($server);
-        $allocJson = json_encode($allocations);
-        $pluginsList = implode(', ', array_slice($plugins, 0, 30));
+            $allocations = $this->getServerAllocations($server);
+            $plugins = $this->getInstalledPlugins($server);
+            $pluginCount = count($plugins);
+            $allocJson = json_encode($allocations);
+            $pluginsList = implode(', ', array_slice($plugins, 0, 30));
 
-        $systemPrompt = <<<SYS
+            $systemPrompt = <<<SYS
 You are an expert Minecraft Server AI Assistant running with full administrative capability on this server.
 Your user is the server owner. You can configure, fix, optimize, and manage their server.
 
@@ -251,7 +253,7 @@ Current Server State:
 - Server Name: {$server->name}
 - Memory: {$server->memory} MB | Disk: {$server->disk} MB
 - Primary & Extra Allocations: {$allocJson}
-- Installed Plugins ({count($plugins)} total): {$pluginsList}
+- Installed Plugins ({$pluginCount} total): {$pluginsList}
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "restart_server": Restarts the server.
@@ -278,52 +280,59 @@ Always output a JSON object with:
 }
 SYS;
 
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt],
-        ];
+            $messages = [
+                ['role' => 'system', 'content' => $systemPrompt],
+            ];
 
-        // Append recent history (last 6 messages max to stay well within 4k context)
-        $recentHistory = array_slice($history, -6);
-        foreach ($recentHistory as $h) {
-            if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'])) {
-                $messages[] = [
-                    'role' => $h['role'],
-                    'content' => is_string($h['content']) ? $h['content'] : json_encode($h['content']),
+            // Append recent history (last 6 messages max to stay well within 4k context)
+            $recentHistory = array_slice($history, -6);
+            foreach ($recentHistory as $h) {
+                if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'])) {
+                    $messages[] = [
+                        'role' => $h['role'],
+                        'content' => is_string($h['content']) ? $h['content'] : json_encode($h['content']),
+                    ];
+                }
+            }
+
+            $messages[] = ['role' => 'user', 'content' => $message];
+
+            $aiRaw = $this->callGroqAi($messages, true);
+            $parsed = json_decode($aiRaw, true);
+
+            if (!$parsed) {
+                $parsed = [
+                    'thought' => 'Processed user query',
+                    'message' => $aiRaw ?: "I'm ready to help you manage and optimize your server! Let me know what you need.",
+                    'action' => 'none',
+                    'action_params' => [],
                 ];
             }
+
+            // Execute action if specified
+            $actionResult = null;
+            $actionName = $parsed['action'] ?? 'none';
+            $actionParams = $parsed['action_params'] ?? [];
+
+            if ($actionName !== 'none') {
+                $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
+            }
+
+            return response()->json([
+                'success' => true,
+                'thought' => $parsed['thought'] ?? '',
+                'message' => $parsed['message'] ?? '',
+                'action' => $actionName,
+                'action_params' => $actionParams,
+                'action_result' => $actionResult,
+            ]);
+        } catch (Throwable $e) {
+            Log::error("[AIAssistant] Chat Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'AI processing error: ' . $e->getMessage(),
+            ], 500);
         }
-
-        $messages[] = ['role' => 'user', 'content' => $message];
-
-        $aiRaw = $this->callGroqAi($messages, true);
-        $parsed = json_decode($aiRaw, true);
-
-        if (!$parsed) {
-            $parsed = [
-                'thought' => 'Processed user query',
-                'message' => $aiRaw ?: "I'm ready to help you manage and optimize your server! Let me know what you need.",
-                'action' => 'none',
-                'action_params' => [],
-            ];
-        }
-
-        // Execute action if specified
-        $actionResult = null;
-        $actionName = $parsed['action'] ?? 'none';
-        $actionParams = $parsed['action_params'] ?? [];
-
-        if ($actionName !== 'none') {
-            $actionResult = $this->executeAiAction($server, $actionName, $actionParams);
-        }
-
-        return response()->json([
-            'success' => true,
-            'thought' => $parsed['thought'] ?? '',
-            'message' => $parsed['message'] ?? '',
-            'action' => $actionName,
-            'action_params' => $actionParams,
-            'action_result' => $actionResult,
-        ]);
     }
 
     /**
@@ -488,13 +497,25 @@ YAML;
      */
     private function callGroqAi(array $messages, bool $jsonMode = true): string
     {
-        $apiKey = env('GROQ_API_KEY', config('ai.key', ''));
-        $model = env('GROQ_MODEL', self::DEFAULT_MODEL);
+        $apiKey = env('GROQ_API_KEY');
+        if (empty($apiKey) && file_exists(base_path('.env'))) {
+            $envContent = file_get_contents(base_path('.env'));
+            if (preg_match('/^GROQ_API_KEY=(.*)$/m', $envContent, $m)) {
+                $apiKey = trim(trim($m[1]), " \"'");
+            }
+        }
 
         if (empty($apiKey)) {
             Log::warning("[AIAssistant] GROQ_API_KEY is not configured in .env");
-            return '';
+            return json_encode([
+                'thought' => 'API key missing',
+                'message' => 'GROQ_API_KEY is not set in your panel .env file. Please set GROQ_API_KEY in /var/www/pterodactyl/.env and run php artisan config:clear.',
+                'action' => 'none',
+                'action_params' => [],
+            ]);
         }
+
+        $model = env('GROQ_MODEL', self::DEFAULT_MODEL);
 
         $body = [
             'model' => $model,
