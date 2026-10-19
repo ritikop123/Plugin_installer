@@ -36,6 +36,7 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/OptionsController.php?t=${C
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SoftwareInstallerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/SoftwareInstallerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PlayerManagerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/WorldManagerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/WorldManagerController.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AiAssistantController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/AiAssistantController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SupportLookupController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/SupportLookupController.php
 
 echo -e "\033[0;32m[+] 2/9 Downloading updated React frontend components...\033[0m"
@@ -56,6 +57,9 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SoftwareInstallerContainer.
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PlayerManagerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/player-manager/PlayerManagerContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/OptionsContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/options/OptionsContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/WorldManagerContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/world-manager/WorldManagerContainer.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AiAssistantContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/AiAssistantContainer.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AiConsoleModal.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/AiConsoleModal.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AiConsoleButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/AiConsoleButton.tsx
 
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerExpiryCard.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerExpiryCard.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerExpiryBadge.tsx?t=${CACHE_BUST}" -o resources/scripts/components/dashboard/ServerExpiryBadge.tsx
@@ -87,6 +91,7 @@ if (file_exists($routesPhp)) {
     $c = preg_replace('/\/\*\s*>>>\s*ARIX OPTIONS MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX OPTIONS MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX PLAYER MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX PLAYER MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/\/\*\s*>>>\s*ARIX WORLD MANAGER START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX WORLD MANAGER END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX AI ASSISTANT START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AI ASSISTANT END\s*<<<\s*\*\/\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/plugins[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/mods[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/modpacks[\x27\x22]\],.*?\}\);\s*/s', '', $c);
@@ -94,6 +99,7 @@ if (file_exists($routesPhp)) {
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/options[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds?[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/ai[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
     $append = '';
 
@@ -201,6 +207,16 @@ if (file_exists($routesPhp)) {
                    "});\n/* <<< ARIX WORLD MANAGER END <<< */\n";
     }
 
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/AiAssistantController.php')) {
+        $append .= "\n/* >>> ARIX AI ASSISTANT START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/ai'], function () {\n" .
+                   "    Route::get('/info', [Client\\Servers\\AiAssistantController::class, 'info']);\n" .
+                   "    Route::post('/diagnose', [Client\\Servers\\AiAssistantController::class, 'diagnose']);\n" .
+                   "    Route::post('/autofix', [Client\\Servers\\AiAssistantController::class, 'autofix']);\n" .
+                   "    Route::post('/chat', [Client\\Servers\\AiAssistantController::class, 'chat']);\n" .
+                   "});\n/* <<< ARIX AI ASSISTANT END <<< */\n";
+    }
+
     $c = rtrim($c) . "\n" . $append;
     file_put_contents($routesPhp, $c);
 }
@@ -216,6 +232,7 @@ if (file_exists($routesTs)) {
     $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
     $c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
     $c = preg_replace('/import\s+WorldManagerContainer[^\n]*\n?/s', '', $c);
+    $c = preg_replace('/import\s+AiAssistantContainer[^\n]*\n?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
@@ -223,6 +240,7 @@ if (file_exists($routesTs)) {
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/worlds?[\x27\x22][^\}]*\},?/s', '', $c);
+    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/ai[\x27\x22][^\}]*\},?/s', '', $c);
     $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
     $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
     $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
@@ -230,6 +248,7 @@ if (file_exists($routesTs)) {
     $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
     $c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
     $c = preg_replace('/[^\n]*WorldManagerContainer[^\n]*\n?/', '', $c);
+    $c = preg_replace('/[^\n]*AiAssistantContainer[^\n]*\n?/', '', $c);
 
     $imports = '';
     $routes = '';
@@ -270,6 +289,11 @@ if (file_exists($routesTs)) {
                     "\n        { path: '/world', permission: 'file.*', component: WorldManagerContainer, exact: true },";
     }
 
+    if (file_exists('resources/scripts/components/server/AiAssistantContainer.tsx')) {
+        $imports .= "import AiAssistantContainer from '@/components/server/AiAssistantContainer';\n";
+        $routes .= "\n        { path: '/ai', permission: null, name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
+    }
+
     $c = $imports . $c;
     $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
     file_put_contents($routesTs, $c);
@@ -295,11 +319,13 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSuspensionWarningNoti
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_suspend.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-dashboard-card.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_dashboard_card.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-ai-assistant.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_ai.php
 
 php /tmp/ptero_patch_auto_suspend.php || true
 php /tmp/ptero_patch_support_id.php || true
 php /tmp/ptero_patch_dashboard_card.php || true
-rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php
+php /tmp/ptero_patch_ai.php || true
+rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php /tmp/ptero_patch_ai.php
 
 echo -e "\033[0;32m[+] 6/9 Setting up Auto-Suspend & Artisan Cron Job and Log File...\033[0m"
 touch /var/log/pterodactyl-auto-suspend.log
