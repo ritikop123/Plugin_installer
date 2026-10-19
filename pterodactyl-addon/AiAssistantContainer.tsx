@@ -248,7 +248,7 @@ export default function AiAssistantContainer() {
                         className={msg.action_result?.success ? 'text-emerald-400' : 'text-blue-400'}
                       />
                       <span className="font-semibold uppercase tracking-wider text-[11px]">
-                        Action: {msg.action.replace('_', ' ')}
+                        Action: {msg.action.replace(/_/g, ' ')}
                       </span>
                       {msg.action_result?.text && <span className="opacity-90">• {msg.action_result.text}</span>}
                     </div>

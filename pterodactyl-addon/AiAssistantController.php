@@ -285,10 +285,14 @@ PROMPT;
             } catch (Throwable $e) {}
 
             $onlineMode = 'unknown';
+            $whitelistMode = 'unknown';
             try {
                 $spContent = $this->fileRepository->setServer($server)->getContent('/server.properties');
                 if (preg_match('/^online-mode\s*=\s*(true|false)/mi', $spContent, $m)) {
                     $onlineMode = strtolower($m[1]);
+                }
+                if (preg_match('/^white-list\s*=\s*(true|false)/mi', $spContent, $m)) {
+                    $whitelistMode = strtolower($m[1]);
                 }
             } catch (Throwable $e) {}
 
@@ -305,6 +309,7 @@ Current Server State:
 - Server Name: {$server->name}
 - Server Address / Host: {$primaryHost}:{$primaryPort}
 - Online Mode (Authentication): {$onlineMode} (true = Premium Minecraft only, false = Cracked / Offline accounts allowed)
+- Whitelist Status: {$whitelistMode} (false = Open to everyone, true = Only whitelisted players can join)
 - Primary & Extra Port Allocations: {$allocJson}
 - Geyser Bedrock Crossplay Status: {$geyserStatus}
 - Simple Voice Chat Status: {$voiceStatus}
@@ -333,23 +338,26 @@ MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
 
 NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
 1. "properly configure this for every access" / "universal access" / "allow all access" / "allow cracked and all versions":
-   - The user wants the server joinable by EVERYONE: cracked & premium players (online-mode=false), all Minecraft versions (1.8-1.21+), and Bedrock players!
+   - The user wants the server joinable by EVERYONE: cracked & premium players (online-mode=false), disabled whitelist, all Minecraft versions (1.8-1.21+), and Bedrock players!
    - You MUST execute action "configure_universal_access" to automatically apply these settings and restart!
-2. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
+2. "disable whitelist" / "turn off whitelist" / "remove whitelist":
+   - Disables whitelist in server.properties and executes /whitelist off. Execute action "disable_whitelist"!
+3. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
    - The user wants cross-version client support so players on 1.8 through 1.21+ can join.
    - Check if ViaVersion and ViaBackwards are already in "ALL Installed Plugins":
      * If already installed: Tell the user that ViaVersion and ViaBackwards are already active and their server supports cross-version clients!
      * If not installed: If the user asked you to make it joinable / install it, execute action "setup_multiversion".
-3. "allow cracked" / "turn off online mode" / "cracked players":
+4. "allow cracked" / "turn off online mode" / "cracked players":
    - Requires setting online-mode=false in server.properties.
    - If user confirms or asks: execute action "edit_config" with {"key": "online-mode", "value": "false", "restart": true}!
-4. "is geyser setup" / "bedrock port" / "clone port":
+5. "is geyser setup" / "bedrock port" / "clone port":
    - Refer to the "Geyser Bedrock Crossplay Status" above.
    - If 'clone-remote-port: true' is enabled, state clearly: Bedrock players connect on the server's Java port ({$primaryPort}) at {$primaryHost}!
    - If user asks to fix or enable clone port, execute action "enable_geyser_clone_port".
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
-- "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
+- "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-1.21+), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
+- "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
 - "setup_multiversion": Downloads and installs latest ViaVersion and ViaBackwards into /plugins and restarts the server so all client versions can join.
 - "enable_geyser_clone_port": Sets clone-remote-port: true in Geyser config and restarts server so Bedrock shares the Java port.
 - "setup_geyser": Installs GeyserMC & Floodgate, configures Bedrock port, and restarts.
@@ -419,12 +427,17 @@ SYS;
             $actionName = $parsed['action'] ?? 'none';
             $actionParams = $parsed['action_params'] ?? [];
 
-            // Fail-safe: if action was 'none' but AI claimed it updated online-mode or user requested cracked
+            // Fail-safe: if action was 'none' but AI claimed it updated online-mode or user requested cracked/universal/whitelist
             if ($actionName === 'none') {
                 $thoughtAndMsg = strtolower(($parsed['thought'] ?? '') . ' ' . ($parsed['message'] ?? ''));
+                $userMsgLower = strtolower($message);
                 if (str_contains($thoughtAndMsg, 'online-mode') && (str_contains($thoughtAndMsg, 'false') || str_contains($thoughtAndMsg, 'updated your server.properties') || str_contains($thoughtAndMsg, 'cracked'))) {
                     $actionName = 'edit_config';
                     $actionParams = ['key' => 'online-mode', 'value' => 'false', 'restart' => true];
+                } elseif (preg_match('/\b(eveyr|every|all|universal).*(acess|access)\b/i', $userMsgLower) || preg_match('/\b(not disable whitelist|did not add plugin|did nothing)\b/i', $userMsgLower)) {
+                    $actionName = 'configure_universal_access';
+                } elseif (preg_match('/\b(disable|turn off|remove)\s*whitelist\b/i', $userMsgLower)) {
+                    $actionName = 'disable_whitelist';
                 }
             }
 
@@ -436,6 +449,9 @@ SYS;
                     Log::info("[AIAssistant] Suppressed unauthorized action '{$actionName}' for message: '{$message}'");
                     $actionName = 'none';
                     $actionParams = [];
+                    if (preg_match('/(I have|I\'ve|successfully|configured|installed|restarted|updated)/i', $parsed['message'] ?? '')) {
+                        $parsed['message'] .= "\n\n*(Note: No server changes were made yet. Please confirm if you want me to proceed with this action.)*";
+                    }
                 }
             }
 
@@ -486,6 +502,9 @@ SYS;
                 case 'configure_universal_access':
                     return $this->performConfigureUniversalAccess($server);
 
+                case 'disable_whitelist':
+                    return $this->performDisableWhitelist($server);
+
                 case 'setup_multiversion':
                     return $this->performSetupMultiversion($server);
 
@@ -528,7 +547,7 @@ SYS;
     }
 
     /**
-     * Fully configure server for Universal Access (Cracked + All Versions + Bedrock Crossplay)
+     * Fully configure server for Universal Access (Cracked + Whitelist Off + All Versions + Bedrock Crossplay)
      */
     private function performConfigureUniversalAccess(Server $server): array
     {
@@ -537,54 +556,67 @@ SYS;
         $primaryHost = $primaryAlloc ? ($primaryAlloc->ip_alias ?: $primaryAlloc->ip) : 'server IP';
         $actionsDone = [];
 
-        // 1. Set online-mode=false
+        // 1. Set online-mode=false (Cracked / Offline player support)
         try {
             $this->updateServerPropertiesKey($server, 'online-mode', 'false');
             $actionsDone[] = 'Set online-mode=false (Cracked / Offline players enabled)';
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Failed setting online-mode=false: " . $e->getMessage());
+        }
 
-        // 2. Install ViaVersion & ViaBackwards if missing
+        // 2. Disable Whitelist in server.properties and via console command
+        try {
+            $this->updateServerPropertiesKey($server, 'white-list', 'false');
+            $this->updateServerPropertiesKey($server, 'enforce-whitelist', 'false');
+            try {
+                $this->commandRepository->setServer($server)->send('whitelist off');
+            } catch (Throwable $e) {}
+            $actionsDone[] = 'Disabled whitelist (server open to all players)';
+        } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Failed disabling whitelist: " . $e->getMessage());
+        }
+
+        // 3. Install ViaVersion & ViaBackwards if missing
         $installed = $this->getInstalledPlugins($server);
         $installedStr = strtolower(implode(' ', $installed));
 
         $hasVia = str_contains($installedStr, 'viaversion');
         $hasBackwards = str_contains($installedStr, 'viabackwards');
 
-        try {
-            if (!$hasVia) {
-                $vRes = $this->httpClient->get('https://github.com/ViaVersion/ViaVersion/releases/latest/download/ViaVersion.jar', ['allow_redirects' => true]);
-                if ($vRes->getStatusCode() === 200) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/ViaVersion.jar', $vRes->getBody()->getContents());
-                }
+        if (!$hasVia) {
+            $vOk = $this->downloadPluginJar($server, 'viaversion', 'ViaVersion.jar');
+            if ($vOk) {
+                $actionsDone[] = 'Downloaded & installed ViaVersion.jar (1.8-1.21+ support)';
             }
-            if (!$hasBackwards) {
-                $bRes = $this->httpClient->get('https://github.com/ViaVersion/ViaBackwards/releases/latest/download/ViaBackwards.jar', ['allow_redirects' => true]);
-                if ($bRes->getStatusCode() === 200) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/ViaBackwards.jar', $bRes->getBody()->getContents());
-                }
-            }
-            $actionsDone[] = 'Ensured ViaVersion & ViaBackwards (All versions 1.8-1.21+ enabled)';
-        } catch (Throwable $e) {}
+        } else {
+            $actionsDone[] = 'ViaVersion already installed';
+        }
 
-        // 3. Ensure Geyser & Floodgate with clone-remote-port: true
+        if (!$hasBackwards) {
+            $bOk = $this->downloadPluginJar($server, 'viabackwards', 'ViaBackwards.jar');
+            if ($bOk) {
+                $actionsDone[] = 'Downloaded & installed ViaBackwards.jar (Older client support)';
+            }
+        } else {
+            $actionsDone[] = 'ViaBackwards already installed';
+        }
+
+        // 4. Ensure Geyser & Floodgate with clone-remote-port: true
         $hasGeyser = str_contains($installedStr, 'geyser');
         $hasFloodgate = str_contains($installedStr, 'floodgate');
 
-        try {
-            if (!$hasGeyser) {
-                $gRes = $this->httpClient->get('https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot', ['allow_redirects' => true]);
-                if ($gRes->getStatusCode() === 200) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/Geyser-Spigot.jar', $gRes->getBody()->getContents());
-                }
+        if (!$hasGeyser) {
+            $gOk = $this->downloadPluginJar($server, 'geyser', 'Geyser-Spigot.jar');
+            if ($gOk) {
+                $actionsDone[] = 'Downloaded & installed Geyser-Spigot.jar';
             }
-            if (!$hasFloodgate) {
-                $fRes = $this->httpClient->get('https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot', ['allow_redirects' => true]);
-                if ($fRes->getStatusCode() === 200) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/Floodgate-Spigot.jar', $fRes->getBody()->getContents());
-                }
+        }
+        if (!$hasFloodgate) {
+            $fOk = $this->downloadPluginJar($server, 'floodgate', 'Floodgate-Spigot.jar');
+            if ($fOk) {
+                $actionsDone[] = 'Downloaded & installed Floodgate-Spigot.jar';
             }
-            $actionsDone[] = 'Ensured GeyserMC & Floodgate (Bedrock crossplay enabled)';
-        } catch (Throwable $e) {}
+        }
 
         // Configure Geyser clone-remote-port: true
         try {
@@ -606,7 +638,9 @@ SYS;
             $actionsDone[] = "Configured Geyser clone-remote-port: true (Bedrock port cloned to {$primaryPort})";
         } catch (Throwable $e) {}
 
-        // 4. Restart server
+        Cache::forget("server_{$server->id}_installed_plugins");
+
+        // 5. Restart server
         try {
             $this->powerRepository->setServer($server)->send('restart');
             $actionsDone[] = 'Server restart initiated to apply all changes';
@@ -614,8 +648,32 @@ SYS;
 
         return [
             'success' => true,
-            'text' => 'Universal Access Configured! ' . implode('. ', $actionsDone) . ". Players can join on {$primaryHost}:{$primaryPort}",
+            'text' => 'Universal Access Configured! ' . implode('. ', $actionsDone) . ". All players (Cracked, Bedrock, and Java 1.8-1.21+) can now join on {$primaryHost}:{$primaryPort}",
         ];
+    }
+
+    /**
+     * Disables the server whitelist both in config and in runtime console
+     */
+    private function performDisableWhitelist(Server $server): array
+    {
+        try {
+            $this->updateServerPropertiesKey($server, 'white-list', 'false');
+            $this->updateServerPropertiesKey($server, 'enforce-whitelist', 'false');
+            try {
+                $this->commandRepository->setServer($server)->send('whitelist off');
+            } catch (Throwable $e) {}
+
+            return [
+                'success' => true,
+                'text' => 'Whitelist disabled! white-list=false and enforce-whitelist=false applied to server.properties, and /whitelist off dispatched to console. All players can now join without being whitelisted.',
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'text' => 'Failed to disable whitelist: ' . $e->getMessage(),
+            ];
+        }
     }
 
     /**
@@ -624,26 +682,25 @@ SYS;
     private function performSetupMultiversion(Server $server): array
     {
         try {
-            $viaUrl = 'https://github.com/ViaVersion/ViaVersion/releases/latest/download/ViaVersion.jar';
-            $backwardsUrl = 'https://github.com/ViaVersion/ViaBackwards/releases/latest/download/ViaBackwards.jar';
+            $vOk = $this->downloadPluginJar($server, 'viaversion', 'ViaVersion.jar');
+            $bOk = $this->downloadPluginJar($server, 'viabackwards', 'ViaBackwards.jar');
 
-            $vRes = $this->httpClient->get($viaUrl, ['allow_redirects' => true]);
-            if ($vRes->getStatusCode() === 200) {
-                $this->fileRepository->setServer($server)->putContent('/plugins/ViaVersion.jar', $vRes->getBody()->getContents());
-            }
-
-            $bRes = $this->httpClient->get($backwardsUrl, ['allow_redirects' => true]);
-            if ($bRes->getStatusCode() === 200) {
-                $this->fileRepository->setServer($server)->putContent('/plugins/ViaBackwards.jar', $bRes->getBody()->getContents());
-            }
+            Cache::forget("server_{$server->id}_installed_plugins");
 
             try {
                 $this->powerRepository->setServer($server)->send('restart');
             } catch (Throwable $e) {}
 
+            if ($vOk || $bOk) {
+                return [
+                    'success' => true,
+                    'text' => 'ViaVersion and ViaBackwards have been successfully installed! Server restart initiated to support all client versions (1.8 through 1.21+).',
+                ];
+            }
+
             return [
-                'success' => true,
-                'text' => 'ViaVersion and ViaBackwards have been installed! The server is restarting to support all client versions (1.8 through 1.21+).',
+                'success' => false,
+                'text' => 'Could not download ViaVersion or ViaBackwards assets from repository.',
             ];
         } catch (Throwable $e) {
             return [
@@ -651,6 +708,119 @@ SYS;
                 'text' => 'Multi-version setup failed: ' . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Reliably downloads plugin jar using Hangar API with GitHub Releases and direct API fallbacks
+     */
+    private function downloadPluginJar(Server $server, string $slug, string $targetJarName): bool
+    {
+        $headers = [
+            'User-Agent' => 'Pterodactyl-Panel-AI/1.0',
+            'Accept' => '*/*',
+        ];
+
+        // 1. Geyser and Floodgate direct official APIs
+        if ($slug === 'geyser') {
+            try {
+                $res = $this->httpClient->get('https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot', [
+                    'headers' => $headers,
+                    'allow_redirects' => true,
+                    'timeout' => 45,
+                ]);
+                $body = $res->getBody()->getContents();
+                if ($res->getStatusCode() === 200 && strlen($body) > 50000) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $body);
+                    return true;
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AIAssistant] Geyser direct download failed: " . $e->getMessage());
+            }
+        }
+
+        if ($slug === 'floodgate') {
+            try {
+                $res = $this->httpClient->get('https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot', [
+                    'headers' => $headers,
+                    'allow_redirects' => true,
+                    'timeout' => 45,
+                ]);
+                $body = $res->getBody()->getContents();
+                if ($res->getStatusCode() === 200 && strlen($body) > 50000) {
+                    $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $body);
+                    return true;
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AIAssistant] Floodgate direct download failed: " . $e->getMessage());
+            }
+        }
+
+        // 2. PaperMC Hangar API (extremely fast CDN, no rate limits)
+        $hangarProject = ($slug === 'viabackwards') ? 'ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion' : null);
+        if ($hangarProject !== null) {
+            try {
+                $hangarMeta = $this->httpClient->get("https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions", [
+                    'headers' => $headers,
+                    'timeout' => 10,
+                ]);
+                if ($hangarMeta->getStatusCode() === 200) {
+                    $hData = json_decode($hangarMeta->getBody()->getContents(), true);
+                    $latestVer = $hData['result'][0]['name'] ?? null;
+                    if (!empty($latestVer)) {
+                        $downloadUrl = "https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions/{$latestVer}/PAPER/download";
+                        $jarRes = $this->httpClient->get($downloadUrl, [
+                            'headers' => $headers,
+                            'allow_redirects' => true,
+                            'timeout' => 60,
+                        ]);
+                        $contents = $jarRes->getBody()->getContents();
+                        if ($jarRes->getStatusCode() === 200 && strlen($contents) > 50000) {
+                            $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $contents);
+                            Log::info("[AIAssistant] Successfully downloaded {$targetJarName} via Hangar API ({$latestVer})");
+                            return true;
+                        }
+                    }
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AIAssistant] Hangar download for {$hangarProject} failed: " . $e->getMessage());
+            }
+        }
+
+        // 3. GitHub Releases API resolution
+        $githubRepo = ($slug === 'viabackwards') ? 'ViaVersion/ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion/ViaVersion' : null);
+        if ($githubRepo !== null) {
+            try {
+                $ghRes = $this->httpClient->get("https://api.github.com/repos/{$githubRepo}/releases/latest", [
+                    'headers' => $headers,
+                    'timeout' => 10,
+                ]);
+                if ($ghRes->getStatusCode() === 200) {
+                    $releaseData = json_decode($ghRes->getBody()->getContents(), true);
+                    $assets = $releaseData['assets'] ?? [];
+                    foreach ($assets as $asset) {
+                        $assetName = $asset['name'] ?? '';
+                        $downloadUrl = $asset['browser_download_url'] ?? '';
+                        if (preg_match('/\.jar$/i', $assetName) && !preg_match('/(sources|javadoc|dev)\.jar$/i', $assetName) && !empty($downloadUrl)) {
+                            $jarRes = $this->httpClient->get($downloadUrl, [
+                                'headers' => $headers,
+                                'allow_redirects' => true,
+                                'timeout' => 60,
+                            ]);
+                            $contents = $jarRes->getBody()->getContents();
+                            if ($jarRes->getStatusCode() === 200 && strlen($contents) > 50000) {
+                                $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $contents);
+                                Log::info("[AIAssistant] Successfully downloaded {$targetJarName} via GitHub Release asset: {$assetName}");
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AIAssistant] GitHub release download for {$githubRepo} failed: " . $e->getMessage());
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1083,9 +1253,29 @@ YAML;
             return true;
         }
 
+        // Allow if user is complaining that action wasn't done or demanding to do it
+        if (preg_match('/\b(not done|did nothing|didn\'t do|did not|why did you not|failed|fix it|do it|properly|configure|apply|setup|install|enable|disable|remove|turn off|allow|switch|add)\b/i', $msg)) {
+            if ($action === 'configure_universal_access' && preg_match('/\b(access|acess|universal|all|every|eveyr|cracked|whitelist|plugin)\b/i', $msg)) {
+                return true;
+            }
+            if ($action === 'disable_whitelist' && preg_match('/\b(whitelist|white-list|white\s*list)\b/i', $msg)) {
+                return true;
+            }
+            if ($action === 'setup_multiversion' && preg_match('/\b(plugin|plugins|via|version|versions|joinable)\b/i', $msg)) {
+                return true;
+            }
+        }
+
         switch ($action) {
             case 'configure_universal_access':
-                return preg_match('/\b(every access|all access|universal access|configure.*access|all players|cracked.*version|every.*player)\b/i', $msg) === 1;
+                return preg_match('/\b(every|all|universal|full|complete).*(access|acess|join|player|version|enter)\b/i', $msg) === 1
+                    || preg_match('/\b(configure.*(access|acess|everything|all))\b/i', $msg) === 1
+                    || preg_match('/\b(allow.*(all|everyone|everybody|cracked))\b/i', $msg) === 1
+                    || preg_match('/\b(eveyr\s*acess|every\s*acess|universal\s*access)\b/i', $msg) === 1
+                    || preg_match('/\b(cracked.*version|every.*player|all.*player)\b/i', $msg) === 1;
+
+            case 'disable_whitelist':
+                return preg_match('/\b(whitelist|white-list|white\s*list)\b/i', $msg) === 1;
 
             case 'start_server':
                 return preg_match('/\b(start|boot up|turn on)\b/i', $msg) === 1;
@@ -1110,10 +1300,10 @@ YAML;
                 return preg_match('/\b(optimize|reduce lag|fix lag|boost fps|improve performance|apply optimizations)\b/i', $msg) === 1;
 
             case 'edit_config':
-                return preg_match('/\b(change|set|edit|update|modify|switch|cracked|online-mode|online mode|offline mode|allow cracked)\b/i', $msg) === 1;
+                return preg_match('/\b(change|set|edit|update|modify|switch|cracked|online-mode|online mode|offline mode|whitelist|allow cracked)\b/i', $msg) === 1;
 
             case 'setup_multiversion':
-                return preg_match('/\b(make.*joinable|joinable.*all|all versions|setup via|install via|multi-version|multiversion|cross version)\b/i', $msg) === 1;
+                return preg_match('/\b(make.*joinable|joinable.*all|all versions|setup via|install via|multi-version|multiversion|cross version|add plugin|install plugin)\b/i', $msg) === 1;
 
             case 'enable_geyser_clone_port':
                 return preg_match('/\b(clone port|clone-remote-port|clone remote port|auto port|same port|fix port|fix geyser)\b/i', $msg) === 1;
