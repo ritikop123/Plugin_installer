@@ -355,7 +355,7 @@ export default function WorldManagerContainer() {
   };
 
   // Download World
-  const handleDownloadWorld = (worldName: string) => {
+  const handleDownloadWorld = (worldName: string, folderPath?: string) => {
     setActionLoading(`download-${worldName}`);
     setToastMessage({
       type: 'success',
@@ -363,7 +363,10 @@ export default function WorldManagerContainer() {
     });
 
     http
-      .post(`/api/client/servers/${uuid}/worlds/download`, { world: worldName })
+      .post(`/api/client/servers/${uuid}/worlds/download`, {
+        world: worldName,
+        folder_path: folderPath,
+      })
       .then((res: any) => {
         const archiveName = res.data?.archive;
         if (!archiveName) {
@@ -533,6 +536,39 @@ export default function WorldManagerContainer() {
         setToastMessage({
           type: 'error',
           text: httpErrorToHuman(err) || 'Failed to generate world.',
+        });
+      })
+      .finally(() => setActionLoading(null));
+  };
+
+  // Reset/Regenerate Dimension (Nether or The End)
+  const handleResetDimension = (worldName: string, dimension: 'nether' | 'end') => {
+    const dimTitle = dimension === 'end' ? 'The End' : 'Nether';
+    if (
+      !window.confirm(
+        `Are you sure you want to regenerate the ${dimTitle} dimension for world '${worldName}'?\n\nAll terrain, chunks, and structures in this dimension will be erased and regenerated freshly on next entry.`
+      )
+    ) {
+      return;
+    }
+
+    setActionLoading(`reset-${worldName}_${dimension === 'end' ? 'the_end' : 'nether'}`);
+    http
+      .post(`/api/client/servers/${uuid}/worlds/reset-dimension`, {
+        world: worldName,
+        dimension: dimension,
+      })
+      .then((res: any) => {
+        setToastMessage({
+          type: 'success',
+          text: res.data?.message || `${dimTitle} dimension reset successfully!`,
+        });
+        fetchWorlds();
+      })
+      .catch((err) => {
+        setToastMessage({
+          type: 'error',
+          text: httpErrorToHuman(err) || `Failed to reset ${dimTitle} dimension.`,
         });
       })
       .finally(() => setActionLoading(null));
@@ -1016,7 +1052,7 @@ export default function WorldManagerContainer() {
                       <button
                         type="button"
                         disabled={isDownloading}
-                        onClick={() => handleDownloadWorld(world.name)}
+                        onClick={() => handleDownloadWorld(world.name, world.folder_path)}
                         className="w-full bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold py-1.5 px-3 rounded flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
                       >
                         <FontAwesomeIcon icon={isDownloading ? faSpinner : faDownload} spin={isDownloading} />

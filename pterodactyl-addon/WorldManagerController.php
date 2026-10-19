@@ -275,75 +275,89 @@ class WorldManagerController extends ClientApiController
                     $seenPaths[$pathLower] = true;
                 }
 
-                // If separate root folders exist (e.g. Paper/Spigot world_nether & world_the_end)
-                $netherRootName = "{$worldName}_nether";
-                $endRootName = "{$worldName}_the_end";
+                // ONLY synthesize default Nether and End for the active main Overworld!
+                if ($isActive && !$isAux) {
+                    $netherRootName = "{$worldName}_nether";
+                    $endRootName = "{$worldName}_the_end";
 
-                if (!$foundNether) {
-                    $hasNetherRoot = isset($rootFoldersMap[strtolower($netherRootName)]);
-                    $nItem = $hasNetherRoot ? $rootFoldersMap[strtolower($netherRootName)]['item'] : [];
-                    $nCfg = $worldSettings[$netherRootName] ?? $cfg;
+                    if (!$foundNether) {
+                        $hasNetherRoot = isset($rootFoldersMap[strtolower($netherRootName)]);
+                        $nItem = $hasNetherRoot ? $rootFoldersMap[strtolower($netherRootName)]['item'] : [];
+                        $nCfg = $worldSettings[$netherRootName] ?? $cfg;
 
-                    $worlds[] = [
-                        'name' => $netherRootName,
-                        'display_name' => $netherRootName,
-                        'is_active' => $isActive,
-                        'is_dimension' => true,
-                        'dimension_type' => 'nether',
-                        'parent_world' => $worldName,
-                        'folder_path' => $hasNetherRoot ? $netherRootName : "{$worldName}/DIM-1",
-                        'size' => (int) ($nItem['size'] ?? 0),
-                        'modified_at' => $nItem['modified_at'] ?? $nItem['modifiedAt'] ?? '',
-                        'has_level_dat' => $hasNetherRoot,
-                        'has_overworld' => false,
-                        'has_nether' => true,
-                        'has_end' => false,
-                        'optimized' => !empty($nCfg['optimized']),
-                        'force_upgrade' => false,
-                    ];
-                    $seenNames[strtolower($netherRootName)] = true;
-                    $seenPaths[strtolower($hasNetherRoot ? $netherRootName : "{$worldName}/DIM-1")] = true;
-                }
+                        $worlds[] = [
+                            'name' => $netherRootName,
+                            'display_name' => $netherRootName,
+                            'is_active' => true,
+                            'is_dimension' => true,
+                            'dimension_type' => 'nether',
+                            'parent_world' => $worldName,
+                            'folder_path' => $hasNetherRoot ? $netherRootName : "{$worldName}/DIM-1",
+                            'size' => (int) ($nItem['size'] ?? 0),
+                            'modified_at' => $nItem['modified_at'] ?? $nItem['modifiedAt'] ?? '',
+                            'has_level_dat' => $hasNetherRoot,
+                            'has_overworld' => false,
+                            'has_nether' => true,
+                            'has_end' => false,
+                            'optimized' => !empty($nCfg['optimized']),
+                            'force_upgrade' => false,
+                        ];
+                        $seenNames[strtolower($netherRootName)] = true;
+                        $seenPaths[strtolower($hasNetherRoot ? $netherRootName : "{$worldName}/DIM-1")] = true;
+                    }
 
-                if (!$foundEnd) {
-                    $hasEndRoot = isset($rootFoldersMap[strtolower($endRootName)]);
-                    $eItem = $hasEndRoot ? $rootFoldersMap[strtolower($endRootName)]['item'] : [];
-                    $eCfg = $worldSettings[$endRootName] ?? $cfg;
+                    if (!$foundEnd) {
+                        $hasEndRoot = isset($rootFoldersMap[strtolower($endRootName)]);
+                        $eItem = $hasEndRoot ? $rootFoldersMap[strtolower($endRootName)]['item'] : [];
+                        $eCfg = $worldSettings[$endRootName] ?? $cfg;
 
-                    $worlds[] = [
-                        'name' => $endRootName,
-                        'display_name' => $endRootName,
-                        'is_active' => $isActive,
-                        'is_dimension' => true,
-                        'dimension_type' => 'the_end',
-                        'parent_world' => $worldName,
-                        'folder_path' => $hasEndRoot ? $endRootName : "{$worldName}/DIM1",
-                        'size' => (int) ($eItem['size'] ?? 0),
-                        'modified_at' => $eItem['modified_at'] ?? $eItem['modifiedAt'] ?? '',
-                        'has_level_dat' => $hasEndRoot,
-                        'has_overworld' => false,
-                        'has_nether' => false,
-                        'has_end' => true,
-                        'optimized' => !empty($eCfg['optimized']),
-                        'force_upgrade' => false,
-                    ];
-                    $seenNames[strtolower($endRootName)] = true;
-                    $seenPaths[strtolower($hasEndRoot ? $endRootName : "{$worldName}/DIM1")] = true;
+                        $worlds[] = [
+                            'name' => $endRootName,
+                            'display_name' => $endRootName,
+                            'is_active' => true,
+                            'is_dimension' => true,
+                            'dimension_type' => 'the_end',
+                            'parent_world' => $worldName,
+                            'folder_path' => $hasEndRoot ? $endRootName : "{$worldName}/DIM1",
+                            'size' => (int) ($eItem['size'] ?? 0),
+                            'modified_at' => $eItem['modified_at'] ?? $eItem['modifiedAt'] ?? '',
+                            'has_level_dat' => $hasEndRoot,
+                            'has_overworld' => false,
+                            'has_nether' => false,
+                            'has_end' => true,
+                            'optimized' => !empty($eCfg['optimized']),
+                            'force_upgrade' => false,
+                        ];
+                        $seenNames[strtolower($endRootName)] = true;
+                        $seenPaths[strtolower($hasEndRoot ? $endRootName : "{$worldName}/DIM1")] = true;
+                    }
                 }
             };
 
             // Inspect the active world first
             $inspectWorld($activeWorld, true);
 
-            // Step 2: Now inspect any OTHER world folders in the root directory
-            $ignoredFolders = ['plugins', 'mods', 'config', 'defaultconfigs', 'logs', 'crash-reports', 'libraries', 'versions', 'cache', 'core', 'web', 'resourcepacks'];
+            // Step 2: Now inspect any OTHER genuine base world folders in root directory
+            $ignoredFolders = [
+                'plugins', 'mods', 'config', 'defaultconfigs', 'logs', 'crash-reports',
+                'libraries', 'versions', 'cache', 'core', 'web', 'resourcepacks',
+                'backups', 'backup', 'data', 'temp', 'tmp', 'scripts', 'patch'
+            ];
+
             foreach ($rootFoldersMap as $lowerName => $entry) {
                 if (isset($seenNames[$lowerName]) || isset($seenPaths[$lowerName]) || in_array($lowerName, $ignoredFolders)) {
                     continue;
                 }
 
                 $origName = $entry['name'];
-                $isCandidate = str_ends_with($lowerName, '_nether') || str_ends_with($lowerName, '_the_end') || isset($worldSettings[$origName]);
+
+                // Must NOT be an auxiliary dimension folder that was already covered
+                if (str_ends_with($lowerName, '_nether') || str_ends_with($lowerName, '_the_end')) {
+                    continue;
+                }
+
+                // Strictly check if it is a real Minecraft world (has level.dat or region directory)
+                $isCandidate = isset($worldSettings[$origName]);
 
                 if (!$isCandidate) {
                     try {
@@ -351,7 +365,7 @@ class WorldManagerController extends ClientApiController
                         if (is_array($checkSub)) {
                             foreach ($checkSub as $cs) {
                                 $csName = strtolower($cs['name'] ?? '');
-                                if (in_array($csName, ['level.dat', 'region', 'entities', 'poi', 'data', 'dimensions', 'session.lock', 'uid.dat', 'dim-1', 'dim1'])) {
+                                if ($csName === 'level.dat' || $csName === 'region') {
                                     $isCandidate = true;
                                     break;
                                 }
@@ -733,6 +747,7 @@ class WorldManagerController extends ClientApiController
         }
 
         $worldName = trim((string) $request->input('world', ''));
+        $folderPath = trim((string) $request->input('folder_path', ''));
         $cleanWorld = basename(str_replace(['\\', '/', "\0", '..'], '', $worldName));
 
         if (empty($cleanWorld)) {
@@ -740,9 +755,26 @@ class WorldManagerController extends ClientApiController
         }
 
         try {
-            $isNether = str_ends_with(strtolower($cleanWorld), '_nether');
-            $isEnd = str_ends_with(strtolower($cleanWorld), '_the_end');
+            // Priority 1: If an explicit folder_path was passed and has subdirectories
+            if (!empty($folderPath)) {
+                $cleanPath = trim(str_replace(['\\', "\0", '..'], '', $folderPath), '/');
+                $parts = explode('/', $cleanPath);
+                if (count($parts) > 1) {
+                    $targetFolder = array_pop($parts);
+                    $parentDir = '/' . implode('/', $parts);
+                    try {
+                        $archiveName = $this->fileRepository->setServer($server)->compressFiles($parentDir, [$targetFolder]);
+                        return response()->json([
+                            'success' => true,
+                            'message' => "Dimension '{$cleanWorld}' compressed successfully.",
+                            'archive' => $archiveName,
+                            'file' => '/' . $archiveName,
+                        ]);
+                    } catch (Throwable $e) {}
+                }
+            }
 
+            // Priority 2: Standard root folder
             $rootItems = [];
             try {
                 $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
@@ -755,15 +787,34 @@ class WorldManagerController extends ClientApiController
                 }
             }
 
+            $isNether = str_ends_with(strtolower($cleanWorld), '_nether');
+            $isEnd = str_ends_with(strtolower($cleanWorld), '_the_end');
+
             if (isset($rootFolders[strtolower($cleanWorld)])) {
                 $targets = [$cleanWorld];
                 $archiveName = $this->fileRepository->setServer($server)->compressFiles('/', $targets);
             } elseif ($isNether) {
                 $parent = str_replace(['_nether', '_NETHER'], '', $cleanWorld);
-                $archiveName = $this->fileRepository->setServer($server)->compressFiles('/' . $parent, ['DIM-1']);
+                $target = 'DIM-1';
+                $parentDir = '/' . $parent;
+                try {
+                    $this->fileRepository->setServer($server)->getDirectory('/' . $parent . '/DIM-1');
+                } catch (Throwable $e) {
+                    $target = 'the_nether';
+                    $parentDir = '/' . $parent . '/dimensions/minecraft';
+                }
+                $archiveName = $this->fileRepository->setServer($server)->compressFiles($parentDir, [$target]);
             } elseif ($isEnd) {
                 $parent = str_replace(['_the_end', '_THE_END'], '', $cleanWorld);
-                $archiveName = $this->fileRepository->setServer($server)->compressFiles('/' . $parent, ['DIM1']);
+                $target = 'DIM1';
+                $parentDir = '/' . $parent;
+                try {
+                    $this->fileRepository->setServer($server)->getDirectory('/' . $parent . '/DIM1');
+                } catch (Throwable $e) {
+                    $target = 'the_end';
+                    $parentDir = '/' . $parent . '/dimensions/minecraft';
+                }
+                $archiveName = $this->fileRepository->setServer($server)->compressFiles($parentDir, [$target]);
             } else {
                 $targets = [$cleanWorld];
                 if (isset($rootFolders[strtolower("{$cleanWorld}_nether")])) $targets[] = "{$cleanWorld}_nether";
