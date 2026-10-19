@@ -107,11 +107,8 @@ export default function AiConsoleModal({ visible, onClose }: Props) {
               <FontAwesomeIcon icon={faRobot} />
             </div>
             <div>
-              <h3 className="text-white font-bold text-lg flex items-center gap-2">
+              <h3 className="text-white font-bold text-base flex items-center gap-2">
                 AI Server Diagnoser & Auto-Fix
-                <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold">
-                  allam-2-7b
-                </span>
               </h3>
               <p className="text-gray-400 text-xs">Autonomous crash detection, log analysis and 1-click repairs</p>
             </div>
