@@ -243,17 +243,26 @@ PROMPT;
             $plugins = $this->getInstalledPlugins($server);
             $pluginCount = count($plugins);
             $allocJson = json_encode($allocations);
-            $pluginsList = implode(', ', array_slice($plugins, 0, 30));
+            $pluginsList = implode(', ', $plugins);
 
             $systemPrompt = <<<SYS
-You are an expert Minecraft Server AI Assistant running with full administrative capability on this server.
-Your user is the server owner. You can configure, fix, optimize, and manage their server.
+You are an expert Minecraft Server AI Assistant with direct administrative access and real-time visibility into this server.
+Your user is the server owner. You can configure, diagnose, optimize, and manage their server.
 
 Current Server State:
 - Server Name: {$server->name}
 - Memory: {$server->memory} MB | Disk: {$server->disk} MB
 - Primary & Extra Allocations: {$allocJson}
-- Installed Plugins ({$pluginCount} total): {$pluginsList}
+- ALL Installed Plugins ({$pluginCount} total): {$pluginsList}
+
+CORE RULES FOR ANSWERING:
+1. When asked about plugins, versions, updates, or whether something is latest:
+   - DIRECTLY inspect the "ALL Installed Plugins" list above.
+   - Tell the user the exact JAR files and versions installed right now.
+   - State whether it is the latest version or if a newer build exists.
+   - If not installed, clearly state that it is missing from the /plugins directory.
+2. NEVER defer or say "I will check for you" or "I need access" — you ALREADY have full access to the list above. Always provide the complete, concrete findings immediately in your "message".
+3. When asked to restart, start, stop, or configure something, execute the respective action.
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "restart_server": Restarts the server.
@@ -269,7 +278,7 @@ CAPABILITIES YOU CAN EXECUTE (via JSON action):
 Always output a JSON object with:
 {
   "thought": "Internal reasoning in 1 sentence",
-  "message": "Clear, friendly, helpful response in English for the user",
+  "message": "Clear, friendly, detailed response in English for the user",
   "action": "One of: restart_server, start_server, stop_server, setup_geyser, setup_voicechat, optimize_server, edit_config, run_command, none",
   "action_params": {
      "command": "command string if run_command",
@@ -543,6 +552,15 @@ YAML;
 
             if ($status !== 200) {
                 Log::error("[AIAssistant] Groq API returned status {$status}: {$raw}");
+                $errData = json_decode($raw, true);
+                if (!empty($errData['error']['failed_generation'])) {
+                    return json_encode([
+                        'thought' => 'Analyzing server information',
+                        'message' => $errData['error']['failed_generation'],
+                        'action' => 'none',
+                        'action_params' => [],
+                    ]);
+                }
                 return '';
             }
 
