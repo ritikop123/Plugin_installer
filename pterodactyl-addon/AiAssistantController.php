@@ -477,16 +477,22 @@ NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
      * Errors or exceptions from plugins or server thread
    - Tell the user exactly what occurred in the console, citing timestamps, player names, and exact reasons!
    - NEVER tell the user "I do not have access to read console logs" or "I cannot see your console"! You have full access to /logs/latest.log and /crash-reports/!
-7. "download software" / "install paper" / "install purpur" / "download server jar" / "install server" / "server crashing download paper":
-   - You HAVE FULL DIRECT ABILITY to download and install server software jars!
-   - NEVER tell the user "I cannot directly download files to your server's file system"! You have direct access to Wings and MCJars/Paper APIs.
+7. "download software" / "install paper" / "install purpur" / "download server jar" / "install server" / "server crashing download paper" / "corrupted jar" / "invalid or corrupt jarfile":
+   - You HAVE FULL DIRECT ABILITY to download and install server software jars using the built-in Software Installer!
+   - NEVER tell the user "I cannot directly download files to your server's file system"!
    - You MUST execute action "install_software" with {"software": "paper", "version": "latest"} (or requested software/version like "26.4")!
 8. "delete file" / "remove corrupted" / "world_gen_settings.dat" / "session.lock" / "server crashing due to corrupted file":
    - When a world generation file (/world/world_gen_settings.dat), session lock (/world/session.lock), or conflicting plugin crashes the server, execute action "delete_file" with {"file": "/path/to/file", "restart": true}!
    - Minecraft will automatically regenerate fresh, uncorrupted files upon restart!
+9. "install plugin" / "add plugin" / "download plugin":
+   - You can install ANY plugin from Modrinth/Hangar using the built-in Plugin Installer! Execute action "install_plugin" with {"plugin": "PluginName"}!
+10. "install mod" / "add mod":
+   - You can install ANY mod from Modrinth using the built-in Mod Installer! Execute action "install_mod" with {"mod": "ModName"}!
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
-- "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|26.4|1.21.4"}
+- "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) via Wings streaming pull directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|26.4|1.21.4"}
+- "install_plugin": Installs any plugin directly into /plugins using the built-in Plugin Installer engine. Params: {"plugin": "LuckPerms"}
+- "install_mod": Installs any mod directly into /mods using the built-in Mod Installer engine. Params: {"mod": "Sodium"}
 - "delete_file": Safely deletes a corrupted file, broken world gen data, or crashing plugin. Params: {"file": "/world/world_gen_settings.dat", "restart": true}
 - "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-26.x), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
@@ -502,9 +508,11 @@ CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "run_command": Runs a console command (e.g. op, say, whitelist, reload).
 - "none": Just a conversational answer or advice.
 
-STRICT ACTION EXECUTION RULES (CRITICAL):
-- When the user asks you to configure, set, change, install, download software, delete a file, or says "yes" / "proceed" / "do it": You MUST output the appropriate action! NEVER claim in your text message that you updated a file without outputting the action in JSON!
-- If the user is asking an informational inquiry, checking versions, or asking how something works: Set "action": "none"!
+STRICT ACTION EXECUTION & ANTI-HALLUCINATION RULES (CRITICAL):
+- ANTI-HALLUCINATION: NEVER speak in future tense saying "I am going to download...", "I will install...", or "I will fix..." while setting "action": "none"!
+- Whenever you recognize a problem (such as invalid or corrupt jarfile server.jar, missing executable, crash, or user request to install/fix), you MUST set "action" to the executable action (e.g. "install_software")!
+- Your message MUST state that the action has been dispatched and is currently executing.
+- If the user is asking a purely informational inquiry, checking versions, or asking how something works: Set "action": "none"!
 
 RESPONSE RULES:
 - DIRECTLY answer the user using the concrete plugin files, status, and ports listed above.
@@ -514,11 +522,13 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: install_software, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: install_software, install_plugin, install_mod, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
-     "file": "path if delete_file or edit_config",
      "software": "paper or purpur if install_software",
      "version": "version string if install_software",
+     "plugin": "plugin name if install_plugin",
+     "mod": "mod name if install_mod",
+     "file": "path if delete_file or edit_config",
      "command": "command string if run_command",
      "key": "setting key",
      "value": "setting value"
@@ -569,7 +579,16 @@ SYS;
             if ($actionName === 'none') {
                 $thoughtAndMsg = strtolower(($parsed['thought'] ?? '') . ' ' . ($parsed['message'] ?? ''));
                 $userMsgLower = strtolower($message);
-                if (str_contains($thoughtAndMsg, 'online-mode') && (str_contains($thoughtAndMsg, 'false') || str_contains($thoughtAndMsg, 'updated your server.properties') || str_contains($thoughtAndMsg, 'cracked'))) {
+
+                // Anti-hallucination: if AI promised to install/reinstall or user reported corrupt jarfile
+                if (preg_match('/(reinstall|install|download|replace).*(server\.jar|paper|purpur|software|server software)/i', $thoughtAndMsg) ||
+                    (str_contains($userMsgLower, 'corrupt jarfile') || str_contains($userMsgLower, 'invalid or corrupt'))) {
+                    $actionName = 'install_software';
+                    $software = 'paper';
+                    if (str_contains($thoughtAndMsg, 'purpur') || str_contains($userMsgLower, 'purpur')) $software = 'purpur';
+                    if (str_contains($thoughtAndMsg, 'fabric') || str_contains($userMsgLower, 'fabric')) $software = 'fabric';
+                    $actionParams = ['software' => $software, 'version' => 'latest'];
+                } elseif (str_contains($thoughtAndMsg, 'online-mode') && (str_contains($thoughtAndMsg, 'false') || str_contains($thoughtAndMsg, 'updated your server.properties') || str_contains($thoughtAndMsg, 'cracked'))) {
                     $actionName = 'edit_config';
                     $actionParams = ['key' => 'online-mode', 'value' => 'false', 'restart' => true];
                 } elseif (preg_match('/\b(eveyr|every|all|universal).*(acess|access)\b/i', $userMsgLower) || preg_match('/\b(not disable whitelist|did not add plugin|did nothing)\b/i', $userMsgLower)) {
@@ -599,6 +618,12 @@ SYS;
                         $targetFile = $pathMatch[0];
                     }
                     $actionParams = ['file' => $targetFile, 'restart' => true];
+                } elseif (preg_match('/\b(install|add|download)\s+(?:plugin\s+)?([a-zA-Z0-9_\-]+)\b/i', $userMsgLower, $pm) && str_contains($userMsgLower, 'plugin')) {
+                    $actionName = 'install_plugin';
+                    $actionParams = ['plugin' => $pm[2]];
+                } elseif (preg_match('/\b(install|add|download)\s+(?:mod\s+)?([a-zA-Z0-9_\-]+)\b/i', $userMsgLower, $mm) && str_contains($userMsgLower, 'mod')) {
+                    $actionName = 'install_mod';
+                    $actionParams = ['mod' => $mm[2]];
                 }
             }
 
@@ -663,6 +688,12 @@ SYS;
 
                 case 'install_software':
                     return $this->performInstallSoftware($server, $params);
+
+                case 'install_plugin':
+                    return $this->performInstallPlugin($server, $params);
+
+                case 'install_mod':
+                    return $this->performInstallMod($server, $params);
 
                 case 'delete_file':
                     return $this->performDeleteFile($server, $params);
@@ -787,22 +818,23 @@ SYS;
         }
 
         try {
-            $downloadRes = $this->httpClient->get($targetUrl, [
-                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => '*/*'],
-                'allow_redirects' => true,
-                'timeout' => 120,
-            ]);
+            // Delete old / corrupt server.jar first to ensure completely clean installation
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles('/', ['server.jar']);
+            } catch (Throwable $e) {}
 
-            $contents = $downloadRes->getBody()->getContents();
-            if ($downloadRes->getStatusCode() !== 200 || strlen($contents) < 5000000) {
-                return [
-                    'success' => false,
-                    'text' => "Failed to download server software from repository (HTTP {$downloadRes->getStatusCode()}).",
-                ];
-            }
-
-            // Write to /server.jar
-            $this->fileRepository->setServer($server)->putContent('/server.jar', $contents);
+            // Command Wings Daemon to stream-pull the jar directly into root as server.jar
+            // This is the EXACT official Wings pull mechanism used by SoftwareInstallerController!
+            // It completely avoids PHP memory limits and Wings JSON payload truncation.
+            $this->fileRepository->setServer($server)->pull(
+                $targetUrl,
+                '/',
+                [
+                    'filename' => 'server.jar',
+                    'use_header' => false,
+                    'foreground' => true,
+                ]
+            );
 
             // Automatically accept EULA
             try {
@@ -832,9 +864,10 @@ SYS;
 
             return [
                 'success' => true,
-                'text' => "Successfully downloaded and installed {$software} ({$version}) as server.jar, accepted eula=true, and initiated server startup!",
+                'text' => "Successfully downloaded and installed {$software} ({$version}) as server.jar via Wings streaming pull, accepted eula=true, and started the server!",
             ];
         } catch (Throwable $e) {
+            Log::error("[AIAssistant] Wings pull error: " . $e->getMessage());
             return [
                 'success' => false,
                 'text' => 'Software installation failed: ' . $e->getMessage(),
@@ -1007,7 +1040,7 @@ SYS;
     }
 
     /**
-     * Reliably downloads plugin jar using Hangar API with GitHub Releases and direct API fallbacks
+     * Reliably downloads plugin jar using Wings streaming pull (matching PluginInstallerController)
      */
     private function downloadPluginJar(Server $server, string $slug, string $targetJarName): bool
     {
@@ -1016,107 +1049,89 @@ SYS;
             'Accept' => '*/*',
         ];
 
+        try {
+            $this->fileRepository->setServer($server)->createDirectory('plugins', '/');
+        } catch (Throwable $e) {}
+
+        $downloadUrl = null;
+
         // 1. Geyser and Floodgate direct official APIs
         if ($slug === 'geyser') {
-            try {
-                $res = $this->httpClient->get('https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot', [
-                    'headers' => $headers,
-                    'allow_redirects' => true,
-                    'timeout' => 45,
-                ]);
-                $body = $res->getBody()->getContents();
-                if ($res->getStatusCode() === 200 && strlen($body) > 50000) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $body);
-                    return true;
-                }
-            } catch (Throwable $e) {
-                Log::warning("[AIAssistant] Geyser direct download failed: " . $e->getMessage());
-            }
-        }
-
-        if ($slug === 'floodgate') {
-            try {
-                $res = $this->httpClient->get('https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot', [
-                    'headers' => $headers,
-                    'allow_redirects' => true,
-                    'timeout' => 45,
-                ]);
-                $body = $res->getBody()->getContents();
-                if ($res->getStatusCode() === 200 && strlen($body) > 50000) {
-                    $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $body);
-                    return true;
-                }
-            } catch (Throwable $e) {
-                Log::warning("[AIAssistant] Floodgate direct download failed: " . $e->getMessage());
-            }
+            $downloadUrl = 'https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot';
+        } elseif ($slug === 'floodgate') {
+            $downloadUrl = 'https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot';
         }
 
         // 2. PaperMC Hangar API (extremely fast CDN, no rate limits)
-        $hangarProject = ($slug === 'viabackwards') ? 'ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion' : null);
-        if ($hangarProject !== null) {
-            try {
-                $hangarMeta = $this->httpClient->get("https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions", [
-                    'headers' => $headers,
-                    'timeout' => 10,
-                ]);
-                if ($hangarMeta->getStatusCode() === 200) {
-                    $hData = json_decode($hangarMeta->getBody()->getContents(), true);
-                    $latestVer = $hData['result'][0]['name'] ?? null;
-                    if (!empty($latestVer)) {
-                        $downloadUrl = "https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions/{$latestVer}/PAPER/download";
-                        $jarRes = $this->httpClient->get($downloadUrl, [
-                            'headers' => $headers,
-                            'allow_redirects' => true,
-                            'timeout' => 60,
-                        ]);
-                        $contents = $jarRes->getBody()->getContents();
-                        if ($jarRes->getStatusCode() === 200 && strlen($contents) > 50000) {
-                            $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $contents);
-                            Log::info("[AIAssistant] Successfully downloaded {$targetJarName} via Hangar API ({$latestVer})");
-                            return true;
+        if (!$downloadUrl) {
+            $hangarProject = ($slug === 'viabackwards') ? 'ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion' : null);
+            if ($hangarProject !== null) {
+                try {
+                    $hangarMeta = $this->httpClient->get("https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions", [
+                        'headers' => $headers,
+                        'timeout' => 10,
+                    ]);
+                    if ($hangarMeta->getStatusCode() === 200) {
+                        $hData = json_decode($hangarMeta->getBody()->getContents(), true);
+                        $latestVer = $hData['result'][0]['name'] ?? null;
+                        if (!empty($latestVer)) {
+                            $downloadUrl = "https://hangar.papermc.io/api/v1/projects/{$hangarProject}/versions/{$latestVer}/PAPER/download";
                         }
                     }
+                } catch (Throwable $e) {
+                    Log::warning("[AIAssistant] Hangar download for {$hangarProject} failed: " . $e->getMessage());
                 }
-            } catch (Throwable $e) {
-                Log::warning("[AIAssistant] Hangar download for {$hangarProject} failed: " . $e->getMessage());
             }
         }
 
         // 3. GitHub Releases API resolution
-        $githubRepo = ($slug === 'viabackwards') ? 'ViaVersion/ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion/ViaVersion' : null);
-        if ($githubRepo !== null) {
-            try {
-                $ghRes = $this->httpClient->get("https://api.github.com/repos/{$githubRepo}/releases/latest", [
-                    'headers' => $headers,
-                    'timeout' => 10,
-                ]);
-                if ($ghRes->getStatusCode() === 200) {
-                    $releaseData = json_decode($ghRes->getBody()->getContents(), true);
-                    $assets = $releaseData['assets'] ?? [];
-                    foreach ($assets as $asset) {
-                        $assetName = $asset['name'] ?? '';
-                        $downloadUrl = $asset['browser_download_url'] ?? '';
-                        if (preg_match('/\.jar$/i', $assetName) && !preg_match('/(sources|javadoc|dev)\.jar$/i', $assetName) && !empty($downloadUrl)) {
-                            $jarRes = $this->httpClient->get($downloadUrl, [
-                                'headers' => $headers,
-                                'allow_redirects' => true,
-                                'timeout' => 60,
-                            ]);
-                            $contents = $jarRes->getBody()->getContents();
-                            if ($jarRes->getStatusCode() === 200 && strlen($contents) > 50000) {
-                                $this->fileRepository->setServer($server)->putContent('/plugins/' . $targetJarName, $contents);
-                                Log::info("[AIAssistant] Successfully downloaded {$targetJarName} via GitHub Release asset: {$assetName}");
-                                return true;
+        if (!$downloadUrl) {
+            $githubRepo = ($slug === 'viabackwards') ? 'ViaVersion/ViaBackwards' : (($slug === 'viaversion') ? 'ViaVersion/ViaVersion' : null);
+            if ($githubRepo !== null) {
+                try {
+                    $ghRes = $this->httpClient->get("https://api.github.com/repos/{$githubRepo}/releases/latest", [
+                        'headers' => $headers,
+                        'timeout' => 10,
+                    ]);
+                    if ($ghRes->getStatusCode() === 200) {
+                        $releaseData = json_decode($ghRes->getBody()->getContents(), true);
+                        $assets = $releaseData['assets'] ?? [];
+                        foreach ($assets as $asset) {
+                            $assetName = $asset['name'] ?? '';
+                            $url = $asset['browser_download_url'] ?? '';
+                            if (preg_match('/\.jar$/i', $assetName) && !preg_match('/(sources|javadoc|dev)\.jar$/i', $assetName) && !empty($url)) {
+                                $downloadUrl = $url;
+                                break;
                             }
                         }
                     }
+                } catch (Throwable $e) {
+                    Log::warning("[AIAssistant] GitHub release download for {$githubRepo} failed: " . $e->getMessage());
                 }
-            } catch (Throwable $e) {
-                Log::warning("[AIAssistant] GitHub release download for {$githubRepo} failed: " . $e->getMessage());
             }
         }
 
-        return false;
+        if (empty($downloadUrl)) {
+            Log::warning("[AIAssistant] Could not resolve download URL for plugin '{$slug}'");
+            return false;
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->pull(
+                $downloadUrl,
+                '/plugins',
+                [
+                    'filename' => $targetJarName,
+                    'use_header' => false,
+                    'foreground' => true,
+                ]
+            );
+            Log::info("[AIAssistant] Successfully pulled {$targetJarName} into /plugins via Wings streaming pull");
+            return true;
+        } catch (Throwable $e) {
+            Log::error("[AIAssistant] Wings pull failed for {$targetJarName}: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -1619,6 +1634,12 @@ YAML;
             if ($action === 'install_software' && preg_match('/\b(software|paper|purpur|spigot|fabric|vanilla|jar|download)\b/i', $msg)) {
                 return true;
             }
+            if ($action === 'install_plugin' && preg_match('/\b(plugin|plugins)\b/i', $msg)) {
+                return true;
+            }
+            if ($action === 'install_mod' && preg_match('/\b(mod|mods)\b/i', $msg)) {
+                return true;
+            }
             if ($action === 'delete_file' && preg_match('/\b(delete|remove|erase|file|world|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
                 return true;
             }
@@ -1632,6 +1653,14 @@ YAML;
         }
 
         switch ($action) {
+            case 'install_plugin':
+                return preg_match('/\b(install|download|add|setup|get)\b/i', $msg) === 1
+                    || preg_match('/\b(plugin|plugins)\b/i', $msg) === 1;
+
+            case 'install_mod':
+                return preg_match('/\b(install|download|add|setup|get)\b/i', $msg) === 1
+                    || preg_match('/\b(mod|mods)\b/i', $msg) === 1;
+
             case 'delete_file':
                 return preg_match('/\b(delete|remove|erase|clear|trash|wipe)\b/i', $msg) === 1
                     || preg_match('/\b(world_gen_settings|session\.lock|\.dat|\.log|\.jar)\b/i', $msg) === 1;
@@ -1939,6 +1968,189 @@ YAML;
             return !empty($lines) ? implode("\n", array_slice($lines, -10)) : 'No previous server-specific patterns stored yet.';
         } catch (Throwable $e) {
             return 'No previous server-specific patterns stored yet.';
+        }
+    }
+
+    /**
+     * Installs any plugin requested by user using Modrinth / Hangar like the built-in Plugin Installer
+     */
+    private function performInstallPlugin(Server $server, array $params): array
+    {
+        $pluginQuery = trim((string) ($params['plugin'] ?? $params['name'] ?? ''));
+        if (empty($pluginQuery)) {
+            return ['success' => false, 'text' => 'No plugin name specified.'];
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->createDirectory('plugins', '/');
+        } catch (Throwable $e) {}
+
+        // 1. Direct match for key plugins
+        $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $pluginQuery));
+        if (in_array($cleanSlug, ['geyser', 'floodgate', 'viaversion', 'viabackwards'], true)) {
+            $targetName = ($cleanSlug === 'geyser') ? 'Geyser-Spigot.jar' : (($cleanSlug === 'floodgate') ? 'Floodgate-Spigot.jar' : (ucfirst($cleanSlug) . '.jar'));
+            $ok = $this->downloadPluginJar($server, $cleanSlug, $targetName);
+            if ($ok) {
+                Cache::forget("server_{$server->id}_installed_plugins");
+                try {
+                    $this->powerRepository->setServer($server)->send('restart');
+                } catch (Throwable $e) {}
+                return ['success' => true, 'text' => "Successfully installed {$targetName} via Wings streaming pull and restarted server!"];
+            }
+        }
+
+        // 2. Query Modrinth API search
+        $downloadUrl = null;
+        $fileName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $pluginQuery) . '.jar';
+
+        try {
+            $searchRes = $this->httpClient->get('https://api.modrinth.com/v2/search', [
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                'query' => [
+                    'query' => $pluginQuery,
+                    'facets' => '[["project_type:plugin"]]',
+                    'limit' => 1,
+                ],
+                'timeout' => 8,
+            ]);
+
+            if ($searchRes->getStatusCode() === 200) {
+                $searchData = json_decode($searchRes->getBody()->getContents(), true);
+                $hit = $searchData['hits'][0] ?? null;
+                if ($hit && !empty($hit['project_id'])) {
+                    $slug = $hit['slug'] ?? $hit['project_id'];
+                    $verRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$slug}/version", [
+                        'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                        'timeout' => 8,
+                    ]);
+                    if ($verRes->getStatusCode() === 200) {
+                        $vers = json_decode($verRes->getBody()->getContents(), true);
+                        if (!empty($vers) && is_array($vers)) {
+                            $primaryFile = $vers[0]['files'][0] ?? null;
+                            if ($primaryFile && !empty($primaryFile['url'])) {
+                                $downloadUrl = $primaryFile['url'];
+                                if (!empty($primaryFile['filename'])) {
+                                    $fileName = $primaryFile['filename'];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Modrinth search failed for plugin '{$pluginQuery}': " . $e->getMessage());
+        }
+
+        if (empty($downloadUrl)) {
+            return ['success' => false, 'text' => "Could not locate verified download URL for plugin '{$pluginQuery}'. You can also search and install it directly from the built-in Plugin Installer tab."];
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->pull(
+                $downloadUrl,
+                '/plugins',
+                [
+                    'filename' => $fileName,
+                    'use_header' => false,
+                    'foreground' => true,
+                ]
+            );
+
+            Cache::forget("server_{$server->id}_installed_plugins");
+
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            return [
+                'success' => true,
+                'text' => "Successfully installed {$fileName} into /plugins via Wings stream-pull and initiated server restart!",
+            ];
+        } catch (Throwable $e) {
+            return ['success' => false, 'text' => "Failed to install plugin: " . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Installs any mod requested by user using Modrinth like the built-in Mod Installer
+     */
+    private function performInstallMod(Server $server, array $params): array
+    {
+        $modQuery = trim((string) ($params['mod'] ?? $params['name'] ?? ''));
+        if (empty($modQuery)) {
+            return ['success' => false, 'text' => 'No mod name specified.'];
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->createDirectory('mods', '/');
+        } catch (Throwable $e) {}
+
+        $downloadUrl = null;
+        $fileName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $modQuery) . '.jar';
+
+        try {
+            $searchRes = $this->httpClient->get('https://api.modrinth.com/v2/search', [
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                'query' => [
+                    'query' => $modQuery,
+                    'facets' => '[["project_type:mod"]]',
+                    'limit' => 1,
+                ],
+                'timeout' => 8,
+            ]);
+
+            if ($searchRes->getStatusCode() === 200) {
+                $searchData = json_decode($searchRes->getBody()->getContents(), true);
+                $hit = $searchData['hits'][0] ?? null;
+                if ($hit && !empty($hit['project_id'])) {
+                    $slug = $hit['slug'] ?? $hit['project_id'];
+                    $verRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$slug}/version", [
+                        'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                        'timeout' => 8,
+                    ]);
+                    if ($verRes->getStatusCode() === 200) {
+                        $vers = json_decode($verRes->getBody()->getContents(), true);
+                        if (!empty($vers) && is_array($vers)) {
+                            $primaryFile = $vers[0]['files'][0] ?? null;
+                            if ($primaryFile && !empty($primaryFile['url'])) {
+                                $downloadUrl = $primaryFile['url'];
+                                if (!empty($primaryFile['filename'])) {
+                                    $fileName = $primaryFile['filename'];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning("[AIAssistant] Modrinth search failed for mod '{$modQuery}': " . $e->getMessage());
+        }
+
+        if (empty($downloadUrl)) {
+            return ['success' => false, 'text' => "Could not locate verified download URL for mod '{$modQuery}'. You can also search and install it directly from the built-in Mods Installer tab."];
+        }
+
+        try {
+            $this->fileRepository->setServer($server)->pull(
+                $downloadUrl,
+                '/mods',
+                [
+                    'filename' => $fileName,
+                    'use_header' => false,
+                    'foreground' => true,
+                ]
+            );
+
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            return [
+                'success' => true,
+                'text' => "Successfully downloaded {$fileName} into /mods via Wings stream-pull and initiated server restart!",
+            ];
+        } catch (Throwable $e) {
+            return ['success' => false, 'text' => "Failed to install mod: " . $e->getMessage()];
         }
     }
 }
