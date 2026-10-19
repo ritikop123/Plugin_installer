@@ -32,17 +32,20 @@ import {
 
 interface WorldItem {
   name: string;
+  display_name?: string;
   is_active: boolean;
   is_dimension?: boolean;
   dimension_type?: 'overworld' | 'nether' | 'the_end';
+  parent_world?: string;
+  folder_path?: string;
   size: number;
   modified_at?: string;
   has_level_dat: boolean;
   has_overworld: boolean;
   has_nether: boolean;
-  nether_type: 'folder' | 'subfolder' | 'none';
+  nether_type?: 'folder' | 'subfolder' | 'none';
   has_end: boolean;
-  end_type: 'folder' | 'subfolder' | 'none';
+  end_type?: 'folder' | 'subfolder' | 'none';
   optimized: boolean;
   force_upgrade: boolean;
 }
@@ -180,6 +183,37 @@ function NumericStepper({
           <FontAwesomeIcon icon={faMinus} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// Interactive Tooltip component that reveals explanation on mouse hover
+function InfoTooltip({ title, content }: { title: string; content: string }) {
+  const [show, setShow] = useState<boolean>(false);
+
+  return (
+    <div
+      className="relative inline-flex items-center"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={() => setShow((prev) => !prev)}
+    >
+      <FontAwesomeIcon
+        icon={faQuestionCircle}
+        className="text-gray-400 hover:text-cyan-400 text-xs cursor-help transition-colors"
+      />
+      {show && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-72 p-3 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl text-left pointer-events-none">
+          <div className="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />
+            {title}
+          </div>
+          <div className="text-[11px] leading-relaxed text-gray-300 font-normal">
+            {content}
+          </div>
+          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900" />
+        </div>
+      )}
     </div>
   );
 }
@@ -940,14 +974,13 @@ export default function WorldManagerContainer() {
                     {/* MIDDLE SECTION: Force upgrade & Optimize toggles */}
                     <div className="flex flex-col gap-2.5 items-end justify-center w-full md:w-auto">
                       {/* Force Upgrade (Only on active world or main world) */}
-                      {isActive && (
+                      {isActive && !world.is_dimension && (
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-200">
                             <span>Force upgrade</span>
-                            <FontAwesomeIcon
-                              icon={faQuestionCircle}
-                              className="text-gray-400 text-xs cursor-help"
-                              title="Runs chunk format conversion to current server version on next boot, eliminating chunk loading lag."
+                            <InfoTooltip
+                              title="Force Upgrade"
+                              content="Converts and saves all world chunks to the current Minecraft server version on next startup. Eliminates chunk conversion lag and prevents crashes when upgrading versions."
                             />
                           </div>
                           <AternosToggle
@@ -962,10 +995,9 @@ export default function WorldManagerContainer() {
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-200">
                           <span>Optimize</span>
-                          <FontAwesomeIcon
-                            icon={faQuestionCircle}
-                            className="text-gray-400 text-xs cursor-help"
-                            title="Aternos-inspired smart performance tuning: optimizes simulation distance to 6 chunks and view distance to 8 chunks for silky smooth FPS without vanilla compromises."
+                          <InfoTooltip
+                            title="World Optimizer"
+                            content="Aternos-inspired performance optimizer: compacts chunk data and optimizes view/simulation distance for higher server TPS and smoother gameplay."
                           />
                         </div>
                         <AternosToggle
@@ -1037,7 +1069,7 @@ export default function WorldManagerContainer() {
                       {/* Options */}
                       <button
                         type="button"
-                        onClick={() => openOptionsView(world.name)}
+                        onClick={() => openOptionsView(world.parent_world || world.name)}
                         className="w-full bg-[#f1f5f9] hover:bg-white text-gray-900 text-xs font-semibold py-1.5 px-3 rounded flex items-center justify-center gap-2 transition-all shadow-sm"
                       >
                         <FontAwesomeIcon icon={faSlidersH} />
@@ -1046,15 +1078,31 @@ export default function WorldManagerContainer() {
 
                       {/* Files */}
                       <a
-                        href={`/server/${uuid}/files#/${encodeURIComponent(world.name)}`}
+                        href={`/server/${uuid}/files#/${encodeURIComponent(world.folder_path || world.name)}`}
                         className="w-full bg-[#f1f5f9] hover:bg-white text-gray-900 text-xs font-semibold py-1.5 px-3 rounded flex items-center justify-center gap-2 transition-all shadow-sm"
                       >
                         <FontAwesomeIcon icon={faFolderOpen} />
                         <span>Files</span>
                       </a>
 
-                      {/* Generate (Active world) OR Delete (Auxiliary/Inactive world) */}
-                      {isActive ? (
+                      {/* Generate (Active world/Dimension) OR Delete (Inactive auxiliary world) */}
+                      {world.is_dimension || world.dimension_type === 'nether' || world.dimension_type === 'the_end' ? (
+                        <button
+                          type="button"
+                          disabled={actionLoading === `reset-${world.name}`}
+                          onClick={() => {
+                            const isEnd = world.dimension_type === 'the_end' || world.name.endsWith('_the_end');
+                            handleResetDimension(world.parent_world || 'world', isEnd ? 'end' : 'nether');
+                          }}
+                          className="w-full bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold py-1.5 px-3 rounded flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
+                        >
+                          <FontAwesomeIcon
+                            icon={actionLoading === `reset-${world.name}` ? faSpinner : faSyncAlt}
+                            spin={actionLoading === `reset-${world.name}`}
+                          />
+                          <span>Generate</span>
+                        </button>
+                      ) : isActive ? (
                         <button
                           type="button"
                           onClick={() => {
