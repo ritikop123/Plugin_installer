@@ -247,14 +247,28 @@ PROMPT;
             $pluginsList = !empty($plugins) ? implode(', ', $plugins) : 'None detected or daemon unreachable';
 
             $geyserStatus = 'Not configured or not installed';
+            $primaryAlloc = $server->allocation;
+            $primaryPort = $primaryAlloc ? $primaryAlloc->port : 25565;
+            $primaryHost = $primaryAlloc ? ($primaryAlloc->ip_alias ?: $primaryAlloc->ip) : 'Server IP';
+
             try {
                 $gConf = $this->fileRepository->setServer($server)->getContent('/plugins/Geyser-Spigot/config.yml');
                 if (!empty($gConf)) {
-                    $bPort = '19132';
+                    $isClone = (bool) preg_match('/clone-remote-port:\s*true/i', $gConf);
+                    $rawPort = '19132';
                     if (preg_match('/port:\s*(\d+)/', $gConf, $m)) {
-                        $bPort = $m[1];
+                        $rawPort = $m[1];
                     }
-                    $geyserStatus = "INSTALLED & ACTIVE (Configured Bedrock Port: {$bPort})";
+
+                    $allocatedPorts = array_column($allocations, 'port');
+
+                    if ($isClone) {
+                        $geyserStatus = "INSTALLED & ACTIVE with 'clone-remote-port: true'! Geyser ignores 19132 and automatically clones Java port {$primaryPort}. Bedrock players join using Server IP: '{$primaryHost}' and Port: '{$primaryPort}'.";
+                    } elseif (in_array((int) $rawPort, $allocatedPorts)) {
+                        $geyserStatus = "INSTALLED & ACTIVE with dedicated allocation port {$rawPort}. Bedrock players join using Server IP: '{$primaryHost}' and Port: '{$rawPort}'.";
+                    } else {
+                        $geyserStatus = "INSTALLED. Note: config.yml has port {$rawPort}, BUT port {$rawPort} is not allocated to this server! The server's assigned port is {$primaryPort}. Bedrock players must either use 'clone-remote-port: true' to connect on Java port {$primaryPort}, or an extra port must be allocated.";
+                    }
                 }
             } catch (Throwable $e) {}
 
@@ -281,7 +295,7 @@ Your user is the server owner. You assist them with server diagnostics, plugin i
 
 Current Server State:
 - Server Name: {$server->name}
-- Memory: {$server->memory} MB | Disk: {$server->disk} MB
+- Server Address / Host: {$primaryHost}:{$primaryPort}
 - Primary & Extra Port Allocations: {$allocJson}
 - Geyser Bedrock Crossplay Status: {$geyserStatus}
 - Simple Voice Chat Status: {$voiceStatus}
@@ -295,8 +309,9 @@ MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
    - "ViaBackwards": Allows older Minecraft client versions to connect to a newer server (e.g. 1.16 client joining a 1.21 server).
    - "ViaRewind": Allows 1.7 / 1.8 clients to join 1.9+ servers.
    - Version checking: Inspect the exact filename in the list (e.g. "ViaVersion-5.2.1.jar" means version 5.2.1 is installed). The active stable release branch is 5.5.x+. If installed version is 5.2.x, inform the user they have 5.2.1 and that version 5.5.x+ is available for newer Minecraft releases.
-2. Crossplay & Bedrock:
-   - "GeyserMC" + "Floodgate": Allows Bedrock players (iOS, Android, Xbox, PlayStation, Switch, Windows Bedrock) to join Java Edition servers without purchasing a Java account.
+2. Crossplay & Bedrock (GeyserMC + Floodgate & clone-remote-port):
+   - "clone-remote-port": In Geyser's config.yml, when `clone-remote-port: true` is set, Geyser ignores default port 19132 and automatically binds Bedrock to the exact same port as the Java server ({$primaryPort})!
+   - NEVER tell the user Bedrock uses port 19132 unless 19132 is explicitly in the server's allocated ports. If `clone-remote-port: true` is enabled (or if 19132 is not allocated), Bedrock players connect using the server's primary IP ({$primaryHost}) and Port ({$primaryPort})!
 3. Voice Chat:
    - "Simple Voice Chat" (voicechat): Proximity voice chat that requires a separate UDP port from allocations.
 4. Essential Administration & Optimization:
@@ -307,20 +322,44 @@ MINECRAFT SERVER & PLUGIN KNOWLEDGE BASE:
    - "Chunky": World pre-generation to eliminate chunk generation lag.
    - "Spark": CPU and tick profiler for performance debugging.
 
+NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
+1. "make server joinable for all versions" / "can you make the server joinable for all versions?" / "allow all versions" / "multi-version":
+   - The user wants cross-version client support so players on 1.8 through 1.21+ can join.
+   - This requires ViaVersion (for newer clients) and ViaBackwards (for older clients).
+   - Check if ViaVersion and ViaBackwards are already in "ALL Installed Plugins":
+     * If already installed: Tell the user that ViaVersion and ViaBackwards are already active and their server supports cross-version clients!
+     * If not installed: Explain how ViaVersion and ViaBackwards work. If the user asked you to make it joinable / install it, execute action "setup_multiversion".
+2. "is geyser setup" / "bedrock port" / "clone port":
+   - Refer to the "Geyser Bedrock Crossplay Status" above.
+   - If 'clone-remote-port: true' is enabled, state clearly: Bedrock players connect on the server's Java port ({$primaryPort}) at {$primaryHost}! Do NOT claim 19132 unless 19132 is explicitly allocated.
+   - If user asks to fix or enable clone port, execute action "enable_geyser_clone_port".
+
+CAPABILITIES YOU CAN EXECUTE (via JSON action):
+- "setup_multiversion": Downloads and installs latest ViaVersion and ViaBackwards into /plugins and restarts the server so all client versions can join.
+- "enable_geyser_clone_port": Sets clone-remote-port: true in Geyser config and restarts server so Bedrock shares the Java port.
+- "setup_geyser": Installs GeyserMC & Floodgate, configures Bedrock port, and restarts.
+- "setup_voicechat": Installs and configures Simple Voice Chat to an extra UDP port.
+- "restart_server": Restarts the server.
+- "start_server": Starts the server.
+- "stop_server": Stops the server.
+- "optimize_server": Applies optimal lag-reduction settings.
+- "edit_config": Edits server.properties or plugin yaml.
+- "run_command": Runs a console command (e.g. op, say, whitelist, reload).
+- "none": Just a conversational answer or advice.
+
 STRICT ACTION EXECUTION RULES (CRITICAL):
-- ONLY output an action if the user EXPLICITLY ordered you to perform it (e.g. "restart the server", "setup geyser", "install voice chat", "optimize my server").
-- If the user is asking a QUESTION, checking status or versions, asking for recommendations, or having a conversation: You MUST set "action": "none"! NEVER trigger setup, installation, or reboot actions when the user is only asking a question!
+- ONLY output an action if the user EXPLICITLY ordered or asked you to perform it (e.g. "make the server joinable for all versions", "restart the server", "setup geyser", "enable clone port").
+- If the user is asking an informational inquiry, checking versions, or asking how something works: Set "action": "none"!
 
 RESPONSE RULES:
-- DIRECTLY answer the user using the concrete plugin files and versions listed above.
-- NEVER claim a plugin is not installed if it is present in the "ALL Installed Plugins" or "MATCHED PLUGINS" list.
+- DIRECTLY answer the user using the concrete plugin files, status, and ports listed above.
 - Answer in friendly, precise, and professional English.
 
 Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: restart_server, start_server, stop_server, setup_geyser, setup_voicechat, optimize_server, edit_config, run_command, none",
+  "action": "One of: setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
      "command": "command string if run_command",
      "file": "path if edit_config",
@@ -348,12 +387,13 @@ SYS;
             $messages[] = ['role' => 'user', 'content' => $message];
 
             $aiRaw = $this->callGroqAi($messages, true);
-            $parsed = json_decode($aiRaw, true);
+            $parsed = $this->cleanAndParseJson($aiRaw);
 
             if (!$parsed) {
+                $cleanText = trim(preg_replace('/```(?:json)?\s*([\s\S]*?)\s*```/i', '$1', $aiRaw));
                 $parsed = [
                     'thought' => 'Processed user query',
-                    'message' => $aiRaw ?: "I'm ready to help you manage and optimize your server! Let me know what you need.",
+                    'message' => !empty($cleanText) ? $cleanText : "I'm ready to help you manage and optimize your server! Let me know what you need.",
                     'action' => 'none',
                     'action_params' => [],
                 ];
@@ -419,6 +459,12 @@ SYS;
                     }
                     return ['success' => false, 'text' => 'Empty command provided.'];
 
+                case 'setup_multiversion':
+                    return $this->performSetupMultiversion($server);
+
+                case 'enable_geyser_clone_port':
+                    return $this->performEnableGeyserClonePort($server);
+
                 case 'setup_geyser':
                     return $this->performSetupGeyser($server);
 
@@ -448,11 +494,85 @@ SYS;
     }
 
     /**
+     * Automated setup for ViaVersion & ViaBackwards (Multi-version support)
+     */
+    private function performSetupMultiversion(Server $server): array
+    {
+        try {
+            $viaUrl = 'https://github.com/ViaVersion/ViaVersion/releases/latest/download/ViaVersion.jar';
+            $backwardsUrl = 'https://github.com/ViaVersion/ViaBackwards/releases/latest/download/ViaBackwards.jar';
+
+            $vRes = $this->httpClient->get($viaUrl, ['allow_redirects' => true]);
+            if ($vRes->getStatusCode() === 200) {
+                $this->fileRepository->setServer($server)->putContent('/plugins/ViaVersion.jar', $vRes->getBody()->getContents());
+            }
+
+            $bRes = $this->httpClient->get($backwardsUrl, ['allow_redirects' => true]);
+            if ($bRes->getStatusCode() === 200) {
+                $this->fileRepository->setServer($server)->putContent('/plugins/ViaBackwards.jar', $bRes->getBody()->getContents());
+            }
+
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            return [
+                'success' => true,
+                'text' => 'ViaVersion and ViaBackwards have been installed! The server is restarting to support all client versions (1.8 through 1.21+).',
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'text' => 'Multi-version setup failed: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Enables clone-remote-port: true in Geyser config so Bedrock automatically shares the Java server port
+     */
+    private function performEnableGeyserClonePort(Server $server): array
+    {
+        $primaryAlloc = $server->allocation;
+        $primaryPort = $primaryAlloc ? $primaryAlloc->port : 25565;
+        $primaryHost = $primaryAlloc ? ($primaryAlloc->ip_alias ?: $primaryAlloc->ip) : 'server IP';
+
+        try {
+            $gConf = $this->fileRepository->setServer($server)->getContent('/plugins/Geyser-Spigot/config.yml');
+            if (empty($gConf)) {
+                return ['success' => false, 'text' => 'Geyser config /plugins/Geyser-Spigot/config.yml not found.'];
+            }
+
+            if (preg_match('/clone-remote-port:\s*(false|true)/i', $gConf)) {
+                $newConf = preg_replace('/clone-remote-port:\s*(false|true)/i', 'clone-remote-port: true', $gConf);
+            } else {
+                $newConf = preg_replace('/(bedrock:\s*\n)/i', "$1  clone-remote-port: true\n", $gConf);
+            }
+
+            $this->fileRepository->setServer($server)->putContent('/plugins/Geyser-Spigot/config.yml', $newConf);
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            return [
+                'success' => true,
+                'text' => "Enabled 'clone-remote-port: true' in Geyser config. Bedrock players can now connect directly to {$primaryHost}:{$primaryPort}!",
+            ];
+        } catch (Throwable $e) {
+            return ['success' => false, 'text' => 'Failed to enable clone-remote-port: ' . $e->getMessage()];
+        }
+    }
+
+    /**
      * Automated setup for GeyserMC & Floodgate
      */
     private function performSetupGeyser(Server $server): array
     {
         $allocations = $this->getServerAllocations($server);
+        $primaryAlloc = $server->allocation;
+        $primaryPort = $primaryAlloc ? $primaryAlloc->port : 25565;
+        $primaryHost = $primaryAlloc ? ($primaryAlloc->ip_alias ?: $primaryAlloc->ip) : '0.0.0.0';
+
         // Find secondary port
         $extraAlloc = null;
         foreach ($allocations as $a) {
@@ -462,20 +582,22 @@ SYS;
             }
         }
 
-        $port = $extraAlloc ? $extraAlloc['port'] : ($allocations[0]['port'] ?? 19132);
-        $ip = $extraAlloc ? ($extraAlloc['alias'] ?: $extraAlloc['ip']) : ($allocations[0]['ip'] ?? '0.0.0.0');
+        $useClone = ($extraAlloc === null);
+        $port = $extraAlloc ? $extraAlloc['port'] : $primaryPort;
+        $ip = $extraAlloc ? ($extraAlloc['alias'] ?: $extraAlloc['ip']) : $primaryHost;
+        $cloneVal = $useClone ? 'true' : 'false';
 
         // Download Geyser and Floodgate jars
         try {
             $geyserUrl = 'https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot';
             $floodgateUrl = 'https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot';
 
-            $gRes = $this->httpClient->get($geyserUrl);
+            $gRes = $this->httpClient->get($geyserUrl, ['allow_redirects' => true]);
             if ($gRes->getStatusCode() === 200) {
                 $this->fileRepository->setServer($server)->putContent('/plugins/Geyser-Spigot.jar', $gRes->getBody()->getContents());
             }
 
-            $fRes = $this->httpClient->get($floodgateUrl);
+            $fRes = $this->httpClient->get($floodgateUrl, ['allow_redirects' => true]);
             if ($fRes->getStatusCode() === 200) {
                 $this->fileRepository->setServer($server)->putContent('/plugins/Floodgate-Spigot.jar', $fRes->getBody()->getContents());
             }
@@ -485,10 +607,10 @@ SYS;
 bedrock:
   address: 0.0.0.0
   port: {$port}
-  clone-remote-port: false
+  clone-remote-port: {$cloneVal}
 remote:
   address: 127.0.0.1
-  port: 25565
+  port: {$primaryPort}
   auth-type: floodgate
 YAML;
             try {
@@ -500,9 +622,13 @@ YAML;
                 $this->powerRepository->setServer($server)->send('restart');
             } catch (Throwable $e) {}
 
+            $msg = $useClone
+                ? "GeyserMC & Floodgate installed with 'clone-remote-port: true'! Bedrock players connect using the same server IP & Java port: {$ip}:{$primaryPort}"
+                : "GeyserMC & Floodgate installed! Bedrock port bound to extra allocation {$port} on {$ip}.";
+
             return [
                 'success' => true,
-                'text' => "GeyserMC & Floodgate installed! Bedrock port bound to {$port}. Server restarting. Connect via IP: {$ip} Port: {$port}",
+                'text' => $msg,
                 'port' => $port,
             ];
         } catch (Throwable $e) {
@@ -609,14 +735,25 @@ YAML;
                         'action_params' => [],
                     ]);
                 }
-                return '';
+                $errMsg = $errData['error']['message'] ?? "Groq API returned HTTP {$status}";
+                return json_encode([
+                    'thought' => 'Service status',
+                    'message' => "AI Engine notice: {$errMsg}",
+                    'action' => 'none',
+                    'action_params' => [],
+                ]);
             }
 
             $data = json_decode($raw, true);
             return $data['choices'][0]['message']['content'] ?? '';
         } catch (Throwable $e) {
             Log::error("[AIAssistant] Groq HTTP Exception: " . $e->getMessage());
-            return '';
+            return json_encode([
+                'thought' => 'Connection notice',
+                'message' => 'Unable to contact AI engine: ' . $e->getMessage(),
+                'action' => 'none',
+                'action_params' => [],
+            ]);
         }
     }
 
@@ -842,12 +979,57 @@ YAML;
             case 'edit_config':
                 return preg_match('/\b(change|set|edit|update|modify|switch)\b/', $msg) === 1;
 
+            case 'setup_multiversion':
+                return preg_match('/\b(make.*joinable|joinable.*all|all versions|setup via|install via|multi-version|multiversion|cross version)\b/i', $msg) === 1;
+
+            case 'enable_geyser_clone_port':
+                return preg_match('/\b(clone port|clone-remote-port|clone remote port|auto port|same port|fix port|fix geyser)\b/i', $msg) === 1;
+
             case 'run_command':
                 return preg_match('/\b(run|execute|send|dispatch)\b/', $msg) === 1 && (str_contains($msg, 'command') || str_contains($msg, '/'));
 
             default:
                 return false;
         }
+    }
+
+    /**
+     * Cleans and safely decodes LLM JSON outputs (strips markdown codeblocks and extracts JSON payload)
+     */
+    private function cleanAndParseJson(string $raw): ?array
+    {
+        $raw = trim($raw);
+        if (empty($raw)) {
+            return null;
+        }
+
+        // 1. If wrapped in markdown code fence ```json ... ```
+        if (preg_match('/```(?:json)?\s*([\s\S]*?)\s*```/i', $raw, $m)) {
+            $inner = trim($m[1]);
+            $decoded = json_decode($inner, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        // 2. Direct json_decode
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        // 3. Extract between first { and last }
+        $first = strpos($raw, '{');
+        $last = strrpos($raw, '}');
+        if ($first !== false && $last !== false && $last > $first) {
+            $substr = substr($raw, $first, $last - $first + 1);
+            $decoded = json_decode($substr, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 
     /**
