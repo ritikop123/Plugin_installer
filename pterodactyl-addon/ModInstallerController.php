@@ -444,6 +444,67 @@ class ModInstallerController extends ClientApiController
                 ]
             );
 
+            // 4b. Auto-install required dependencies if provided
+            $installDeps = (bool) $request->input('install_dependencies', true);
+            $deps = $request->input('dependencies', []);
+            $installedDeps = [];
+
+            if ($installDeps && is_array($deps) && !empty($deps)) {
+                foreach ($deps as $dep) {
+                    if (($dep['dependency_type'] ?? '') !== 'required') {
+                        continue;
+                    }
+                    $depProjId = $dep['project_id'] ?? null;
+                    $depVerId = $dep['version_id'] ?? null;
+                    if (!$depProjId && !$depVerId) {
+                        continue;
+                    }
+
+                    try {
+                        $depUrl = null;
+                        $depFilename = null;
+                        if ($depVerId) {
+                            $dRes = $this->httpClient->get(self::MODRINTH_API . "version/{$depVerId}", ['timeout' => 6]);
+                            if ($dRes->getStatusCode() === 200) {
+                                $dData = json_decode($dRes->getBody()->getContents(), true);
+                                $f = $dData['files'][0] ?? null;
+                                if ($f) {
+                                    $depUrl = $f['url'] ?? null;
+                                    $depFilename = $f['filename'] ?? null;
+                                }
+                            }
+                        } elseif ($depProjId) {
+                            $dRes = $this->httpClient->get(self::MODRINTH_API . "project/{$depProjId}/version", ['timeout' => 6]);
+                            if ($dRes->getStatusCode() === 200) {
+                                $dData = json_decode($dRes->getBody()->getContents(), true);
+                                if (!empty($dData[0]['files'][0]['url'])) {
+                                    $depUrl = $dData[0]['files'][0]['url'];
+                                    $depFilename = $dData[0]['files'][0]['filename'] ?? null;
+                                }
+                            }
+                        }
+
+                        if ($depUrl && filter_var($depUrl, FILTER_VALIDATE_URL)) {
+                            $cleanDepFn = basename(str_replace(['\\', '/', "\0"], '', $depFilename ?: 'dependency.jar'));
+                            $cleanDepFn = preg_replace('/[^a-zA-Z0-9_\-\.\+\s\(\)\[\],]/', '_', $cleanDepFn);
+                            if (!preg_match('/\.(jar|zip)$/i', $cleanDepFn)) {
+                                $cleanDepFn .= '.jar';
+                            }
+                            $this->fileRepository->setServer($server)->pull(
+                                $depUrl,
+                                '/mods',
+                                [
+                                    'filename' => $cleanDepFn,
+                                    'use_header' => false,
+                                    'foreground' => true,
+                                ]
+                            );
+                            $installedDeps[] = $cleanDepFn;
+                        }
+                    } catch (Throwable $e) {}
+                }
+            }
+
             // 5. Cache icon if provided and update /mods/.mods_meta.json
             $iconUrl = (string) $request->input('icon_url', '');
             $modTitle = (string) $request->input('title', $cleanFilename);

@@ -527,45 +527,71 @@ class ModpackInstallerController extends ClientApiController
                 }
             }
 
-            // 3. Command Wings to pull the archive directly to the server root as .modpack_temp_<timestamp>.zip
-            $zipName = '.modpack_temp_' . time() . '.zip';
-            $this->fileRepository->setServer($server)->pull(
-                $mrpackUrl,
-                '/',
-                [
-                    'filename' => $zipName,
-                    'use_header' => false,
-                    'foreground' => true,
-                ]
-            );
+            // 3. Download the modpack archive directly to a local temporary file on the panel
+            $tmpPack = tempnam(sys_get_temp_dir(), 'mp_');
+            $this->httpClient->get($mrpackUrl, [
+                'sink' => $tmpPack,
+                'timeout' => 90,
+                'headers' => [
+                    'User-Agent' => self::USER_AGENT,
+                ],
+            ]);
 
-            // 4. Command Wings to decompress the archive natively
-            $this->fileRepository->setServer($server)->decompressFile('/', $zipName);
-
-            // Clean up the downloaded zip archive
-            try {
-                $this->fileRepository->setServer($server)->deleteFiles('/', [$zipName]);
-            } catch (Throwable $e) {}
-
-            // 5. Move contents of overrides/ and server-overrides/ to server root
-            $overridesCount = 0;
-            foreach (['overrides', 'server-overrides'] as $overrideFolder) {
-                $overridesCount += $this->moveOverrides($server, $overrideFolder);
+            $zip = new ZipArchive();
+            if ($zip->open($tmpPack) !== true) {
+                @unlink($tmpPack);
+                return response()->json(['error' => 'Failed to open modpack archive.'], 400);
             }
+
+            // 4. Extract overrides (config, defaultconfigs, kubejs, etc.) directly into a clean root-level zip
+            $overridesCount = 0;
+            $tmpOverridesZip = tempnam(sys_get_temp_dir(), 'ovr_') . '.zip';
+            $ovrZip = new ZipArchive();
+            $ovrZip->open($tmpOverridesZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $stat = $zip->statIndex($i);
+                $entryName = $stat['name'] ?? '';
+                $relTarget = null;
+                if (str_starts_with($entryName, 'overrides/')) {
+                    $relTarget = substr($entryName, strlen('overrides/'));
+                } elseif (str_starts_with($entryName, 'server-overrides/')) {
+                    $relTarget = substr($entryName, strlen('server-overrides/'));
+                }
+
+                if ($relTarget !== null && !empty($relTarget) && !str_ends_with($relTarget, '/')) {
+                    $fileContent = $zip->getFromIndex($i);
+                    if ($fileContent !== false) {
+                        $ovrZip->addFromString($relTarget, $fileContent);
+                        $overridesCount++;
+                    }
+                }
+            }
+            $ovrZip->close();
+
+            // Push overrides zip to server and trigger decompression
+            if ($overridesCount > 0 && file_exists($tmpOverridesZip) && filesize($tmpOverridesZip) > 0) {
+                try {
+                    $this->fileRepository->setServer($server)->putContent('/.modpack_overrides.zip', file_get_contents($tmpOverridesZip));
+                    $this->fileRepository->setServer($server)->decompressFile('/', '.modpack_overrides.zip');
+                    // Note: .modpack_overrides.zip will be cleaned up in finalize() to give Wings ample time to extract
+                } catch (Throwable $e) {}
+            }
+            @unlink($tmpOverridesZip);
 
             // Ensure /mods directory exists
             try {
                 $this->fileRepository->setServer($server)->createDirectory('mods', '/');
             } catch (Throwable $e) {}
 
-            // 6. Read and parse modpack manifest (Modrinth or CurseForge) from server root
+            // 5. Read and parse modpack manifest directly from memory/zip
             $modsToInstall = [];
             $dependencies = [];
 
             // A. Check for Modrinth modrinth.index.json
-            try {
-                $indexContent = $this->fileRepository->setServer($server)->getContent('/modrinth.index.json');
-                $index = json_decode($indexContent, true);
+            $modrinthIndexStr = $zip->getFromName('modrinth.index.json');
+            if ($modrinthIndexStr !== false) {
+                $index = json_decode($modrinthIndexStr, true);
                 if (is_array($index)) {
                     $dependencies = $index['dependencies'] ?? [];
                     $rawFiles = $index['files'] ?? [];
@@ -599,17 +625,12 @@ class ModpackInstallerController extends ClientApiController
                         ];
                     }
                 }
-            } catch (Throwable $e) {}
-
-            // Clean up modrinth.index.json
-            try {
-                $this->fileRepository->setServer($server)->deleteFiles('/', ['modrinth.index.json']);
-            } catch (Throwable $e) {}
+            }
 
             // B. Check for CurseForge manifest.json
-            try {
-                $manifestContent = $this->fileRepository->setServer($server)->getContent('/manifest.json');
-                $cfManifest = json_decode($manifestContent, true);
+            $curseManifestStr = $zip->getFromName('manifest.json');
+            if ($curseManifestStr !== false) {
+                $cfManifest = json_decode($curseManifestStr, true);
                 if (is_array($cfManifest)) {
                     $mcInfo = $cfManifest['minecraft'] ?? [];
                     if (!empty($mcInfo['version']) && empty($dependencies['minecraft'])) {
@@ -675,12 +696,10 @@ class ModpackInstallerController extends ClientApiController
                         }
                     }
                 }
-            } catch (Throwable $e) {}
+            }
 
-            // Clean up manifest.json
-            try {
-                $this->fileRepository->setServer($server)->deleteFiles('/', ['manifest.json']);
-            } catch (Throwable $e) {}
+            $zip->close();
+            @unlink($tmpPack);
 
             $detectedLoader = isset($dependencies['fabric-loader']) ? 'fabric'
                 : (isset($dependencies['forge']) ? 'forge'
@@ -811,6 +830,11 @@ class ModpackInstallerController extends ClientApiController
                 self::MANIFEST_FILE,
                 json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
             );
+
+            // Clean up temporary overrides archive if present
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles('/', ['.modpack_overrides.zip']);
+            } catch (Throwable $e) {}
 
             return response()->json([
                 'success' => true,

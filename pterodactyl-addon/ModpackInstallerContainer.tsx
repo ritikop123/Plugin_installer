@@ -264,8 +264,6 @@ export default function ModpackInstallerContainer() {
       params: {
         project_id: projectId,
         provider,
-        loader: selectedLoader,
-        version: selectedVersion,
       },
     })
       .then((res) => {

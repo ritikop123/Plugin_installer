@@ -21,6 +21,8 @@ import {
   faCheckCircle,
   faSync,
   faCogs,
+  faCubes,
+  faLayerGroup,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface Message {
@@ -351,6 +353,8 @@ export default function AiAssistantContainer() {
                               icon={
                                 msg.action === 'install_software' || msg.action === 'install_plugin' || msg.action === 'install_mod'
                                   ? faDownload
+                                  : msg.action === 'install_modpack'
+                                  ? faLayerGroup
                                   : msg.action === 'delete_file'
                                   ? faTrashAlt
                                   : msg.action === 'configure_universal_access'
@@ -375,6 +379,7 @@ export default function AiAssistantContainer() {
                               {msg.action === 'install_software' && 'Official Server JAR Installation (Wings Stream)'}
                               {msg.action === 'install_plugin' && 'Built-in Plugin Installation (Modrinth / Hangar)'}
                               {msg.action === 'install_mod' && 'Built-in Mod Installation (Modrinth)'}
+                              {msg.action === 'install_modpack' && 'Built-in Modpack Installation (Modrinth / Overrides Engine)'}
                               {msg.action === 'delete_file' && 'Corrupted File Cleanup'}
                               {msg.action === 'configure_universal_access' && 'Universal Client & Cracked Support'}
                               {msg.action === 'disable_whitelist' && 'Server Whitelist Disabled'}
@@ -411,6 +416,9 @@ export default function AiAssistantContainer() {
                           )}
                           {msg.action_params.mod && (
                             <span>Mod: <strong className="text-blue-400">{msg.action_params.mod}</strong></span>
+                          )}
+                          {msg.action_params.modpack && (
+                            <span>Modpack: <strong className="text-purple-400">{msg.action_params.modpack}</strong></span>
                           )}
                           {msg.action_params.file && (
                             <span>Target: <strong className="text-amber-400">{msg.action_params.file}</strong></span>

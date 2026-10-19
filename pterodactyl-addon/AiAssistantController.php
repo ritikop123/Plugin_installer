@@ -488,11 +488,14 @@ NATURAL LANGUAGE SENTENCE RECOGNITION (MINECRAFT DOMAIN):
    - You can install ANY plugin from Modrinth/Hangar using the built-in Plugin Installer! Execute action "install_plugin" with {"plugin": "PluginName"}!
 10. "install mod" / "add mod":
    - You can install ANY mod from Modrinth using the built-in Mod Installer! Execute action "install_mod" with {"mod": "ModName"}!
+11. "install modpack" / "setup modpack" / "download modpack":
+   - You can install ANY modpack (e.g. Cobblemon, Better MC, ATM9, Prominence) using the built-in Modpack Installer! Execute action "install_modpack" with {"modpack": "ModpackName"}!
 
 CAPABILITIES YOU CAN EXECUTE (via JSON action):
 - "install_software": Downloads and installs official Minecraft server software (Paper, Purpur, Spigot, Vanilla, Fabric) via Wings streaming pull directly as server.jar, accepts eula, and starts the server! Params: {"software": "paper|purpur|fabric|vanilla", "version": "latest|26.4|1.21.4"}
 - "install_plugin": Installs any plugin directly into /plugins using the built-in Plugin Installer engine. Params: {"plugin": "LuckPerms"}
 - "install_mod": Installs any mod directly into /mods using the built-in Mod Installer engine. Params: {"mod": "Sodium"}
+- "install_modpack": Installs an entire Minecraft modpack and configs from Modrinth using the built-in Modpack Installer engine! Params: {"modpack": "Cobblemon"}
 - "delete_file": Safely deletes a corrupted file, broken world gen data, or crashing plugin. Params: {"file": "/world/world_gen_settings.dat", "restart": true}
 - "configure_universal_access": One-click setup for EVERY access: sets online-mode=false (cracked accounts), disables whitelist, installs ViaVersion & ViaBackwards (all versions 1.8-26.x), configures Geyser clone-remote-port: true (Bedrock edition), and restarts the server!
 - "disable_whitelist": Disables whitelist in server.properties and runs /whitelist off.
@@ -522,12 +525,13 @@ Always output a JSON object with EXACTLY this structure:
 {
   "thought": "Internal reasoning in 1 sentence",
   "message": "Clear, friendly, detailed response for the user",
-  "action": "One of: install_software, install_plugin, install_mod, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
+  "action": "One of: install_software, install_plugin, install_mod, install_modpack, configure_universal_access, setup_multiversion, enable_geyser_clone_port, setup_geyser, setup_voicechat, delete_file, restart_server, start_server, stop_server, optimize_server, edit_config, run_command, none",
   "action_params": {
      "software": "paper or purpur if install_software",
      "version": "version string if install_software",
      "plugin": "plugin name if install_plugin",
      "mod": "mod name if install_mod",
+     "modpack": "modpack name if install_modpack",
      "file": "path if delete_file or edit_config",
      "command": "command string if run_command",
      "key": "setting key",
@@ -621,6 +625,10 @@ SYS;
                 } elseif (preg_match('/\b(install|add|download)\s+(?:plugin\s+)?([a-zA-Z0-9_\-]+)\b/i', $userMsgLower, $pm) && str_contains($userMsgLower, 'plugin')) {
                     $actionName = 'install_plugin';
                     $actionParams = ['plugin' => $pm[2]];
+                } elseif (preg_match('/\b(install|add|download|setup)\s+(?:the\s+)?(?:modpack|mod\s*pack)\s+([a-zA-Z0-9_\-\s]+)\b/i', $userMsgLower, $mpm) || str_contains($userMsgLower, 'modpack') || str_contains($userMsgLower, 'mod pack')) {
+                    $actionName = 'install_modpack';
+                    $packTarget = !empty($mpm[2]) ? trim($mpm[2]) : trim(str_ireplace(['install', 'download', 'setup', 'modpack', 'mod pack', 'the', 'please'], '', $userMsgLower));
+                    $actionParams = ['modpack' => $packTarget];
                 } elseif (preg_match('/\b(install|add|download)\s+(?:mod\s+)?([a-zA-Z0-9_\-]+)\b/i', $userMsgLower, $mm) && str_contains($userMsgLower, 'mod')) {
                     $actionName = 'install_mod';
                     $actionParams = ['mod' => $mm[2]];
@@ -694,6 +702,9 @@ SYS;
 
                 case 'install_mod':
                     return $this->performInstallMod($server, $params);
+
+                case 'install_modpack':
+                    return $this->performInstallModpack($server, $params);
 
                 case 'delete_file':
                     return $this->performDeleteFile($server, $params);
@@ -1640,6 +1651,9 @@ YAML;
             if ($action === 'install_mod' && preg_match('/\b(mod|mods)\b/i', $msg)) {
                 return true;
             }
+            if ($action === 'install_modpack' && preg_match('/\b(modpack|mod\s*pack)\b/i', $msg)) {
+                return true;
+            }
             if ($action === 'delete_file' && preg_match('/\b(delete|remove|erase|file|world|corrupted|world_gen_settings|session\.lock)\b/i', $msg)) {
                 return true;
             }
@@ -1660,6 +1674,9 @@ YAML;
             case 'install_mod':
                 return preg_match('/\b(install|download|add|setup|get)\b/i', $msg) === 1
                     || preg_match('/\b(mod|mods)\b/i', $msg) === 1;
+
+            case 'install_modpack':
+                return preg_match('/\b(install|download|add|setup|get|modpack|mod\s*pack)\b/i', $msg) === 1;
 
             case 'delete_file':
                 return preg_match('/\b(delete|remove|erase|clear|trash|wipe)\b/i', $msg) === 1
@@ -2087,6 +2104,7 @@ YAML;
 
         $downloadUrl = null;
         $fileName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $modQuery) . '.jar';
+        $dependencies = [];
 
         try {
             $searchRes = $this->httpClient->get('https://api.modrinth.com/v2/search', [
@@ -2095,6 +2113,7 @@ YAML;
                     'query' => $modQuery,
                     'facets' => '[["project_type:mod"]]',
                     'limit' => 1,
+                    'index' => 'downloads',
                 ],
                 'timeout' => 8,
             ]);
@@ -2111,7 +2130,18 @@ YAML;
                     if ($verRes->getStatusCode() === 200) {
                         $vers = json_decode($verRes->getBody()->getContents(), true);
                         if (!empty($vers) && is_array($vers)) {
-                            $primaryFile = $vers[0]['files'][0] ?? null;
+                            $chosenVer = $vers[0];
+                            $dependencies = $chosenVer['dependencies'] ?? [];
+                            $primaryFile = null;
+                            foreach ($chosenVer['files'] ?? [] as $f) {
+                                if (!empty($f['primary'])) {
+                                    $primaryFile = $f;
+                                    break;
+                                }
+                            }
+                            if (!$primaryFile) {
+                                $primaryFile = $chosenVer['files'][0] ?? null;
+                            }
                             if ($primaryFile && !empty($primaryFile['url'])) {
                                 $downloadUrl = $primaryFile['url'];
                                 if (!empty($primaryFile['filename'])) {
@@ -2141,16 +2171,254 @@ YAML;
                 ]
             );
 
+            // Also pull required dependencies if any
+            $depCount = 0;
+            if (!empty($dependencies) && is_array($dependencies)) {
+                foreach ($dependencies as $dep) {
+                    if (($dep['dependency_type'] ?? '') === 'required' && !empty($dep['project_id'])) {
+                        try {
+                            $dRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$dep['project_id']}/version", [
+                                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0'],
+                                'timeout' => 6,
+                            ]);
+                            if ($dRes->getStatusCode() === 200) {
+                                $dData = json_decode($dRes->getBody()->getContents(), true);
+                                $df = $dData[0]['files'][0] ?? null;
+                                if ($df && !empty($df['url'])) {
+                                    $cleanDepName = basename($df['filename'] ?? 'dep.jar');
+                                    $this->fileRepository->setServer($server)->pull(
+                                        $df['url'],
+                                        '/mods',
+                                        [
+                                            'filename' => $cleanDepName,
+                                            'use_header' => false,
+                                            'foreground' => true,
+                                        ]
+                                    );
+                                    $depCount++;
+                                }
+                            }
+                        } catch (Throwable $e) {}
+                    }
+                }
+            }
+
+            try {
+                $this->powerRepository->setServer($server)->send('restart');
+            } catch (Throwable $e) {}
+
+            $depMsg = $depCount > 0 ? " (along with {$depCount} required dependency mods)" : "";
+            return [
+                'success' => true,
+                'text' => "Successfully downloaded {$fileName}{$depMsg} into /mods via Wings stream-pull and initiated server restart!",
+            ];
+        } catch (Throwable $e) {
+            return ['success' => false, 'text' => "Failed to install mod: " . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Installs any modpack requested by user using Modrinth like the built-in Modpack Installer
+     */
+    private function performInstallModpack(Server $server, array $params): array
+    {
+        $packQuery = trim((string) ($params['modpack'] ?? $params['name'] ?? ''));
+        if (empty($packQuery)) {
+            return ['success' => false, 'text' => 'No modpack name specified.'];
+        }
+
+        try {
+            $searchRes = $this->httpClient->get('https://api.modrinth.com/v2/search', [
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                'query' => [
+                    'query' => $packQuery,
+                    'facets' => '[["project_type:modpack"]]',
+                    'limit' => 1,
+                    'index' => 'downloads',
+                ],
+                'timeout' => 8,
+            ]);
+
+            if ($searchRes->getStatusCode() !== 200) {
+                return ['success' => false, 'text' => "Modpack search failed: API returned status " . $searchRes->getStatusCode()];
+            }
+
+            $searchData = json_decode($searchRes->getBody()->getContents(), true);
+            $hit = $searchData['hits'][0] ?? null;
+            if (!$hit || empty($hit['project_id'])) {
+                return ['success' => false, 'text' => "Could not find any modpack matching '{$packQuery}' on Modrinth. You can also browse modpacks in the built-in Modpack Installer tab."];
+            }
+
+            $modpackTitle = $hit['title'] ?? $packQuery;
+            $slug = $hit['slug'] ?? $hit['project_id'];
+
+            // Fetch latest version
+            $verRes = $this->httpClient->get("https://api.modrinth.com/v2/project/{$slug}/version", [
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0', 'Accept' => 'application/json'],
+                'timeout' => 8,
+            ]);
+
+            if ($verRes->getStatusCode() !== 200) {
+                return ['success' => false, 'text' => "Failed to fetch versions for modpack '{$modpackTitle}'."];
+            }
+
+            $versions = json_decode($verRes->getBody()->getContents(), true);
+            if (empty($versions) || !is_array($versions)) {
+                return ['success' => false, 'text' => "No releases found for modpack '{$modpackTitle}'."];
+            }
+
+            $chosenVer = $versions[0];
+            $files = $chosenVer['files'] ?? [];
+            $mrpackUrl = null;
+            foreach ($files as $f) {
+                $fn = strtolower($f['filename'] ?? '');
+                if (str_ends_with($fn, '.mrpack') || str_ends_with($fn, '.zip')) {
+                    $mrpackUrl = $f['url'] ?? null;
+                    break;
+                }
+            }
+            if (!$mrpackUrl && !empty($files[0]['url'])) {
+                $mrpackUrl = $files[0]['url'];
+            }
+
+            if (empty($mrpackUrl)) {
+                return ['success' => false, 'text' => "No downloadable archive found for modpack '{$modpackTitle}'."];
+            }
+
+            // Download .mrpack to panel temp file
+            $tmpPack = tempnam(sys_get_temp_dir(), 'ai_mp_');
+            $this->httpClient->get($mrpackUrl, [
+                'sink' => $tmpPack,
+                'timeout' => 90,
+                'headers' => ['User-Agent' => 'Pterodactyl-Panel-AI/1.0'],
+            ]);
+
+            $zip = new ZipArchive();
+            if ($zip->open($tmpPack) !== true) {
+                @unlink($tmpPack);
+                return ['success' => false, 'text' => "Failed to read downloaded modpack archive."];
+            }
+
+            // Extract overrides into clean zip and decompress to root
+            $tmpOverridesZip = tempnam(sys_get_temp_dir(), 'ai_ovr_') . '.zip';
+            $ovrZip = new ZipArchive();
+            $ovrZip->open($tmpOverridesZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+            $overridesCount = 0;
+
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $stat = $zip->statIndex($i);
+                $entryName = $stat['name'] ?? '';
+                $relTarget = null;
+                if (str_starts_with($entryName, 'overrides/')) {
+                    $relTarget = substr($entryName, strlen('overrides/'));
+                } elseif (str_starts_with($entryName, 'server-overrides/')) {
+                    $relTarget = substr($entryName, strlen('server-overrides/'));
+                }
+                if ($relTarget !== null && !empty($relTarget) && !str_ends_with($relTarget, '/')) {
+                    $c = $zip->getFromIndex($i);
+                    if ($c !== false) {
+                        $ovrZip->addFromString($relTarget, $c);
+                        $overridesCount++;
+                    }
+                }
+            }
+            $ovrZip->close();
+
+            if ($overridesCount > 0 && file_exists($tmpOverridesZip) && filesize($tmpOverridesZip) > 0) {
+                try {
+                    $this->fileRepository->setServer($server)->putContent('/.modpack_overrides.zip', file_get_contents($tmpOverridesZip));
+                    $this->fileRepository->setServer($server)->decompressFile('/', '.modpack_overrides.zip');
+                } catch (Throwable $e) {}
+            }
+            @unlink($tmpOverridesZip);
+
+            // Parse modrinth.index.json
+            $indexStr = $zip->getFromName('modrinth.index.json');
+            $modsToInstall = [];
+            $dependencies = [];
+            if ($indexStr !== false) {
+                $index = json_decode($indexStr, true);
+                if (is_array($index)) {
+                    $dependencies = $index['dependencies'] ?? [];
+                    foreach ($index['files'] ?? [] as $item) {
+                        if (($item['env']['server'] ?? 'required') === 'unsupported') continue;
+                        $path = ltrim(str_replace('\\', '/', $item['path'] ?? ''), '/');
+                        $fn = basename($path);
+                        $dir = dirname($path);
+                        if ($dir === '.' || empty($dir)) $dir = 'mods';
+                        $dls = $item['downloads'] ?? [];
+                        if (!empty($dls[0])) {
+                            $modsToInstall[] = [
+                                'filename' => $fn,
+                                'directory' => '/' . $dir,
+                                'url' => $dls[0],
+                            ];
+                        }
+                    }
+                }
+            }
+            $zip->close();
+            @unlink($tmpPack);
+
+            // Ensure /mods directory exists
+            try {
+                $this->fileRepository->setServer($server)->createDirectory('mods', '/');
+            } catch (Throwable $e) {}
+
+            // Stream-pull mod files in foreground
+            $installedCount = 0;
+            foreach ($modsToInstall as $m) {
+                try {
+                    $cleanFn = basename(str_replace(['\\', '/', "\0"], '', $m['filename']));
+                    $this->fileRepository->setServer($server)->pull(
+                        $m['url'],
+                        $m['directory'],
+                        [
+                            'filename' => $cleanFn,
+                            'use_header' => false,
+                            'foreground' => true,
+                        ]
+                    );
+                    $installedCount++;
+                } catch (Throwable $e) {}
+            }
+
+            // Write modpack manifest
+            $detectedLoader = isset($dependencies['fabric-loader']) ? 'Fabric'
+                : (isset($dependencies['forge']) ? 'Forge'
+                : (isset($dependencies['neoforge']) ? 'NeoForge'
+                : (isset($dependencies['quilt-loader']) ? 'Quilt' : 'Modded')));
+            $gameVer = $dependencies['minecraft'] ?? 'Unknown';
+
+            $manifest = [
+                'project_id' => $hit['project_id'],
+                'title' => $modpackTitle,
+                'version_id' => $chosenVer['id'] ?? '',
+                'version_name' => $chosenVer['name'] ?? 'Latest',
+                'loader' => strtolower($detectedLoader),
+                'minecraft' => $gameVer,
+                'icon_url' => $hit['icon_url'] ?? '',
+                'installed_at' => date('c'),
+                'total_mods' => $installedCount,
+            ];
+
+            try {
+                $this->fileRepository->setServer($server)->putContent('/.pterodactyl-modpack.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                $this->fileRepository->setServer($server)->deleteFiles('/', ['.modpack_overrides.zip']);
+            } catch (Throwable $e) {}
+
+            // Restart server
             try {
                 $this->powerRepository->setServer($server)->send('restart');
             } catch (Throwable $e) {}
 
             return [
                 'success' => true,
-                'text' => "Successfully downloaded {$fileName} into /mods via Wings stream-pull and initiated server restart!",
+                'text' => "Successfully installed modpack '{$modpackTitle}' ({$detectedLoader} for Minecraft {$gameVer}) with {$installedCount} server mods and configuration files! Server restart has been initiated.",
             ];
         } catch (Throwable $e) {
-            return ['success' => false, 'text' => "Failed to install mod: " . $e->getMessage()];
+            Log::error("[AIAssistant] Modpack installation failed: " . $e->getMessage());
+            return ['success' => false, 'text' => "Modpack installation encountered an error: " . $e->getMessage()];
         }
     }
 }

@@ -380,6 +380,8 @@ export default function ModInstallerContainer() {
           filename: file.filename,
           icon_url: activeMod.icon_url,
           title: activeMod.title,
+          install_dependencies: true,
+          dependencies: ver.dependencies || [],
         }
       );
 
