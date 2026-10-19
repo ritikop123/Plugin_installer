@@ -851,8 +851,29 @@ if [ -f "$WRAPPER_FILE" ]; then
   touch "$WRAPPER_FILE" 2>/dev/null || true
 fi
 
-# Configure cron jobs for schedule:run and midnight auto-suspend check
-(crontab -l 2>/dev/null | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend'; echo "* * * * * php $PTERO_DIR/artisan schedule:run >> /dev/null 2>&1"; echo "0 0 * * * php $PTERO_DIR/artisan ptero:auto-suspend >> /dev/null 2>&1") | crontab - 2>/dev/null || true
+# Configure cron jobs for schedule:run and auto-suspend checks (running every minute and logged)
+echo -e "${CYAN}[*] Configuring cron jobs for automated tasks and auto-suspension...${NC}"
+setup_panel_cron() {
+  local target_user="$1"
+  local cmd_prefix=""
+  [ -n "$target_user" ] && cmd_prefix="crontab -u $target_user" || cmd_prefix="crontab"
+
+  local current_cron
+  current_cron=$($cmd_prefix -l 2>/dev/null || true)
+  local filtered_cron
+  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' || true)
+
+  {
+    [ -n "$filtered_cron" ] && echo "$filtered_cron"
+    echo "* * * * * cd $PTERO_DIR && php artisan schedule:run >> /dev/null 2>&1"
+    echo "* * * * * cd $PTERO_DIR && php artisan ptero:auto-suspend >> /var/log/pterodactyl-auto-suspend.log 2>&1"
+  } | $cmd_prefix - 2>/dev/null || true
+}
+
+setup_panel_cron ""
+if id "www-data" >/dev/null 2>&1; then
+  setup_panel_cron "www-data"
+fi
 
 chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
 

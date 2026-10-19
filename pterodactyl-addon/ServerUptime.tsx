@@ -21,6 +21,7 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
 
     const [liveExpireAt, setLiveExpireAt] = useState<string | null>(storeExpireAt || null);
     const [liveUptime, setLiveUptime] = useState<number>(0);
+    const [liveStatus, setLiveStatus] = useState<string | null>(serverStatus || null);
 
     // Keep liveExpireAt synced if storeExpireAt updates
     useEffect(() => {
@@ -28,6 +29,16 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
             setLiveExpireAt(storeExpireAt);
         }
     }, [storeExpireAt]);
+
+    // Keep liveStatus in sync and reset uptime when server transitions to offline or starting
+    useEffect(() => {
+        if (serverStatus) {
+            setLiveStatus(serverStatus);
+            if (serverStatus === 'offline' || serverStatus === 'starting') {
+                setLiveUptime(0);
+            }
+        }
+    }, [serverStatus]);
 
     // Fetch fresh subscription details and listen to real-time update events
     useEffect(() => {
@@ -73,6 +84,14 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
         } catch {}
     }, [socketInstance]);
 
+    // Listen to real-time status events from daemon WebSocket
+    useWebsocketEvent(SocketEvent.STATUS, (status: string) => {
+        setLiveStatus(status);
+        if (status === 'offline' || status === 'starting') {
+            setLiveUptime(0);
+        }
+    });
+
     // Live stats listener from daemon WebSocket
     useWebsocketEvent(SocketEvent.STATS, (data: string) => {
         try {
@@ -80,45 +99,51 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
             if (typeof values.uptime === 'number') {
                 setLiveUptime(values.uptime);
             }
+            if (typeof values.state === 'string' && values.state) {
+                setLiveStatus(values.state);
+            }
         } catch {}
     });
 
-    const rawUptime = propUptime !== undefined && propUptime !== null && propUptime > 0
-        ? propUptime
-        : (liveUptime > 0 ? liveUptime : (stats?.uptime ?? stats?.resources?.uptime ?? 0));
-
     const rawStatus = propStatus !== undefined && propStatus !== null
         ? propStatus
-        : (serverStatus || stats?.status || stats?.state || null);
+        : (liveStatus || serverStatus || stats?.status || stats?.state || null);
 
     const formatted = useMemo(() => {
-        const isRunning = rawStatus === 'running' || (!rawStatus && typeof rawUptime === 'number' && rawUptime > 0);
-
-        if (!isRunning || !rawUptime || typeof rawUptime !== 'number' || rawUptime <= 0) {
-            if (rawStatus === 'starting') {
-                return { text: 'Starting...', title: 'Server is starting up', state: 'starting' };
-            }
-            if (rawStatus === 'stopping') {
-                return { text: 'Stopping...', title: 'Server is stopping', state: 'stopping' };
-            }
+        // Handle explicit known states first
+        if (rawStatus === 'starting') {
+            return { text: 'Starting...', title: 'Server is starting up', state: 'starting' };
+        }
+        if (rawStatus === 'stopping') {
+            return { text: 'Stopping...', title: 'Server is stopping', state: 'stopping' };
+        }
+        if (rawStatus === 'offline') {
             return { text: 'Offline', title: 'Server is offline', state: 'offline' };
         }
 
-        const now = Date.now();
-        let seconds = 0;
+        // When status is running, or status is unknown/null but we have active uptime
+        const isRunning = rawStatus === 'running' || (!rawStatus && (liveUptime > 0 || (propUptime ?? 0) > 0));
 
-        if (rawUptime > 1000000000000) {
-            // Milliseconds epoch timestamp
-            seconds = Math.max(0, Math.floor((now - rawUptime) / 1000));
-        } else if (rawUptime > 1000000000) {
-            // Seconds epoch timestamp
-            seconds = Math.max(0, Math.floor(now / 1000 - rawUptime));
-        } else if (rawUptime > 100000) {
-            // Milliseconds duration (Wings proc.Uptime())
-            seconds = Math.floor(rawUptime / 1000);
+        if (!isRunning) {
+            return { text: 'Offline', title: 'Server is offline', state: 'offline' };
+        }
+
+        let seconds = 0;
+        if (propUptime !== undefined && propUptime !== null && propUptime > 0) {
+            if (propUptime > 1000000000000) {
+                // Milliseconds epoch timestamp
+                seconds = Math.max(0, Math.floor((Date.now() - propUptime) / 1000));
+            } else if (propUptime > 1000000000) {
+                // Seconds epoch timestamp
+                seconds = Math.max(0, Math.floor(Date.now() / 1000 - propUptime));
+            } else {
+                // Duration passed via prop
+                seconds = Math.floor(propUptime);
+            }
         } else {
-            // Seconds duration
-            seconds = Math.floor(rawUptime);
+            // Wings daemon stats.uptime is ALWAYS duration in milliseconds
+            const ms = liveUptime > 0 ? liveUptime : (stats?.uptime ?? stats?.resources?.uptime ?? 0);
+            seconds = Math.floor(ms / 1000);
         }
 
         if (seconds <= 0) {
@@ -138,13 +163,16 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
         } else if (hours > 0) {
             text = `${hours}h ${minutes}m`;
             fullTitle += `${hours} hour${hours > 1 ? 's' : ''}, ${minutes} min`;
-        } else {
+        } else if (minutes > 0) {
             text = `${minutes}m`;
             fullTitle += `${minutes} minute${minutes > 1 ? 's' : ''}`;
+        } else {
+            text = '< 1m';
+            fullTitle += 'less than a minute';
         }
 
         return { text, title: fullTitle, state: 'online' };
-    }, [rawUptime, rawStatus]);
+    }, [rawStatus, liveUptime, propUptime, stats]);
 
     const suspendFormatted = useMemo(() => {
         if (!liveExpireAt || liveExpireAt === 'N/A' || liveExpireAt === 'null' || liveExpireAt === 'undefined') {

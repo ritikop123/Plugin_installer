@@ -205,7 +205,7 @@ class ModpackInstallerController extends ClientApiController
 
                     if (empty($downloadUrl) && strlen($fileId) > 4) {
                         $part1 = substr($fileId, 0, 4);
-                        $part2 = substr($fileId, 4);
+                        $part2 = ltrim(substr($fileId, 4), '0') ?: '0';
                         $downloadUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
                     }
 
@@ -452,26 +452,47 @@ class ModpackInstallerController extends ClientApiController
         if (!empty($archiveUrl) && filter_var($archiveUrl, FILTER_VALIDATE_URL) && str_starts_with($archiveUrl, 'https://')) {
             $mrpackUrl = $archiveUrl;
         } else {
-            try {
-                // 1. Fetch version metadata from Modrinth
-                $verRes = $this->httpClient->get(self::MODRINTH_API . "version/{$versionId}");
-                if ($verRes->getStatusCode() === 200) {
-                    $verData = json_decode($verRes->getBody()->getContents(), true);
-                    $files = $verData['files'] ?? [];
+            if ($provider === 'curseforge' || $provider === 'curse') {
+                try {
+                    $modId = trim((string) $request->input('mod_id', $request->input('project_id', '')));
+                    if (!empty($modId) && !empty($versionId)) {
+                        $cfRes = $this->httpClient->get(self::CURSE_API . "mods/{$modId}/files/{$versionId}");
+                        if ($cfRes->getStatusCode() === 200) {
+                            $cfData = json_decode($cfRes->getBody()->getContents(), true);
+                            $fileData = $cfData['data'] ?? $cfData;
+                            $mrpackUrl = $fileData['downloadUrl'] ?? null;
+                            $cfFn = $fileData['fileName'] ?? 'modpack.zip';
 
-                    foreach ($files as $f) {
-                        $fn = strtolower($f['filename'] ?? '');
-                        if (str_ends_with($fn, '.mrpack') || str_ends_with($fn, '.zip')) {
-                            $mrpackUrl = $f['url'] ?? null;
-                            break;
+                            if (empty($mrpackUrl) && strlen((string) $versionId) > 4) {
+                                $part1 = substr((string) $versionId, 0, 4);
+                                $part2 = ltrim(substr((string) $versionId, 4), '0') ?: '0';
+                                $mrpackUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($cfFn);
+                            }
                         }
                     }
+                } catch (Throwable $e) {}
+            } else {
+                try {
+                    // 1. Fetch version metadata from Modrinth
+                    $verRes = $this->httpClient->get(self::MODRINTH_API . "version/{$versionId}");
+                    if ($verRes->getStatusCode() === 200) {
+                        $verData = json_decode($verRes->getBody()->getContents(), true);
+                        $files = $verData['files'] ?? [];
 
-                    if (!$mrpackUrl && !empty($files[0]['url'])) {
-                        $mrpackUrl = $files[0]['url'];
+                        foreach ($files as $f) {
+                            $fn = strtolower($f['filename'] ?? '');
+                            if (str_ends_with($fn, '.mrpack') || str_ends_with($fn, '.zip')) {
+                                $mrpackUrl = $f['url'] ?? null;
+                                break;
+                            }
+                        }
+
+                        if (!$mrpackUrl && !empty($files[0]['url'])) {
+                            $mrpackUrl = $files[0]['url'];
+                        }
                     }
-                }
-            } catch (Throwable $e) {}
+                } catch (Throwable $e) {}
+            }
         }
 
         if (!$mrpackUrl || !filter_var($mrpackUrl, FILTER_VALIDATE_URL)) {
@@ -506,7 +527,7 @@ class ModpackInstallerController extends ClientApiController
                 }
             }
 
-            // 3. Command Wings to pull the .mrpack archive directly to the server root as .modpack_temp_<timestamp>.zip
+            // 3. Command Wings to pull the archive directly to the server root as .modpack_temp_<timestamp>.zip
             $zipName = '.modpack_temp_' . time() . '.zip';
             $this->fileRepository->setServer($server)->pull(
                 $mrpackUrl,
@@ -537,10 +558,11 @@ class ModpackInstallerController extends ClientApiController
                 $this->fileRepository->setServer($server)->createDirectory('mods', '/');
             } catch (Throwable $e) {}
 
-            // 6. Read and parse modrinth.index.json from server root
+            // 6. Read and parse modpack manifest (Modrinth or CurseForge) from server root
             $modsToInstall = [];
             $dependencies = [];
 
+            // A. Check for Modrinth modrinth.index.json
             try {
                 $indexContent = $this->fileRepository->setServer($server)->getContent('/modrinth.index.json');
                 $index = json_decode($indexContent, true);
@@ -582,6 +604,82 @@ class ModpackInstallerController extends ClientApiController
             // Clean up modrinth.index.json
             try {
                 $this->fileRepository->setServer($server)->deleteFiles('/', ['modrinth.index.json']);
+            } catch (Throwable $e) {}
+
+            // B. Check for CurseForge manifest.json
+            try {
+                $manifestContent = $this->fileRepository->setServer($server)->getContent('/manifest.json');
+                $cfManifest = json_decode($manifestContent, true);
+                if (is_array($cfManifest)) {
+                    $mcInfo = $cfManifest['minecraft'] ?? [];
+                    if (!empty($mcInfo['version']) && empty($dependencies['minecraft'])) {
+                        $dependencies['minecraft'] = $mcInfo['version'];
+                    }
+
+                    $modLoaders = $mcInfo['modLoaders'] ?? [];
+                    if (!empty($modLoaders[0]['id'])) {
+                        $mlId = strtolower($modLoaders[0]['id']);
+                        if (str_contains($mlId, 'forge') && !str_contains($mlId, 'neoforge')) {
+                            $dependencies['forge'] = $mlId;
+                        } elseif (str_contains($mlId, 'fabric')) {
+                            $dependencies['fabric-loader'] = $mlId;
+                        } elseif (str_contains($mlId, 'neoforge')) {
+                            $dependencies['neoforge'] = $mlId;
+                        } elseif (str_contains($mlId, 'quilt')) {
+                            $dependencies['quilt-loader'] = $mlId;
+                        }
+                    }
+
+                    $rawFiles = $cfManifest['files'] ?? [];
+                    // Resolve CurseForge mod files in batches of 25 concurrently
+                    $chunks = array_chunk($rawFiles, 25);
+                    foreach ($chunks as $chunk) {
+                        $promises = [];
+                        foreach ($chunk as $cfItem) {
+                            $pId = $cfItem['projectID'] ?? null;
+                            $fId = $cfItem['fileID'] ?? null;
+                            if ($pId && $fId) {
+                                $promises["{$pId}_{$fId}"] = $this->httpClient->getAsync(self::CURSE_API . "mods/{$pId}/files/{$fId}");
+                            }
+                        }
+
+                        if (!empty($promises)) {
+                            $results = \GuzzleHttp\Promise\Utils::settle($promises)->wait();
+                            foreach ($results as $key => $res) {
+                                [$pId, $fId] = explode('_', $key);
+                                $fileData = null;
+                                if ($res['state'] === 'fulfilled' && $res['value']->getStatusCode() === 200) {
+                                    $parsed = json_decode($res['value']->getBody()->getContents(), true);
+                                    $fileData = $parsed['data'] ?? $parsed;
+                                }
+
+                                $fileName = $fileData['fileName'] ?? "mod-{$fId}.jar";
+                                $dl = $fileData['downloadUrl'] ?? null;
+                                if (empty($dl) && strlen((string) $fId) > 4) {
+                                    $part1 = substr((string) $fId, 0, 4);
+                                    $part2 = ltrim(substr((string) $fId, 4), '0') ?: '0';
+                                    $dl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
+                                }
+
+                                if (!empty($dl)) {
+                                    $modsToInstall[] = [
+                                        'name' => $fileName,
+                                        'path' => 'mods/' . $fileName,
+                                        'directory' => '/mods',
+                                        'filename' => $fileName,
+                                        'url' => $dl,
+                                        'size' => (int) ($fileData['fileLength'] ?? 0),
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+
+            // Clean up manifest.json
+            try {
+                $this->fileRepository->setServer($server)->deleteFiles('/', ['manifest.json']);
             } catch (Throwable $e) {}
 
             $detectedLoader = isset($dependencies['fabric-loader']) ? 'fabric'

@@ -496,7 +496,7 @@ class PluginInstallerController extends ClientApiController
 
                 if (empty($downloadUrl) && strlen($fileId) > 4) {
                     $part1 = substr($fileId, 0, 4);
-                    $part2 = substr($fileId, 4);
+                    $part2 = ltrim(substr($fileId, 4), '0') ?: '0';
                     $downloadUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
                 }
 
@@ -567,7 +567,57 @@ class PluginInstallerController extends ClientApiController
         $url = (string) $request->input('url', '');
         $filename = (string) $request->input('filename', '');
 
-        // 1. Validate URL: require HTTPS
+        // 1. Resolve potential Spiget / GitHub release redirects to direct .jar assets
+        if (str_contains($url, 'api.spiget.org') && str_contains($url, '/download')) {
+            try {
+                $headRes = $this->httpClient->get($url, [
+                    'allow_redirects' => false,
+                    'timeout' => 6,
+                ]);
+                if ($headRes->getStatusCode() >= 300 && $headRes->getStatusCode() < 400) {
+                    $loc = $headRes->getHeaderLine('Location');
+                    if (!empty($loc)) {
+                        $url = $loc;
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // If URL points to a GitHub release tag page (e.g. EssentialsX), resolve the direct .jar release asset
+        if (preg_match('#github\.com/([^/]+)/([^/]+)/releases/tag/([^/?#]+)#i', $url, $m)) {
+            try {
+                $ghApi = "https://api.github.com/repos/{$m[1]}/{$m[2]}/releases/tags/{$m[3]}";
+                $ghRes = $this->httpClient->get($ghApi, [
+                    'headers' => [
+                        'User-Agent' => self::USER_AGENT,
+                        'Accept' => 'application/vnd.github.v3+json',
+                    ],
+                    'timeout' => 8,
+                ]);
+                if ($ghRes->getStatusCode() === 200) {
+                    $ghData = json_decode($ghRes->getBody()->getContents(), true);
+                    $assets = $ghData['assets'] ?? [];
+                    $jarAsset = null;
+                    foreach ($assets as $asset) {
+                        $assetName = $asset['name'] ?? '';
+                        if (str_ends_with(strtolower($assetName), '.jar')) {
+                            if (!str_contains(strtolower($assetName), 'javadoc') && !str_contains(strtolower($assetName), 'sources')) {
+                                $jarAsset = $asset;
+                                break;
+                            }
+                        }
+                    }
+                    if ($jarAsset && !empty($jarAsset['browser_download_url'])) {
+                        $url = $jarAsset['browser_download_url'];
+                        if (empty($filename) || $filename === 'plugin.jar') {
+                            $filename = $jarAsset['name'];
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // Validate URL: require HTTPS
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
             return response()->json(['error' => 'Invalid file download URL.'], 400);
         }
@@ -578,25 +628,33 @@ class PluginInstallerController extends ClientApiController
         }
 
         $host = strtolower($parsedUrl['host'] ?? '');
-        $allowedHosts = [
-            'cdn.modrinth.com',
-            'api.modrinth.com',
-            'api.spiget.org',
+        $allowedSuffixes = [
+            'modrinth.com',
             'spiget.org',
-            'hangarcdn.papermc.io',
-            'hangar.papermc.io',
-            'edge.forgecdn.net',
-            'mediafilez.forgecdn.net',
-            'media.forgecdn.net',
+            'spigotmc.org',
+            'papermc.io',
+            'forgecdn.net',
             'curseforge.com',
-            'api.curse.tools',
+            'curse.tools',
             'github.com',
-            'objects.githubusercontent.com',
+            'githubusercontent.com',
+            'amazonaws.com',
+            'geysermc.org',
+            'opencollab.dev',
+            'viaversion.com',
+            'dmulloy2.net',
+            'enginehub.org',
+            'ender.zone',
+            'jitpack.io',
+            'gitlab.com',
+            'codeberg.org',
+            'jsdelivr.net',
+            'creeper.host',
         ];
 
         $isAllowedHost = false;
-        foreach ($allowedHosts as $allowed) {
-            if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
+        foreach ($allowedSuffixes as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
                 $isAllowedHost = true;
                 break;
             }
@@ -648,12 +706,13 @@ class PluginInstallerController extends ClientApiController
             } catch (Exception $e) {}
 
             // 4. Command Wings to pull the file directly into /plugins
+            // use_header => false guarantees Wings strictly saves the file with $cleanFilename (.jar)
             $this->fileRepository->setServer($server)->pull(
                 $url,
                 '/plugins',
                 [
                     'filename' => $cleanFilename,
-                    'use_header' => true,
+                    'use_header' => false,
                     'foreground' => true,
                 ]
             );

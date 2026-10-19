@@ -12,7 +12,6 @@ import (
 type Config struct {
 	Panel    PanelConfig    `yaml:"panel"`
 	Sleep    SleepConfig    `yaml:"sleep"`
-	Security SecurityConfig `yaml:"security"`
 }
 
 type PanelConfig struct {
@@ -23,21 +22,9 @@ type PanelConfig struct {
 }
 
 type SleepConfig struct {
-	Enabled            bool          `yaml:"enabled"`              // Master switch for this node (default: true)
-	DefaultIdleTimeout time.Duration `yaml:"default_idle_timeout"` // e.g. 20m
-	CheckInterval      time.Duration `yaml:"check_interval"`       // e.g. 30s
-	GracePeriod        time.Duration `yaml:"grace_period"`         // e.g. 3m (grace time after start before sleeping)
-	SleepingMOTD       string        `yaml:"sleeping_motd"`
-	WakeMessage        string        `yaml:"wake_message"`
-	BedrockEnabled     bool          `yaml:"bedrock_enabled"`
-	BedrockWakeMessage string        `yaml:"bedrock_wake_message"`
-}
-
-type SecurityConfig struct {
-	WakeCooldownSeconds   int `yaml:"wake_cooldown_seconds"`   // e.g. 60
-	MaxWakesPerWindow     int `yaml:"max_wakes_per_window"`     // e.g. 3
-	WindowSeconds         int `yaml:"window_seconds"`           // e.g. 300
-	CrashThresholdSeconds int `yaml:"crash_threshold_seconds"` // e.g. 45
+	Enabled       bool          `yaml:"enabled"`        // Master switch for this node (default: true)
+	CheckInterval time.Duration `yaml:"check_interval"` // e.g. 30s
+	GracePeriod   time.Duration `yaml:"grace_period"`   // e.g. 3m (grace time after start before tracking)
 }
 
 func DefaultConfig() *Config {
@@ -49,20 +36,9 @@ func DefaultConfig() *Config {
 			NodeID:       1,
 		},
 		Sleep: SleepConfig{
-			Enabled:            true,
-			DefaultIdleTimeout: 20 * time.Minute,
-			CheckInterval:      30 * time.Second,
-			GracePeriod:        3 * time.Minute,
-			SleepingMOTD:       "§a%s §7[Sleeping]\n§eJoin server to wake it up!",
-			WakeMessage:        "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin.",
-			BedrockEnabled:     true,
-			BedrockWakeMessage: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin.",
-		},
-		Security: SecurityConfig{
-			WakeCooldownSeconds:   60,
-			MaxWakesPerWindow:     3,
-			WindowSeconds:         300,
-			CrashThresholdSeconds: 45,
+			Enabled:       true,
+			CheckInterval: 30 * time.Second,
+			GracePeriod:   3 * time.Minute,
 		},
 	}
 }

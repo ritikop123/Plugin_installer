@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,12 +24,9 @@ type ServerInfo struct {
 	ExtraPorts  []AllocationInfo  `json:"extra_ports"`
 	Environment map[string]string `json:"environment"`
 
-	// SmartSleep specific properties derived from environment/metadata
+	// Auto-stop properties derived from server configuration.
 	Enabled        bool
 	IsProxy        bool
-	IdleTimeout    time.Duration
-	CustomMOTD     string
-	BedrockPort    int
 }
 
 type AllocationInfo struct {
@@ -39,7 +35,6 @@ type AllocationInfo struct {
 }
 
 type Client struct {
-	cfg          *config.Config
 	baseURL      string
 	appAPIKey    string
 	clientAPIKey string
@@ -49,7 +44,6 @@ type Client struct {
 func NewClient(cfg *config.Config) *Client {
 	url := strings.TrimRight(cfg.Panel.URL, "/")
 	return &Client{
-		cfg:          cfg,
 		baseURL:      url,
 		appAPIKey:    cfg.Panel.APIKey,
 		clientAPIKey: cfg.Panel.ClientAPIKey,
@@ -138,11 +132,6 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			continue
 		}
 
-		defaultTimeout := 20 * time.Minute
-		if c.cfg != nil && c.cfg.Sleep.DefaultIdleTimeout > 0 {
-			defaultTimeout = c.cfg.Sleep.DefaultIdleTimeout
-		}
-
 		server := &ServerInfo{
 			ID:          attr.ID,
 			UUID:        attr.UUID,
@@ -150,9 +139,8 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			Name:        attr.Name,
 			NodeID:      attr.NodeID,
 			Environment: make(map[string]string),
-			Enabled:     true, // Default ENABLED for all servers (new and existing)
-			IsProxy:     false,
-			IdleTimeout: defaultTimeout,
+			Enabled: true, // Default ENABLED for all servers (new and existing)
+			IsProxy: false,
 		}
 
 		// 1. Auto-detect Proxy servers (Velocity, BungeeCord, Waterfall, FlameCord, Gate, etc.)
@@ -164,7 +152,7 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 		for _, kw := range proxyKeywords {
 			if strings.Contains(lowerName, kw) || strings.Contains(lowerStartup, kw) || strings.Contains(lowerImage, kw) {
 				server.IsProxy = true
-				server.Enabled = false // Proxies must never hibernate!
+				server.Enabled = false // Proxies must remain online.
 				break
 			}
 		}
@@ -196,20 +184,6 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 		if !server.IsProxy {
 			if val, exists := server.Environment["SMARTSLEEP_ENABLED"]; exists {
 				server.Enabled = strings.ToLower(val) == "true" || val == "1"
-			}
-		}
-
-		if val, exists := server.Environment["SMARTSLEEP_TIMEOUT"]; exists {
-			if mins, err := strconv.Atoi(val); err == nil && mins > 0 {
-				server.IdleTimeout = time.Duration(mins) * time.Minute
-			}
-		}
-		if val, exists := server.Environment["SMARTSLEEP_MOTD"]; exists && val != "" {
-			server.CustomMOTD = val
-		}
-		if val, exists := server.Environment["SMARTSLEEP_BEDROCK_PORT"]; exists {
-			if bp, err := strconv.Atoi(val); err == nil && bp > 0 {
-				server.BedrockPort = bp
 			}
 		}
 
@@ -292,38 +266,6 @@ func (c *Client) SendPowerAction(serverIdentifier, signal string) error {
 	return nil
 }
 
-// SendCommand sends a console command to a running server (e.g. "save-all")
-func (c *Client) SendCommand(serverIdentifier, command string) error {
-	endpoint := fmt.Sprintf("%s/api/client/servers/%s/command", c.baseURL, serverIdentifier)
-	payload, _ := json.Marshal(map[string]string{"command": command})
-
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(payload))
-	if err != nil {
-		return err
-	}
-
-	apiKey := c.clientAPIKey
-	if apiKey == "" {
-		apiKey = c.appAPIKey
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send command: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("command execution failed with code %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
-
 // getClientServers fetches servers via the Client API (/api/client) as a fallback when ptla_ lacks permissions
 func (c *Client) getClientServers(nodeID int) ([]*ServerInfo, error) {
 	endpoint := fmt.Sprintf("%s/api/client", c.baseURL)
@@ -374,11 +316,6 @@ func (c *Client) getClientServers(nodeID int) ([]*ServerInfo, error) {
 		return nil, fmt.Errorf("failed to decode client servers json: %w", err)
 	}
 
-	defaultTimeout := 20 * time.Minute
-	if c.cfg != nil && c.cfg.Sleep.DefaultIdleTimeout > 0 {
-		defaultTimeout = c.cfg.Sleep.DefaultIdleTimeout
-	}
-
 	var result []*ServerInfo
 	for _, item := range raw.Data {
 		attr := item.Attributes
@@ -391,9 +328,8 @@ func (c *Client) getClientServers(nodeID int) ([]*ServerInfo, error) {
 			Name:        attr.Name,
 			NodeID:      nodeID,
 			Environment: make(map[string]string),
-			Enabled:     true,
-			IsProxy:     false,
-			IdleTimeout: defaultTimeout,
+			Enabled: true,
+			IsProxy: false,
 		}
 
 		proxyKeywords := []string{"velocity", "bungee", "waterfall", "flamecord", "travertine", "gate-proxy", "bungeecord"}
@@ -426,4 +362,3 @@ func (c *Client) getClientServers(nodeID int) ([]*ServerInfo, error) {
 	log.Printf("[SmartSleep] Client API fallback successfully loaded %d servers for monitoring.", len(result))
 	return result, nil
 }
-

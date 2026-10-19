@@ -2,24 +2,27 @@ package monitor
 
 import (
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"smartsleep/internal/config"
 	"smartsleep/internal/gateway"
 	"smartsleep/internal/ptero"
-	"smartsleep/internal/security"
+)
+
+const (
+	noPlayerStopTimeout = 48 * time.Hour
+	stopRetryWindow     = 3 * time.Minute
 )
 
 type ServerState string
 
 const (
-	StateRunning  ServerState = "running"
-	StateIdle     ServerState = "idle"
-	StateSleeping ServerState = "sleeping"
-	StateWaking   ServerState = "waking"
-	StateOffline  ServerState = "offline"
+	StateRunning ServerState = "running"
+	StateIdle    ServerState = "idle"
+	StateStarting ServerState = "starting"
+	StateStopping ServerState = "stopping"
+	StateOffline ServerState = "offline"
 )
 
 type ServerRuntime struct {
@@ -28,40 +31,30 @@ type ServerRuntime struct {
 	IdleSince       time.Time
 	LastStarted     time.Time
 	LastPlayerCount int
-	ManualStop      bool
+	StopRequestedAt time.Time
 }
 
 type Tracker struct {
 	cfg         *config.Config
 	pteroClient *ptero.Client
-	portManager *gateway.PortManager
-	rateLimiter *security.RateLimiter
 	servers     map[string]*ServerRuntime
 	mu          sync.RWMutex
 	stopChan    chan struct{}
 }
 
-func NewTracker(
-	cfg *config.Config,
-	pteroClient *ptero.Client,
-	portManager *gateway.PortManager,
-	rateLimiter *security.RateLimiter,
-) *Tracker {
+func NewTracker(cfg *config.Config, pteroClient *ptero.Client) *Tracker {
 	return &Tracker{
 		cfg:         cfg,
 		pteroClient: pteroClient,
-		portManager: portManager,
-		rateLimiter: rateLimiter,
 		servers:     make(map[string]*ServerRuntime),
 		stopChan:    make(chan struct{}),
 	}
 }
 
 func (t *Tracker) Start() {
-	log.Printf("[SmartSleep] Tracker started. Monitoring interval: %v", t.cfg.Sleep.CheckInterval)
+	log.Printf("[SmartSleep] Auto-stop tracker started. Monitoring interval: %v", t.cfg.Sleep.CheckInterval)
 	ticker := time.NewTicker(t.cfg.Sleep.CheckInterval)
 
-	// Run initial synchronization immediately
 	t.syncServers()
 
 	go func() {
@@ -82,11 +75,7 @@ func (t *Tracker) Stop() {
 }
 
 func (t *Tracker) syncServers() {
-	// 1. Check Node-level master switch
 	if !t.cfg.Sleep.Enabled {
-		t.mu.Lock()
-		t.portManager.UnbindAll()
-		t.mu.Unlock()
 		return
 	}
 
@@ -111,311 +100,143 @@ func (t *Tracker) syncServers() {
 			runtime.Info = s
 		}
 
-		// Check if SmartSleep is disabled for this server or if it is a proxy
 		if !s.Enabled {
-			if t.portManager.IsBound(s.Identifier) {
-				t.portManager.UnbindServer(s.Identifier)
-				t.portManager.UnbindPort(s.PrimaryPort)
-			}
-			continue
-		}
-
-		// Fetch live container state from Pterodactyl Client API
-		pteroState, err := t.pteroClient.GetServerState(s.Identifier)
-		if err != nil {
-			continue
-		}
-
-		switch pteroState {
-		case "offline":
-			// If server was manually stopped by user in panel, keep it offline and do not bind sleeping port
-			if runtime.ManualStop {
-				if t.portManager.IsBound(s.Identifier) {
-					t.portManager.UnbindServer(s.Identifier)
-					t.portManager.UnbindPort(s.PrimaryPort)
-				}
-				continue
-			}
-
-			// If server is currently waking up, protect it from rebinding for 3 minutes while Wings pulls images/starts
-			if runtime.State == StateWaking {
-				if time.Since(runtime.LastStarted) < 3*time.Minute {
-					continue
-				}
-				log.Printf("[SmartSleep] Server %s waking window expired without starting.", s.Name)
-				runtime.State = StateOffline
-			}
-
-			runtime.LastStarted = time.Time{}
+			runtime.StopRequestedAt = time.Time{}
 			runtime.IdleSince = time.Time{}
+			continue
+		}
 
-			// If server is sleeping/hibernating, Gateway should hold the port to answer pings and wake on join
-			if !t.portManager.IsBound(s.Identifier) {
-				motd := s.CustomMOTD
-				if motd == "" {
-					motd = t.cfg.Sleep.SleepingMOTD
-				}
-				wakeMsg := t.cfg.Sleep.WakeMessage
-				bedrockWakeMsg := t.cfg.Sleep.BedrockWakeMessage
+		serverState, err := t.pteroClient.GetServerState(s.Identifier)
+		if err != nil {
+			log.Printf("[SmartSleep] Failed to get state for %s: %v", s.Name, err)
+			continue
+		}
 
-				err := t.portManager.BindSleepingServer(
-					s.Identifier,
-					s.Name,
-					s.PrimaryIP,
-					s.PrimaryPort,
-					s.BedrockPort,
-					motd,
-					wakeMsg,
-					bedrockWakeMsg,
-					t.WakeServer,
-				)
-				if err != nil {
-					log.Printf("[SmartSleep] Error binding sleeping ports for %s: %v", s.Name, err)
-				} else {
-					runtime.State = StateSleeping
-					log.Printf("[SmartSleep] Server %s (%s) is now SLEEPING on port %d", s.Name, s.Identifier, s.PrimaryPort)
-				}
-			}
+		switch serverState {
+		case "offline":
+			runtime.State = StateOffline
+			runtime.IdleSince = time.Time{}
+			runtime.LastStarted = time.Time{}
+			runtime.StopRequestedAt = time.Time{}
 
 		case "running":
-			runtime.ManualStop = false
-			// If server is running, make sure Gateway is NOT holding the port
-			t.portManager.UnbindServer(s.Identifier)
-			t.portManager.UnbindPort(s.PrimaryPort)
-			if s.BedrockPort > 0 {
-				t.portManager.UnbindPort(s.BedrockPort)
+			if !runtime.StopRequestedAt.IsZero() && time.Since(runtime.StopRequestedAt) >= stopRetryWindow {
+				log.Printf("[SmartSleep] Stop request timed out for %s; retrying if it remains empty.", s.Name)
+				runtime.StopRequestedAt = time.Time{}
 			}
-			t.rateLimiter.RecordStarted(s.Identifier)
 
-			// If transitioning to running from offline/waking, track startup time and reset idle
 			if runtime.LastStarted.IsZero() {
 				runtime.LastStarted = time.Now()
 				runtime.IdleSince = time.Time{}
 				runtime.State = StateRunning
-				log.Printf("[SmartSleep] Server %s is now RUNNING. Idle timeout: %v", s.Name, s.IdleTimeout)
+				log.Printf("[SmartSleep] Server %s is running. It will be stopped after %v with no players.", s.Name, noPlayerStopTimeout)
 			}
 
-			// Check Grace Period (capped to min(grace_period, 45s, idle_timeout/2))
-			effectiveGrace := t.cfg.Sleep.GracePeriod
-			if effectiveGrace > s.IdleTimeout/2 && s.IdleTimeout > 0 {
-				effectiveGrace = s.IdleTimeout / 2
+			gracePeriod := t.cfg.Sleep.GracePeriod
+			if gracePeriod > 45*time.Second {
+				gracePeriod = 45 * time.Second
 			}
-			if effectiveGrace > 45*time.Second {
-				effectiveGrace = 45 * time.Second
-			}
-			if time.Since(runtime.LastStarted) < effectiveGrace {
+			if time.Since(runtime.LastStarted) < gracePeriod {
 				runtime.State = StateRunning
 				runtime.IdleSince = time.Time{}
 				continue
 			}
 
-			// Check player count via Server List Ping (try PrimaryIP first, fallback to 127.0.0.1)
-			playerCount, err := gateway.QueryPlayerCount(s.PrimaryIP, s.PrimaryPort)
+			playerCount, err := queryPlayerCount(s)
 			if err != nil {
-				playerCount, err = gateway.QueryPlayerCount("127.0.0.1", s.PrimaryPort)
-			}
-			if err != nil {
-				// Server might still be in internal startup sequence
+				log.Printf("[SmartSleep] Could not query player count for %s; leaving its idle timer unchanged: %v", s.Name, err)
 				continue
 			}
 
 			runtime.LastPlayerCount = playerCount
-
+			wasIdle := runtime.IdleSince.IsZero()
+			runtime.IdleSince = idleSinceForPlayerCount(runtime.IdleSince, playerCount, time.Now())
 			if playerCount > 0 {
-				// Reset idle timer if players are active
 				runtime.State = StateRunning
-				runtime.IdleSince = time.Time{}
-			} else {
-				// 0 Players: check idle timeout
-				if runtime.IdleSince.IsZero() {
-					runtime.IdleSince = time.Now()
-					runtime.State = StateIdle
-					log.Printf("[SmartSleep] Server %s has 0 players. Starting idle timer (%v)...", s.Name, s.IdleTimeout)
-				} else if time.Since(runtime.IdleSince) >= s.IdleTimeout {
-					// Idle timeout reached -> Hibernate server
-					log.Printf("[SmartSleep] Idle timeout (%v) expired for %s. Initiating graceful sleep...", s.IdleTimeout, s.Name)
-					go t.hibernateServer(runtime)
-				}
+				runtime.StopRequestedAt = time.Time{}
+				continue
+			}
+
+			if wasIdle {
+				runtime.State = StateIdle
+				log.Printf("[SmartSleep] %s has 0 players. Starting 48-hour auto-stop timer.", s.Name)
+			}
+			if time.Since(runtime.IdleSince) >= noPlayerStopTimeout && runtime.StopRequestedAt.IsZero() {
+				requestedAt := time.Now()
+				runtime.StopRequestedAt = requestedAt
+				runtime.State = StateIdle
+				log.Printf("[SmartSleep] %s has had no players for %v. Sending graceful stop.", s.Name, noPlayerStopTimeout)
+				go t.stopIdleServer(runtime, s, requestedAt)
 			}
 
 		case "starting":
-			runtime.State = StateWaking
-			runtime.ManualStop = false
+			runtime.State = StateStarting
+			runtime.StopRequestedAt = time.Time{}
 			runtime.IdleSince = time.Time{}
 			if runtime.LastStarted.IsZero() {
 				runtime.LastStarted = time.Now()
 			}
-			t.portManager.UnbindServer(s.Identifier)
-			t.portManager.UnbindPort(s.PrimaryPort)
-			if s.BedrockPort > 0 {
-				t.portManager.UnbindPort(s.BedrockPort)
-			}
 
 		case "stopping":
+			runtime.State = StateStopping
+			runtime.StopRequestedAt = time.Time{}
 			runtime.IdleSince = time.Time{}
 			runtime.LastStarted = time.Time{}
 		}
 	}
 }
 
-// hibernateServer gracefully saves the world and sends stop signal to Pterodactyl
-func (t *Tracker) hibernateServer(runtime *ServerRuntime) {
-	s := runtime.Info
-	log.Printf("[SmartSleep] [Hibernate] Saving world on %s...", s.Name)
-	_ = t.pteroClient.SendCommand(s.Identifier, "save-all")
-
-	time.Sleep(3 * time.Second)
-
-	log.Printf("[SmartSleep] [Hibernate] Stopping server %s to free RAM/CPU...", s.Name)
-	if err := t.pteroClient.SendPowerAction(s.Identifier, "stop"); err != nil {
-		log.Printf("[SmartSleep] [Hibernate] Failed to stop server %s: %v", s.Name, err)
+func idleSinceForPlayerCount(idleSince time.Time, playerCount int, now time.Time) time.Time {
+	if playerCount > 0 {
+		return time.Time{}
 	}
 
-	t.mu.Lock()
-	runtime.IdleSince = time.Time{}
-	runtime.LastStarted = time.Time{}
-	runtime.ManualStop = false
-	runtime.State = StateSleeping
-	t.mu.Unlock()
+	if idleSince.IsZero() {
+		return now
+	}
+
+	return idleSince
 }
 
-// WakeServer is called by JavaListener or BedrockListener when a player joins a sleeping server
-func (t *Tracker) WakeServer(serverIdentifier string) {
+func queryPlayerCount(s *ptero.ServerInfo) (int, error) {
+	playerCount, err := gateway.QueryPlayerCount(s.PrimaryIP, s.PrimaryPort)
+	if err != nil {
+		playerCount, err = gateway.QueryPlayerCount("127.0.0.1", s.PrimaryPort)
+	}
+
+	return playerCount, err
+}
+
+func (t *Tracker) stopIdleServer(runtime *ServerRuntime, s *ptero.ServerInfo, requestedAt time.Time) {
+	playerCount, err := queryPlayerCount(s)
+	if err != nil {
+		log.Printf("[SmartSleep] Could not verify player count before stopping %s; will retry: %v", s.Name, err)
+		return
+	}
+	if playerCount > 0 {
+		t.mu.Lock()
+		if runtime.StopRequestedAt.Equal(requestedAt) {
+			runtime.StopRequestedAt = time.Time{}
+			runtime.IdleSince = time.Time{}
+			runtime.LastPlayerCount = playerCount
+			runtime.State = StateRunning
+		}
+		t.mu.Unlock()
+		log.Printf("[SmartSleep] A player joined %s before it could be stopped; idle timer reset.", s.Name)
+		return
+	}
+
 	t.mu.RLock()
-	runtime, exists := t.servers[serverIdentifier]
+	requestIsCurrent := runtime.StopRequestedAt.Equal(requestedAt)
 	t.mu.RUnlock()
-
-	if !exists {
-		t.mu.RLock()
-		for id, r := range t.servers {
-			if id == serverIdentifier || r.Info.UUID == serverIdentifier || strings.HasPrefix(r.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-				runtime = r
-				serverIdentifier = id
-				exists = true
-				break
-			}
-		}
-		t.mu.RUnlock()
-	}
-
-	if !exists {
-		log.Printf("[SmartSleep] Wake requested for unknown server: %s", serverIdentifier)
+	if !requestIsCurrent {
 		return
 	}
 
-	// 1. Anti-abuse & crash rate limiter check
-	canWake, reason := t.rateLimiter.CanWake(serverIdentifier)
-	if !canWake {
-		log.Printf("[SmartSleep] Wake blocked for %s: %s", runtime.Info.Name, reason)
+	if err := t.pteroClient.SendPowerAction(s.Identifier, "stop"); err != nil {
+		log.Printf("[SmartSleep] Failed to gracefully stop idle server %s; will retry: %v", s.Name, err)
 		return
 	}
 
-	log.Printf("[SmartSleep] [Wake] Player detected on %s (%s). Releasing port %d and starting server...", runtime.Info.Name, serverIdentifier, runtime.Info.PrimaryPort)
-
-	t.mu.Lock()
-	runtime.State = StateWaking
-	runtime.ManualStop = false
-	runtime.IdleSince = time.Time{}
-	runtime.LastStarted = time.Now()
-	t.mu.Unlock()
-
-	// 2. Unbind gateway listeners immediately so Docker can bind the port
-	t.portManager.UnbindServer(serverIdentifier)
-	t.portManager.UnbindPort(runtime.Info.PrimaryPort)
-	if runtime.Info.BedrockPort > 0 {
-		t.portManager.UnbindPort(runtime.Info.BedrockPort)
-	}
-
-	// 3. Record wake in security limiter
-	t.rateLimiter.RecordWake(serverIdentifier)
-
-	// 4. Send start power signal via Pterodactyl Client API
-	if err := t.pteroClient.SendPowerAction(serverIdentifier, "start"); err != nil {
-		log.Printf("[SmartSleep] [Wake] Failed to start server %s: %v", runtime.Info.Name, err)
-		return
-	}
-
-	log.Printf("[SmartSleep] [Wake] Server %s has been signaled to START successfully.", runtime.Info.Name)
+	log.Printf("[SmartSleep] Sent graceful stop to %s after %v with no players.", s.Name, noPlayerStopTimeout)
 }
-
-// UnbindAndWake releases ports immediately when panel clicks Start/Restart
-func (t *Tracker) UnbindAndWake(serverIdentifier string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	for id, runtime := range t.servers {
-		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-			runtime.State = StateWaking
-			runtime.ManualStop = false
-			runtime.IdleSince = time.Time{}
-			runtime.LastStarted = time.Now()
-			t.portManager.UnbindServer(id)
-			t.portManager.UnbindPort(runtime.Info.PrimaryPort)
-			if runtime.Info.BedrockPort > 0 {
-				t.portManager.UnbindPort(runtime.Info.BedrockPort)
-			}
-			log.Printf("[SmartSleep] [IPC] Port %d released for server %s (%s). Ready for Docker start.", runtime.Info.PrimaryPort, runtime.Info.Name, id)
-			return
-		}
-	}
-
-	t.portManager.UnbindServer(serverIdentifier)
-}
-
-// Unbind releases ports immediately when panel clicks Stop/Kill
-func (t *Tracker) Unbind(serverIdentifier string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	for id, runtime := range t.servers {
-		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-			runtime.State = StateOffline
-			runtime.ManualStop = true
-			runtime.IdleSince = time.Time{}
-			runtime.LastStarted = time.Time{}
-			t.portManager.UnbindServer(id)
-			t.portManager.UnbindPort(runtime.Info.PrimaryPort)
-			if runtime.Info.BedrockPort > 0 {
-				t.portManager.UnbindPort(runtime.Info.BedrockPort)
-			}
-			log.Printf("[SmartSleep] [IPC] Server %s stopped. Port %d released.", runtime.Info.Name, runtime.Info.PrimaryPort)
-			return
-		}
-	}
-
-	t.portManager.UnbindServer(serverIdentifier)
-}
-
-// GetServerSleepStatus returns true if the server is currently sleeping/hibernating
-func (t *Tracker) GetServerSleepStatus(serverIdentifier string, port int) (bool, string) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	if port > 0 {
-		for id, runtime := range t.servers {
-			if runtime.Info.PrimaryPort == port || runtime.Info.BedrockPort == port {
-				isBound := t.portManager.IsBound(id) || t.portManager.IsPortBound(port)
-				isSleeping := (runtime.State == StateSleeping || isBound) && !runtime.ManualStop
-				return isSleeping, string(runtime.State)
-			}
-		}
-	}
-
-	for id, runtime := range t.servers {
-		if id == serverIdentifier || runtime.Info.UUID == serverIdentifier || runtime.Info.Identifier == serverIdentifier || strings.HasPrefix(runtime.Info.UUID, serverIdentifier) || strings.HasPrefix(serverIdentifier, id) {
-			isBound := t.portManager.IsBound(id)
-			if port > 0 && !isBound {
-				isBound = t.portManager.IsPortBound(port)
-			}
-			isSleeping := (runtime.State == StateSleeping || isBound) && !runtime.ManualStop
-			return isSleeping, string(runtime.State)
-		}
-	}
-
-	if port > 0 {
-		return t.portManager.IsPortBound(port), "unknown"
-	}
-
-	return false, "unknown"
-}
-

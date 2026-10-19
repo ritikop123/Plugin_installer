@@ -203,7 +203,7 @@ class ModInstallerController extends ClientApiController
 
                     if (empty($downloadUrl) && strlen($fileId) > 4) {
                         $part1 = substr($fileId, 0, 4);
-                        $part2 = substr($fileId, 4);
+                        $part2 = ltrim(substr($fileId, 4), '0') ?: '0';
                         $downloadUrl = "https://edge.forgecdn.net/files/{$part1}/{$part2}/" . rawurlencode($fileName);
                     }
 
@@ -315,7 +315,41 @@ class ModInstallerController extends ClientApiController
         $url = (string) $request->input('url', '');
         $filename = (string) $request->input('filename', '');
 
-        // 1. Validate URL
+        // 1. If URL points to a GitHub release tag page, resolve the direct .jar release asset
+        if (preg_match('#github\.com/([^/]+)/([^/]+)/releases/tag/([^/?#]+)#i', $url, $m)) {
+            try {
+                $ghApi = "https://api.github.com/repos/{$m[1]}/{$m[2]}/releases/tags/{$m[3]}";
+                $ghRes = $this->httpClient->get($ghApi, [
+                    'headers' => [
+                        'User-Agent' => self::USER_AGENT,
+                        'Accept' => 'application/vnd.github.v3+json',
+                    ],
+                    'timeout' => 8,
+                ]);
+                if ($ghRes->getStatusCode() === 200) {
+                    $ghData = json_decode($ghRes->getBody()->getContents(), true);
+                    $assets = $ghData['assets'] ?? [];
+                    $jarAsset = null;
+                    foreach ($assets as $asset) {
+                        $assetName = $asset['name'] ?? '';
+                        if (str_ends_with(strtolower($assetName), '.jar')) {
+                            if (!str_contains(strtolower($assetName), 'javadoc') && !str_contains(strtolower($assetName), 'sources')) {
+                                $jarAsset = $asset;
+                                break;
+                            }
+                        }
+                    }
+                    if ($jarAsset && !empty($jarAsset['browser_download_url'])) {
+                        $url = $jarAsset['browser_download_url'];
+                        if (empty($filename) || $filename === 'mod.jar') {
+                            $filename = $jarAsset['name'];
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // Validate URL
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
             return response()->json(['error' => 'Invalid file download URL.'], 400);
         }
@@ -326,21 +360,23 @@ class ModInstallerController extends ClientApiController
         }
 
         $host = strtolower($parsedUrl['host'] ?? '');
-        $allowedHosts = [
-            'cdn.modrinth.com',
-            'api.modrinth.com',
-            'edge.forgecdn.net',
-            'mediafilez.forgecdn.net',
-            'media.forgecdn.net',
+        $allowedSuffixes = [
+            'modrinth.com',
+            'forgecdn.net',
             'curseforge.com',
-            'api.curse.tools',
+            'curse.tools',
             'github.com',
-            'objects.githubusercontent.com',
+            'githubusercontent.com',
+            'amazonaws.com',
+            'gitlab.com',
+            'codeberg.org',
+            'jsdelivr.net',
+            'creeper.host',
         ];
 
         $isAllowedHost = false;
-        foreach ($allowedHosts as $allowed) {
-            if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
+        foreach ($allowedSuffixes as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
                 $isAllowedHost = true;
                 break;
             }
@@ -392,12 +428,13 @@ class ModInstallerController extends ClientApiController
             } catch (Exception $e) {}
 
             // 4. Pull directly into /mods
+            // use_header => false guarantees Wings strictly saves the file with $cleanFilename (.jar)
             $this->fileRepository->setServer($server)->pull(
                 $url,
                 '/mods',
                 [
                     'filename' => $cleanFilename,
-                    'use_header' => true,
+                    'use_header' => false,
                     'foreground' => true,
                 ]
             );

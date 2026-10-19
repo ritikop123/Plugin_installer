@@ -1,7 +1,7 @@
 #!/bin/bash
 # ====================================================================
-# SmartSleep Gateway - 1-Click Installer & Manager
-# Automated Minecraft Server Hibernation & Wake-on-Join for Pterodactyl
+# SmartSleep Auto-Stop - 1-Click Installer & Manager
+# Automatically stops empty Pterodactyl servers after 48 hours
 # ====================================================================
 
 set -e
@@ -31,8 +31,7 @@ print_banner() {
     echo "  ███████║██║ ╚═╝ ██║██║  ██║██║  ██║   ██║   ███████║███████╗███████╗███████╗██║     "
     echo "  ╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚══════╝╚══════╝╚══════╝╚═╝     "
     echo -e "${C_RESET}"
-    echo -e "  ${C_CYAN}Automated Server Hibernation & Wake-on-Join System for Pterodactyl${C_RESET}"
-    echo -e "  ${C_BLUE}Supports Java (TCP) & Bedrock / Geyser (UDP RakNet)${C_RESET}"
+    echo -e "  ${C_CYAN}Automatic 48-hour idle stop for Pterodactyl servers${C_RESET}"
     echo -e "  ----------------------------------------------------------------------"
     echo ""
 }
@@ -101,7 +100,7 @@ prompt_config_credentials() {
     echo -e "  ${C_YELLOW}Panel URL:${C_RESET} Base URL of your Pterodactyl panel (e.g. https://panel.igc.in.net)"
     echo -e "  ${C_YELLOW}Application API Key (ptla_...):${C_RESET} Created at Admin -> Application API (/admin/api)."
     echo -e "    ${C_GREEN}IMPORTANT:${C_RESET} Give ${C_BOLD}READ${C_RESET} permission to ${C_BOLD}Servers, Nodes, and Allocations${C_RESET}."
-    echo -e "  ${C_YELLOW}Client API Key (ptlc_...):${C_RESET} Created at Account -> API Credentials (/account/api)."
+    echo -e "  ${C_YELLOW}Client API Key (ptlc_...):${C_RESET} Created at Account -> API Credentials (/account/api); it needs server power permissions."
     echo ""
     read -rp "  Pterodactyl Panel URL (e.g. https://panel.example.com): " CONF_URL
     CONF_URL="${CONF_URL%/}"
@@ -120,19 +119,9 @@ panel:
 
 sleep:
   enabled: true
-  default_idle_timeout: 20m
   check_interval: 30s
   grace_period: 3m
-  sleeping_motd: "§a%s §7[Sleeping]\n§eJoin server to wake it up!"
-  wake_message: "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
-  bedrock_enabled: true
-  bedrock_wake_message: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin."
 
-security:
-  wake_cooldown_seconds: 60
-  max_wakes_per_window: 3
-  window_seconds: 300
-  crash_threshold_seconds: 45
 EOF
     log_success "Configuration saved at ${target_file}"
 }
@@ -166,16 +155,12 @@ install_node_daemon() {
         mkdir -p "${BUILD_DIR}/internal/ptero"
         mkdir -p "${BUILD_DIR}/internal/gateway"
         mkdir -p "${BUILD_DIR}/internal/monitor"
-        mkdir -p "${BUILD_DIR}/internal/security"
 
         download_file "${REPO_BASE}/smartsleep/daemon/go.mod" "${BUILD_DIR}/go.mod"
         download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/player_query.go" "${BUILD_DIR}/internal/gateway/player_query.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
         SRC_DIR="${BUILD_DIR}"
         CLEANUP_BUILD=1
@@ -214,7 +199,7 @@ install_node_daemon() {
     log_info "Creating systemd service..."
     cat <<EOF > /etc/systemd/system/smartsleep.service
 [Unit]
-Description=SmartSleep Gateway Daemon
+Description=SmartSleep Auto-Stop Monitor
 After=network.target wings.service
 Wants=wings.service
 
@@ -235,9 +220,9 @@ EOF
     systemctl restart smartsleep
     log_success "SmartSleep systemd service enabled and restarted!"
 
-    # If Pterodactyl panel is installed on this same machine, automatically hook power buttons!
+    # Remove legacy gateway hooks if this panel was previously paired with beta hibernation.
     if [ -d "${PTERO_DIR}" ]; then
-        log_info "Detected Pterodactyl web panel on this VPS. Automatically integrating Start/Restart/Stop buttons..."
+        log_info "Removing legacy SmartSleep gateway power hooks from this panel..."
         patch_power_buttons
     fi
 
@@ -268,24 +253,22 @@ install_panel_addon() {
     fi
     chown -R www-data:www-data "${CTRL_DIR}/SmartSleepController.php"
 
-    # 2. Add Routes
+    # 2. Replace old routes, including the retired wake endpoint.
     ROUTE_FILE="${PTERO_DIR}/routes/api-client.php"
-    if ! grep -q "SmartSleepController" "${ROUTE_FILE}"; then
-        log_info "Registering SmartSleep API routes..."
-        cat << 'EOF' >> "${ROUTE_FILE}"
+    sed -i '/\/\* >>> SMARTSLEEP START >>> \*\//,/\/\* <<< SMARTSLEEP END <<< \*\//d' "${ROUTE_FILE}"
+    log_info "Registering auto-stop API routes..."
+    cat << 'EOF' >> "${ROUTE_FILE}"
 
 /* >>> SMARTSLEEP START >>> */
 Route::group(['prefix' => '/servers/{server}/smartsleep'], function () {
     Route::get('/', [Client\Servers\SmartSleepController::class, 'index']);
     Route::post('/', [Client\Servers\SmartSleepController::class, 'update']);
-    Route::post('/wake', [Client\Servers\SmartSleepController::class, 'wake']);
 });
 /* <<< SMARTSLEEP END <<< */
 EOF
-        log_success "API routes registered."
-    else
-        log_info "API routes already registered."
-    fi
+    log_success "Auto-stop API routes registered."
+
+    patch_power_buttons
 
     # 2b. Ensure smartsleep_enabled database column exists (Default: 1 / Enabled for all servers)
     log_info "Ensuring smartsleep_enabled database column exists..."
@@ -300,9 +283,17 @@ EOF
 
     # 2c. Inject SmartSleep into Admin Server Build View (where RAM/CPU/Disk are defined)
     BUILD_VIEW="${PTERO_DIR}/resources/views/admin/servers/view/build.blade.php"
+    if [ -f "${BUILD_VIEW}" ]; then
+        sed -i \
+            -e 's/SmartSleep Auto-Hibernation/SmartSleep Auto-Stop/g' \
+            -e 's/Auto-hibernate when 0 players to save RAM\/CPU/Stop after 48 hours with no players/g' \
+            -e 's/Controls whether SmartSleep can hibernate this server./Controls whether this server is stopped after 48 hours with zero players./g' \
+            -e 's/auto-hibernate/auto-stop/g' \
+            "${BUILD_VIEW}"
+    fi
     if [ -f "${BUILD_VIEW}" ] && ! grep -q "pSmartSleepEnabled" "${BUILD_VIEW}"; then
         log_info "Injecting SmartSleep toggle into Admin Server Build configuration..."
-        SMARTSLEEP_BUILD_HTML='<div class="col-xs-12"><div class="box box-primary"><div class="box-header with-border"><h3 class="box-title">SmartSleep Optimization</h3></div><div class="box-body"><div class="form-group"><label for="pSmartSleepEnabled" class="control-label">SmartSleep Auto-Hibernation</label><div><select name="smartsleep_enabled" id="pSmartSleepEnabled" class="form-control"><option value="1" {{ ($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Enabled (Default: Auto-hibernate when 0 players to save RAM/CPU)</option><option value="0" {{ !($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Disabled (Keep 24/7 Always On - e.g. Velocity / BungeeCord / Hub)</option></select></div><p class="text-muted small">Controls whether SmartSleep can hibernate this server. Defaults to <strong>Enabled</strong> for all servers. Set to <strong>Disabled</strong> for proxy servers or servers that must never sleep.</p></div></div></div></div>'
+        SMARTSLEEP_BUILD_HTML='<div class="col-xs-12"><div class="box box-primary"><div class="box-header with-border"><h3 class="box-title">SmartSleep Auto-Stop</h3></div><div class="box-body"><div class="form-group"><label for="pSmartSleepEnabled" class="control-label">Automatic Idle Stop</label><div><select name="smartsleep_enabled" id="pSmartSleepEnabled" class="form-control"><option value="1" {{ ($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Enabled (Stop after 48 hours with no players)</option><option value="0" {{ !($server->smartsleep_enabled ?? 1) ? "selected" : "" }}>Disabled (Keep online continuously)</option></select></div><p class="text-muted small">Stops this server after 48 continuous hours with zero players. Any detected player resets the timer. Proxies are automatically excluded.</p></div></div></div></div>'
         sed -i "/<\/form>/i \\$SMARTSLEEP_BUILD_HTML" "${BUILD_VIEW}" || true
     fi
 
@@ -345,16 +336,8 @@ EOF
 
     chown -R www-data:www-data "${COMP_DIR}"
 
-    # 3b. Patch PowerController.php to communicate with SmartSleep IPC daemon
-    log_info "Hooking native panel Start/Restart/Stop power buttons into SmartSleep..."
-    PATCH_POWER_SCRIPT="/tmp/patch-power-controller.php"
-    if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" ]; then
-        cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
-    else
-        download_file "${REPO_BASE}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
-    fi
-    php "${PATCH_POWER_SCRIPT}" || true
-    rm -f "${PATCH_POWER_SCRIPT}"
+    # 3b. Remove the legacy beta gateway power hook.
+    patch_power_buttons
 
     # 4. Inject into ServerRouter.tsx
     ROUTER_FILE="${PTERO_DIR}/resources/scripts/routers/ServerRouter.tsx"
@@ -400,7 +383,7 @@ EOF
 
 patch_power_buttons() {
     print_banner
-    echo -e "${C_BOLD}=== Patching Native Power Buttons & Console Status ===${C_RESET}\n"
+    echo -e "${C_BOLD}=== Removing Legacy Sleep/Wake Power Hook ===${C_RESET}\n"
     ensure_root
 
     if [ ! -d "${PTERO_DIR}" ]; then
@@ -422,8 +405,22 @@ patch_power_buttons() {
         chown www-data:www-data "${CTRL_DIR}/SmartSleepController.php"
     fi
 
-    # 2. Hook native panel Start/Restart/Stop power buttons
-    log_info "Hooking native panel Start/Restart/Stop power buttons into SmartSleep..."
+    ROUTE_FILE="${PTERO_DIR}/routes/api-client.php"
+    if [ -f "${ROUTE_FILE}" ]; then
+        sed -i '/\/\* >>> SMARTSLEEP START >>> \*\//,/\/\* <<< SMARTSLEEP END <<< \*\//d' "${ROUTE_FILE}"
+        cat << 'EOF' >> "${ROUTE_FILE}"
+
+/* >>> SMARTSLEEP START >>> */
+Route::group(['prefix' => '/servers/{server}/smartsleep'], function () {
+    Route::get('/', [Client\Servers\SmartSleepController::class, 'index']);
+    Route::post('/', [Client\Servers\SmartSleepController::class, 'update']);
+});
+/* <<< SMARTSLEEP END <<< */
+EOF
+    fi
+
+    # Remove the old beta gateway hook. Auto-stop uses the normal panel power API.
+    log_info "Removing old SmartSleep power hook..."
     PATCH_POWER_SCRIPT="/tmp/patch-power-controller.php"
     if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" ]; then
         cp "${SCRIPT_DIR}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
@@ -431,7 +428,7 @@ patch_power_buttons() {
         download_file "${REPO_BASE}/smartsleep/panel-addon/patch-power-controller.php" "${PATCH_POWER_SCRIPT}"
     fi
     cd "${PTERO_DIR}"
-    php "${PATCH_POWER_SCRIPT}" || true
+    php "${PATCH_POWER_SCRIPT}" --revert
     rm -f "${PATCH_POWER_SCRIPT}"
 
     # 3. Clean all console banner/status additions to keep console 100% stock & native
@@ -456,7 +453,7 @@ patch_power_buttons() {
     php artisan view:clear || true
     chown -R www-data:www-data "${PTERO_DIR}"
 
-    log_success "PowerController successfully hooked! Start, Restart, and Stop buttons now work seamlessly."
+    log_success "Legacy sleep/wake hook removed; native panel power actions are unchanged."
 }
 
 update_daemon() {
@@ -471,7 +468,6 @@ update_daemon() {
     mkdir -p "${BUILD_DIR}/internal/ptero"
     mkdir -p "${BUILD_DIR}/internal/gateway"
     mkdir -p "${BUILD_DIR}/internal/monitor"
-    mkdir -p "${BUILD_DIR}/internal/security"
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
     if [ -n "$SCRIPT_DIR" ] && [ -d "${SCRIPT_DIR}/smartsleep/daemon" ]; then
@@ -482,10 +478,7 @@ update_daemon() {
         download_file "${REPO_BASE}/smartsleep/daemon/cmd/smartsleep/main.go" "${BUILD_DIR}/cmd/smartsleep/main.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/config/config.go" "${BUILD_DIR}/internal/config/config.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/java_listener.go" "${BUILD_DIR}/internal/gateway/java_listener.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/bedrock_listener.go" "${BUILD_DIR}/internal/gateway/bedrock_listener.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/port_manager.go" "${BUILD_DIR}/internal/gateway/port_manager.go"
-        download_file "${REPO_BASE}/smartsleep/daemon/internal/security/ratelimit.go" "${BUILD_DIR}/internal/security/ratelimit.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/player_query.go" "${BUILD_DIR}/internal/gateway/player_query.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
     fi
 
@@ -506,7 +499,7 @@ update_daemon() {
         log_info "Creating systemd service..."
         cat <<EOF > /etc/systemd/system/smartsleep.service
 [Unit]
-Description=SmartSleep Gateway Daemon
+Description=SmartSleep Auto-Stop Monitor
 After=network.target wings.service
 Wants=wings.service
 
@@ -532,42 +525,6 @@ EOF
     if [ -d "${PTERO_DIR}" ]; then
         patch_power_buttons
     fi
-}
-
-free_all_ports() {
-    print_banner
-    echo -e "${C_BOLD}=== Freeing All Hibernating Ports & Starting Servers Normally ===${C_RESET}\n"
-    ensure_root
-
-    log_info "Signaling SmartSleep daemon to release all ports..."
-    curl -s --max-time 1 "http://127.0.0.1:8995/free" >/dev/null 2>&1 || true
-
-    if [ -f "${BINARY_PATH}" ]; then
-        ${BINARY_PATH} -free || true
-    fi
-
-    log_info "Stopping SmartSleep service temporarily..."
-    systemctl stop smartsleep 2>/dev/null || true
-
-    log_info "Terminating any lingering processes on allocation ports..."
-    fuser -k 25565/tcp 25581/tcp 25577/tcp 19132/udp 2>/dev/null || true
-
-    if [ -d "${PTERO_DIR}" ]; then
-        log_info "Ensuring PowerController power hook is active..."
-        patch_power_buttons
-    fi
-
-    log_info "Restarting Wings daemon to clear Docker crash-loop locks..."
-    systemctl restart wings || true
-
-    # Ensure SmartSleep is active and enabled for this node
-    if [ -f "${BINARY_PATH}" ]; then
-        ${BINARY_PATH} -enable 2>/dev/null || true
-    fi
-    systemctl restart smartsleep || true
-
-    log_success "All hibernating ports are now completely free!"
-    echo -e "SmartSleep is active and will hibernate servers after their idle timeout (e.g. 2m/20m of 0 players)."
 }
 
 uninstall() {
@@ -637,35 +594,6 @@ toggle_node_smartsleep() {
     esac
 }
 
-set_global_timeout() {
-    print_banner
-    echo -e "${C_BOLD}=== Set Global Inactivity Timeout for this Node ===${C_RESET}\n"
-
-    ensure_root
-    if [ ! -f "${BINARY_PATH}" ] || [ ! -f "${SMARTSLEEP_DIR}/config.yaml" ]; then
-        log_error "SmartSleep is not installed on this node."
-        exit 1
-    fi
-
-    echo -e "Current status:"
-    ${BINARY_PATH} -status || true
-    echo ""
-    echo "Common options:"
-    echo -e "  • ${C_GREEN}2m${C_RESET}   (Fast testing: hibernates after 2 minutes of 0 players)"
-    echo -e "  • ${C_CYAN}5m${C_RESET}   (Short testing / aggressive savings)"
-    echo -e "  • ${C_BLUE}20m${C_RESET}  (Standard recommended default)"
-    echo -e "  • ${C_YELLOW}30m${C_RESET}  (Relaxed)"
-    echo ""
-    read -rp "Enter desired timeout (e.g. 2m, 5m, 20m): " NEW_TIMEOUT
-    if [ -n "$NEW_TIMEOUT" ]; then
-        ${BINARY_PATH} -timeout "${NEW_TIMEOUT}"
-        systemctl restart smartsleep || true
-        log_success "Global timeout updated to ${NEW_TIMEOUT} and smartsleep daemon restarted!"
-    else
-        echo "No changes made."
-    fi
-}
-
 reconfigure_credentials() {
     print_banner
     echo -e "${C_BOLD}=== Reconfigure SmartSleep API Credentials ===${C_RESET}\n"
@@ -696,15 +624,9 @@ case "$1" in
     --status-node)
         ${BINARY_PATH} -status
         ;;
-    --free|--free-ports|--wake-all)
-        free_all_ports
-        ;;
     --timeout)
-        if [ -n "$2" ]; then
-            ${BINARY_PATH} -timeout "$2" && systemctl restart smartsleep
-        else
-            set_global_timeout
-        fi
+        echo "Custom idle timeouts have been retired; idle servers stop after 48 hours."
+        exit 1
         ;;
     --patch-power)
         patch_power_buttons
@@ -721,37 +643,32 @@ case "$1" in
     *)
         print_banner
         echo "Where to install SmartSleep:"
-        echo -e "  ${C_CYAN}• Node VPS (Wings):${C_RESET} Runs the Go daemon to listen on sleeping ports & wake servers."
-        echo -e "  ${C_CYAN}• Panel VPS (Web):${C_RESET}  Provides the UI tab for customers to customize sleep timers."
+        echo -e "  ${C_CYAN}• Node VPS (Wings):${C_RESET} Runs the Go daemon to stop empty servers after 48 hours."
+        echo -e "  ${C_CYAN}• Panel VPS (Web):${C_RESET}  Provides the UI tab to enable or disable automatic stopping."
         echo ""
         echo "Please select an option:"
         echo ""
         echo "  [1] Install SmartSleep Node Daemon (Run on Wings node VPS)"
         echo "  [2] Install SmartSleep Panel UI Addon (Run on Pterodactyl web VPS)"
         echo "  [3] Install Both (If your Panel and Wings node share the same VPS)"
-        echo "  [4] Free All Ports & Start All Servers Normally (Emergency Unbind)"
-        echo "  [5] Toggle SmartSleep ON/OFF on this Node"
-        echo "  [6] Change Global Inactivity Timeout (e.g. set 2m for fast testing)"
-        echo "  [7] Reconfigure Panel URL & API Keys"
-        echo "  [8] Patch Panel Power Buttons (Enables Start, Restart, Stop on hibernating servers)"
-        echo "  [9] Update SmartSleep Daemon (Quick recompile & restart)"
-        echo "  [10] Uninstall SmartSleep"
-        echo "  [11] Exit"
+        echo "  [4] Toggle automatic stopping ON/OFF on this node"
+        echo "  [5] Reconfigure Panel URL & API Keys"
+        echo "  [6] Remove legacy sleep/wake hook"
+        echo "  [7] Update SmartSleep Auto-Stop daemon"
+        echo "  [8] Uninstall SmartSleep"
+        echo "  [9] Exit"
         echo ""
-        read -rp "Enter choice [1-11]: " CHOICE
+        read -rp "Enter choice [1-9]: " CHOICE
         case "$CHOICE" in
             1) install_node_daemon ;;
             2) install_panel_addon ;;
             3) install_node_daemon; install_panel_addon ;;
-            4) free_all_ports ;;
-            5) toggle_node_smartsleep ;;
-            6) set_global_timeout ;;
-            7) reconfigure_credentials ;;
-            8) patch_power_buttons ;;
-            9) update_daemon ;;
-            10) uninstall ;;
+            4) toggle_node_smartsleep ;;
+            5) reconfigure_credentials ;;
+            6) patch_power_buttons ;;
+            7) update_daemon ;;
+            8) uninstall ;;
             *) echo "Exiting."; exit 0 ;;
         esac
         ;;
 esac
-

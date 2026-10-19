@@ -293,12 +293,12 @@ if (file_exists($kernelFile)) {
     $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO SUSPENSION START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO SUSPENSION END\s*<<<\s*\*\/\s*/s", "", $c);
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
-        $schedule->command("ptero:auto-suspend")->everyMinute()->withoutOverlapping();
+        $schedule->command('ptero:auto-suspend')->everyMinute()->withoutOverlapping();
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
-    if (strpos($c, "protected function schedule(Schedule $schedule): void") !== false) {
-        $c = preg_replace('/(protected function schedule\(Schedule \$schedule\): void\s*\{)/', "$1\n        " . $patch, $c, 1);
+    if (preg_match('/(protected\s+function\s+schedule\s*\(\s*Schedule\s+\$schedule[^{]*\{)/', $c, $m)) {
+        $c = str_replace($m[1], $m[1] . "\n        " . $patch, $c);
         file_put_contents($kernelFile, $c);
     }
 }

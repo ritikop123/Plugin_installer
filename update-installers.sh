@@ -60,7 +60,27 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${
 php /tmp/ptero_patch_auto_suspend.php || true
 
 # Ensure system cron runs artisan schedule:run every minute and ptero:auto-suspend directly
-(crontab -l 2>/dev/null | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend'; echo "* * * * * php $PTERO_DIR/artisan schedule:run >> /dev/null 2>&1"; echo "0 0 * * * php $PTERO_DIR/artisan ptero:auto-suspend >> /dev/null 2>&1") | crontab - 2>/dev/null || true
+setup_panel_cron() {
+  local target_user="$1"
+  local cmd_prefix=""
+  [ -n "$target_user" ] && cmd_prefix="crontab -u $target_user" || cmd_prefix="crontab"
+
+  local current_cron
+  current_cron=$($cmd_prefix -l 2>/dev/null || true)
+  local filtered_cron
+  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' || true)
+
+  {
+    [ -n "$filtered_cron" ] && echo "$filtered_cron"
+    echo "* * * * * cd $PTERO_DIR && php artisan schedule:run >> /dev/null 2>&1"
+    echo "* * * * * cd $PTERO_DIR && php artisan ptero:auto-suspend >> /var/log/pterodactyl-auto-suspend.log 2>&1"
+  } | $cmd_prefix - 2>/dev/null || true
+}
+
+setup_panel_cron ""
+if id "www-data" >/dev/null 2>&1; then
+  setup_panel_cron "www-data"
+fi
 
 echo -e "\033[0;32m[+] Updating ServerSupportId, AdminSupportIdSearch & SupportLookupController...\033[0m"
 mkdir -p resources/scripts/components/dashboard

@@ -17,36 +17,11 @@ panel:
   node_id: 1
 
 sleep:
-  # Master toggle to enable or disable SmartSleep hibernation across this entire node
+  # Master toggle for 48-hour automatic stopping of empty servers
   enabled: true
-
-  # Default idle time before hibernating an empty server
-  default_idle_timeout: 20m
 
   # How often to check player counts and server statuses
   check_interval: 30s
 
   # Grace period after server starts before idle tracking begins
   grace_period: 3m
-
-  # Server List Ping MOTD shown to Java & Bedrock players when sleeping
-  # %s will be replaced with the server name
-  sleeping_motd: "§a%s §7[Sleeping]\n§eJoin server to wake it up!"
-
-  # Disconnect message sent to Java players when they join to wake the server
-  wake_message: "§e[SmartSleep] §aServer is currently sleeping and is waking up!\n§fPlease wait §e30 seconds – 1 minute §ffor the server to start, then rejoin."
-
-  # Bedrock / Geyser support over UDP RakNet
-  bedrock_enabled: true
-  bedrock_wake_message: "§e[SmartSleep] §aServer is sleeping and waking up now! Please wait 30s - 1m and rejoin."
-
-security:
-  # Minimum seconds between wake attempts for a single server
-  wake_cooldown_seconds: 60
-
-  # Maximum wake attempts allowed within window_seconds
-  max_wakes_per_window: 3
-  window_seconds: 300
-
-  # If a server dies within this many seconds after start, flag it as crashed
-  crash_threshold_seconds: 45
