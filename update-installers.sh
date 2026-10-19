@@ -89,6 +89,13 @@ if (file_exists($routesPhp)) {
 /* >>> ARIX WORLD MANAGER START >>> */
 Route::group(['prefix' => '/servers/{server}/worlds'], function () {
     Route::get('/', [Client\Servers\WorldManagerController::class, 'index']);
+    Route::get('/options', [Client\Servers\WorldManagerController::class, 'options']);
+    Route::post('/options', [Client\Servers\WorldManagerController::class, 'updateOptions']);
+    Route::post('/gamerule', [Client\Servers\WorldManagerController::class, 'updateGamerule']);
+    Route::post('/optimize', [Client\Servers\WorldManagerController::class, 'optimize']);
+    Route::post('/force-upgrade', [Client\Servers\WorldManagerController::class, 'forceUpgrade']);
+    Route::post('/download', [Client\Servers\WorldManagerController::class, 'download']);
+    Route::post('/upload', [Client\Servers\WorldManagerController::class, 'upload']);
     Route::post('/active', [Client\Servers\WorldManagerController::class, 'setActive']);
     Route::post('/create', [Client\Servers\WorldManagerController::class, 'create']);
     Route::post('/reset-dimension', [Client\Servers\WorldManagerController::class, 'resetDimension']);

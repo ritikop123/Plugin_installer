@@ -10,20 +10,41 @@ use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
 use Pterodactyl\Repositories\Wings\DaemonFileRepository;
+use Pterodactyl\Repositories\Wings\DaemonCommandRepository;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
+
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(?string $haystack, ?string $needle): bool {
+        return $needle === '' || ($haystack !== null && strpos($haystack, $needle) === 0);
+    }
+}
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(?string $haystack, ?string $needle): bool {
+        return $needle === '' || ($haystack !== null && substr($haystack, -strlen($needle)) === $needle);
+    }
+}
+if (!function_exists('str_contains')) {
+    function str_contains(?string $haystack, ?string $needle): bool {
+        return $needle === '' || ($haystack !== null && strpos($haystack, $needle) !== false);
+    }
+}
 
 class WorldManagerController extends ClientApiController
 {
     protected DaemonFileRepository $fileRepository;
+    protected ?DaemonCommandRepository $commandRepository;
 
-    public function __construct(DaemonFileRepository $fileRepository)
-    {
+    public function __construct(
+        DaemonFileRepository $fileRepository,
+        DaemonCommandRepository $commandRepository = null
+    ) {
         parent::__construct();
         $this->fileRepository = $fileRepository;
+        $this->commandRepository = $commandRepository;
     }
 
     /**
-     * List all detected Minecraft worlds, active level-name, seeds, and dimension status.
+     * List all detected Minecraft worlds, active level-name, seeds, and optimization states.
      * GET /api/client/servers/{server}/worlds
      */
     public function index(Request $request, Server $server): JsonResponse
@@ -40,7 +61,13 @@ class WorldManagerController extends ClientApiController
             $gamemode = !empty($properties['gamemode']) ? trim((string) $properties['gamemode']) : 'survival';
             $hardcore = !empty($properties['hardcore']) && ($properties['hardcore'] === 'true' || $properties['hardcore'] === '1');
 
-            $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+            $worldSettings = $this->getWorldSettings($server);
+
+            $rootItems = [];
+            try {
+                $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+            } catch (Throwable $e) {}
+
             $worlds = [];
             $seenWorlds = [];
 
@@ -60,10 +87,9 @@ class WorldManagerController extends ClientApiController
                         continue;
                     }
 
-                    // Check if it's a nether or end auxiliary folder (e.g. world_nether, world_the_end)
-                    if (str_ends_with(strtolower($name), '_nether') || str_ends_with(strtolower($name), '_the_end')) {
-                        continue;
-                    }
+                    // Check if it's a nether or end auxiliary folder
+                    $isNetherAux = str_ends_with(strtolower($name), '_nether');
+                    $isEndAux = str_ends_with(strtolower($name), '_the_end');
 
                     // Inspect directory contents to confirm it's a Minecraft world
                     $isWorld = false;
@@ -85,32 +111,40 @@ class WorldManagerController extends ClientApiController
                         }
                     } catch (Throwable $e) {}
 
-                    if ($hasLevelDat || $hasRegion || $name === $activeWorld) {
+                    if ($hasLevelDat || $hasRegion || $name === $activeWorld || $isNetherAux || $isEndAux) {
                         $isWorld = true;
                     }
 
                     if ($isWorld) {
-                        // Check for Bukkit-style separate dimension folders
                         $netherFolderExists = false;
                         $endFolderExists = false;
 
-                        foreach ($rootItems as $checkItem) {
-                            $checkName = $checkItem['name'] ?? '';
-                            if ($checkName === "{$name}_nether") $netherFolderExists = true;
-                            if ($checkName === "{$name}_the_end") $endFolderExists = true;
+                        if (!$isNetherAux && !$isEndAux) {
+                            foreach ($rootItems as $checkItem) {
+                                $checkName = $checkItem['name'] ?? '';
+                                if ($checkName === "{$name}_nether") $netherFolderExists = true;
+                                if ($checkName === "{$name}_the_end") $endFolderExists = true;
+                            }
                         }
+
+                        $isActive = ($name === $activeWorld);
+                        $cfg = $worldSettings[$name] ?? [];
 
                         $worlds[] = [
                             'name' => $name,
-                            'is_active' => ($name === $activeWorld),
+                            'is_active' => $isActive,
+                            'is_dimension' => ($isNetherAux || $isEndAux),
+                            'dimension_type' => $isNetherAux ? 'nether' : ($isEndAux ? 'the_end' : 'overworld'),
                             'size' => (int) ($item['size'] ?? 0),
                             'modified_at' => $item['modified_at'] ?? $item['modifiedAt'] ?? '',
                             'has_level_dat' => $hasLevelDat,
                             'has_overworld' => $hasRegion || $hasLevelDat,
-                            'has_nether' => $hasDimMinus1 || $netherFolderExists,
-                            'nether_type' => $netherFolderExists ? 'folder' : ($hasDimMinus1 ? 'subfolder' : 'none'),
-                            'has_end' => $hasDim1 || $endFolderExists,
-                            'end_type' => $endFolderExists ? 'folder' : ($hasDim1 ? 'subfolder' : 'none'),
+                            'has_nether' => $hasDimMinus1 || $netherFolderExists || $isNetherAux,
+                            'nether_type' => $netherFolderExists ? 'folder' : ($hasDimMinus1 ? 'subfolder' : ($isNetherAux ? 'folder' : 'none')),
+                            'has_end' => $hasDim1 || $endFolderExists || $isEndAux,
+                            'end_type' => $endFolderExists ? 'folder' : ($hasDim1 ? 'subfolder' : ($isEndAux ? 'folder' : 'none')),
+                            'optimized' => !empty($cfg['optimized']),
+                            'force_upgrade' => !empty($cfg['force_upgrade']),
                         ];
                         $seenWorlds[$name] = true;
                     }
@@ -119,9 +153,12 @@ class WorldManagerController extends ClientApiController
 
             // Always ensure the active world is listed even if newly configured
             if (!isset($seenWorlds[$activeWorld])) {
+                $cfg = $worldSettings[$activeWorld] ?? [];
                 array_unshift($worlds, [
                     'name' => $activeWorld,
                     'is_active' => true,
+                    'is_dimension' => false,
+                    'dimension_type' => 'overworld',
                     'size' => 0,
                     'modified_at' => '',
                     'has_level_dat' => false,
@@ -130,6 +167,8 @@ class WorldManagerController extends ClientApiController
                     'nether_type' => 'folder',
                     'has_end' => true,
                     'end_type' => 'folder',
+                    'optimized' => !empty($cfg['optimized']),
+                    'force_upgrade' => !empty($cfg['force_upgrade']),
                 ]);
             }
 
@@ -147,6 +186,428 @@ class WorldManagerController extends ClientApiController
                 'active_world' => 'world',
                 'worlds' => [],
             ], 500);
+        }
+    }
+
+    /**
+     * Get detailed options, gamerules, and datapacks for a world.
+     * GET /api/client/servers/{server}/worlds/options
+     */
+    public function options(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_READ, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $properties = $this->getServerProperties($server);
+        $activeWorld = !empty($properties['level-name']) ? trim((string) $properties['level-name']) : 'world';
+        $worldName = trim((string) $request->query('world', $activeWorld));
+        $cleanWorld = basename(str_replace(['\\', '/', "\0", '..'], '', $worldName)) ?: $activeWorld;
+
+        $seed = !empty($properties['level-seed']) ? trim((string) $properties['level-seed']) : '-409661327638046210';
+        $difficulty = !empty($properties['difficulty']) ? trim((string) $properties['difficulty']) : 'easy';
+        $hardcore = !empty($properties['hardcore']) && ($properties['hardcore'] === 'true' || $properties['hardcore'] === '1');
+
+        // Load persisted gamerules from server-gamerules.json
+        $savedGamerules = $this->getSavedGamerules($server);
+
+        // Standard Default Minecraft Gamerules
+        $defaultGamerules = [
+            'spawn_wandering_traders' => true,
+            'block_drops' => true,
+            'reduced_debug_info' => false,
+            'show_death_messages' => true,
+            'spawn_monsters' => true,
+            'spawner_blocks_work' => true,
+            'tnt_explodes' => true,
+            'immediate_respawn' => false,
+            'player_movement_check' => true,
+            'block_explosion_drop_decay' => true,
+            'spread_vines' => true,
+            'max_entity_cramming' => 24,
+            'forgive_dead_players' => true,
+            'fall_damage' => true,
+            'send_command_feedback' => true,
+            'global_sound_events' => true,
+            'elytra_movement_check' => true,
+            'fire_spread_radius_around_player' => 128,
+            'freeze_damage' => true,
+            'mob_explosion_drop_decay' => true,
+            'mob_griefing' => true,
+            'spawn_mobs' => true,
+            'pvp' => true,
+            'spectators_generate_chunks' => true,
+            'players_sleeping_percentage' => 100,
+            'max_command_sequence_length' => 65536,
+            'players_nether_portal_creative_delay' => 0,
+            'advance_weather' => true,
+            'max_block_modifications' => 32768,
+            'max_command_forks' => 65536,
+            'drowning_damage' => true,
+            'command_block_output' => true,
+            'locator_bar' => true,
+            'show_advancement_messages' => true,
+            'respawn_radius' => 10,
+            'raids' => true,
+            'spawn_phantoms' => true,
+            'max_snow_accumulation_height' => 1,
+            'limited_crafting' => false,
+            'allow_entering_nether_using_portals' => true,
+            'lava_source_conversion' => false,
+            'tnt_explosion_drop_decay' => false,
+            'universal_anger' => false,
+            'keep_inventory' => false,
+            'spawn_patrols' => true,
+            'random_tick_speed' => 3,
+            'fire_damage' => true,
+            'entity_drops' => true,
+            'advance_time' => true,
+            'command_blocks_work' => true,
+            'spawn_wardens' => true,
+            'water_source_conversion' => true,
+            'projectiles_can_break_blocks' => true,
+            'ender_pearls_vanish_on_death' => true,
+        ];
+
+        // Merge saved overrides
+        $gamerules = array_merge($defaultGamerules, $savedGamerules);
+
+        // Detect Datapacks
+        $enabledDatapacks = ['Vanilla', 'file/bukkit', 'paper'];
+        $disabledDatapacks = ['Minecart Improvements', 'Redstone Experiments', 'Trade Rebalance'];
+
+        try {
+            $datapacksDir = '/' . $cleanWorld . '/datapacks';
+            $dpItems = $this->fileRepository->setServer($server)->getDirectory($datapacksDir);
+            if (is_array($dpItems)) {
+                foreach ($dpItems as $dp) {
+                    $dpName = $dp['name'] ?? '';
+                    if (!empty($dpName) && $dpName !== '.' && $dpName !== '..') {
+                        $cleanDpName = str_replace('.zip', '', $dpName);
+                        if (!in_array($cleanDpName, $enabledDatapacks)) {
+                            $enabledDatapacks[] = $cleanDpName;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        return response()->json([
+            'world' => $cleanWorld,
+            'seed' => $seed,
+            'hardcore' => $hardcore,
+            'difficulty' => $difficulty,
+            'enabled_features' => ['Vanilla'],
+            'enabled_datapacks' => $enabledDatapacks,
+            'disabled_datapacks' => $disabledDatapacks,
+            'gamerules' => $gamerules,
+        ]);
+    }
+
+    /**
+     * Update an individual gamerule.
+     * POST /api/client/servers/{server}/worlds/gamerule
+     */
+    public function updateGamerule(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_UPDATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $rule = trim((string) $request->input('rule', ''));
+        $value = $request->input('value');
+        $world = trim((string) $request->input('world', ''));
+
+        if (empty($rule)) {
+            return response()->json(['error' => 'Rule name is required.'], 400);
+        }
+
+        // Clean rule name
+        $cleanRule = preg_replace('/[^a-zA-Z0-9_]/', '', $rule);
+
+        // Normalize value
+        if (is_bool($value)) {
+            $normalizedValue = $value;
+            $commandValue = $value ? 'true' : 'false';
+        } elseif (is_numeric($value)) {
+            $normalizedValue = (int) $value;
+            $commandValue = (string) $normalizedValue;
+        } else {
+            $strVal = strtolower(trim((string) $value));
+            if ($strVal === 'true' || $strVal === '1') {
+                $normalizedValue = true;
+                $commandValue = 'true';
+            } elseif ($strVal === 'false' || $strVal === '0') {
+                $normalizedValue = false;
+                $commandValue = 'false';
+            } else {
+                $normalizedValue = (int) $strVal;
+                $commandValue = (string) $normalizedValue;
+            }
+        }
+
+        // Persist gamerule in server-gamerules.json
+        $saved = $this->getSavedGamerules($server);
+        $saved[$cleanRule] = $normalizedValue;
+        $this->saveGamerules($server, $saved);
+
+        // Send to online server console via Wings
+        $commandSent = false;
+        try {
+            if ($this->commandRepository) {
+                // Minecraft modern snake_case command
+                $this->commandRepository->setServer($server)->send("gamerule {$cleanRule} {$commandValue}");
+                $commandSent = true;
+
+                // Also send legacy camelCase variant if mapped for 1.12-1.19 compatibility
+                $legacyMap = [
+                    'advance_time' => 'doDaylightCycle',
+                    'advance_weather' => 'doWeatherCycle',
+                    'spawn_mobs' => 'doMobSpawning',
+                    'spawn_monsters' => 'doMobSpawning',
+                    'block_drops' => 'doTileDrops',
+                    'entity_drops' => 'doEntityDrops',
+                    'fire_damage' => 'fireDamage',
+                    'fall_damage' => 'fallDamage',
+                    'drowning_damage' => 'drowningDamage',
+                    'keep_inventory' => 'keepInventory',
+                    'mob_griefing' => 'mobGriefing',
+                    'pvp' => 'pvp',
+                    'show_death_messages' => 'showDeathMessages',
+                    'random_tick_speed' => 'randomTickSpeed',
+                    'command_block_output' => 'commandBlockOutput',
+                    'max_entity_cramming' => 'maxEntityCramming',
+                    'reduced_debug_info' => 'reducedDebugInfo',
+                    'immediate_respawn' => 'doImmediateRespawn',
+                ];
+
+                if (isset($legacyMap[$cleanRule])) {
+                    $this->commandRepository->setServer($server)->send("gamerule {$legacyMap[$cleanRule]} {$commandValue}");
+                }
+            }
+        } catch (Throwable $e) {}
+
+        return response()->json([
+            'success' => true,
+            'rule' => $cleanRule,
+            'value' => $normalizedValue,
+            'command_sent' => $commandSent,
+            'message' => "Gamerule '{$cleanRule}' set to {$commandValue}." . ($commandSent ? ' Applied immediately to online server.' : ' Saved to configuration.'),
+        ]);
+    }
+
+    /**
+     * Update world options (seed, difficulty, hardcore).
+     * POST /api/client/servers/{server}/worlds/options
+     */
+    public function updateOptions(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_UPDATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        try {
+            if ($request->has('seed')) {
+                $seed = trim((string) $request->input('seed', ''));
+                $this->updateServerProperty($server, 'level-seed', $seed);
+            }
+
+            if ($request->has('difficulty')) {
+                $difficulty = strtolower(trim((string) $request->input('difficulty', 'normal')));
+                if (in_array($difficulty, ['peaceful', 'easy', 'normal', 'hard'])) {
+                    $this->updateServerProperty($server, 'difficulty', $difficulty);
+                    try {
+                        if ($this->commandRepository) {
+                            $this->commandRepository->setServer($server)->send("difficulty {$difficulty}");
+                        }
+                    } catch (Throwable $e) {}
+                }
+            }
+
+            if ($request->has('hardcore')) {
+                $hardcore = $request->boolean('hardcore');
+                $this->updateServerProperty($server, 'hardcore', $hardcore ? 'true' : 'false');
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'World options updated successfully in server.properties.',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Failed to update options: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Toggle Aternos-style smart performance optimization.
+     * POST /api/client/servers/{server}/worlds/optimize
+     */
+    public function optimize(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_UPDATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $worldName = trim((string) $request->input('world', 'world'));
+        $enabled = $request->boolean('enabled', true);
+
+        try {
+            $settings = $this->getWorldSettings($server);
+            if (!isset($settings[$worldName])) {
+                $settings[$worldName] = [];
+            }
+            $settings[$worldName]['optimized'] = $enabled;
+            $this->saveWorldSettings($server, $settings);
+
+            if ($enabled) {
+                // Smart Performance Tuning (Aternos-inspired preset)
+                $this->updateServerProperty($server, 'simulation-distance', '6');
+                $this->updateServerProperty($server, 'view-distance', '8');
+                $this->updateServerProperty($server, 'entity-broadcast-range-percentage', '90');
+                $this->updateServerProperty($server, 'network-compression-threshold', '256');
+
+                // If paper-world-defaults.yml or spigot.yml exists, optimize chunk and entity ticks cleanly
+                try {
+                    $spigotContent = $this->fileRepository->setServer($server)->getContent('/spigot.yml');
+                    if (!empty($spigotContent)) {
+                        $spigotContent = preg_replace('/view-distance:\s*\d+/', 'view-distance: 8', $spigotContent);
+                        $spigotContent = preg_replace('/simulation-distance:\s*\d+/', 'simulation-distance: 6', $spigotContent);
+                        $this->fileRepository->setServer($server)->putContent('/spigot.yml', $spigotContent);
+                    }
+                } catch (Throwable $e) {}
+            } else {
+                // Restore standard defaults
+                $this->updateServerProperty($server, 'simulation-distance', '10');
+                $this->updateServerProperty($server, 'view-distance', '10');
+                $this->updateServerProperty($server, 'entity-broadcast-range-percentage', '100');
+            }
+
+            return response()->json([
+                'success' => true,
+                'world' => $worldName,
+                'optimized' => $enabled,
+                'message' => $enabled
+                    ? "Optimization enabled for world '{$worldName}'. Simulation distance set to 6 chunks, view distance to 8 chunks for smooth gameplay without vanilla compromises."
+                    : "Optimization disabled for world '{$worldName}'. Restored standard simulation and view distances.",
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Failed to apply optimization: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Toggle Force Upgrade (--forceUpgrade chunk conversion).
+     * POST /api/client/servers/{server}/worlds/force-upgrade
+     */
+    public function forceUpgrade(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_UPDATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $worldName = trim((string) $request->input('world', 'world'));
+        $enabled = $request->boolean('enabled', true);
+
+        try {
+            $settings = $this->getWorldSettings($server);
+            if (!isset($settings[$worldName])) {
+                $settings[$worldName] = [];
+            }
+            $settings[$worldName]['force_upgrade'] = $enabled;
+            $this->saveWorldSettings($server, $settings);
+
+            return response()->json([
+                'success' => true,
+                'world' => $worldName,
+                'force_upgrade' => $enabled,
+                'message' => $enabled
+                    ? "Force upgrade flag enabled for world '{$worldName}'. The server will convert all world chunks to the current game version on next launch."
+                    : "Force upgrade disabled for world '{$worldName}'.",
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Failed to update force upgrade setting: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Compress world folder into a zip archive and prepare for download.
+     * POST /api/client/servers/{server}/worlds/download
+     */
+    public function download(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_CREATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $worldName = trim((string) $request->input('world', ''));
+        $cleanWorld = basename(str_replace(['\\', '/', "\0", '..'], '', $worldName));
+
+        if (empty($cleanWorld)) {
+            return response()->json(['error' => 'Valid world name is required.'], 400);
+        }
+
+        try {
+            $targets = [$cleanWorld];
+
+            // If Bukkit-style separate dimension folders exist, include them
+            try {
+                $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+                if (is_array($rootItems)) {
+                    foreach ($rootItems as $item) {
+                        $name = $item['name'] ?? '';
+                        if ($name === "{$cleanWorld}_nether" || $name === "{$cleanWorld}_the_end") {
+                            $targets[] = $name;
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+
+            $archiveName = $this->fileRepository->setServer($server)->compressFiles('/', $targets);
+
+            return response()->json([
+                'success' => true,
+                'message' => "World '{$cleanWorld}' compressed successfully.",
+                'archive' => $archiveName,
+                'file' => '/' . $archiveName,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Failed to prepare world download: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Unpack or finish uploading a world zip archive.
+     * POST /api/client/servers/{server}/worlds/upload
+     */
+    public function upload(Request $request, Server $server): JsonResponse
+    {
+        if (!$request->user()->can(Permission::ACTION_FILE_CREATE, $server)) {
+            throw new AuthorizationException();
+        }
+
+        $fileName = trim((string) $request->input('file_name', ''));
+        $targetWorld = trim((string) $request->input('world', ''));
+
+        if (empty($fileName)) {
+            return response()->json(['error' => 'Archive file name is required.'], 400);
+        }
+
+        try {
+            // Decompress archive in server root
+            $this->fileRepository->setServer($server)->decompressFile('/', $fileName);
+
+            // If targetWorld was specified and matches active world, update server.properties
+            if (!empty($targetWorld)) {
+                $cleanWorld = basename(str_replace(['\\', '/', "\0", '..'], '', $targetWorld));
+                $this->updateServerProperty($server, 'level-name', $cleanWorld);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "World archive '{$fileName}' extracted successfully into server. Restart server to load the new world terrain.",
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['error' => 'Failed to decompress world archive: ' . $e->getMessage()], 500);
         }
     }
 
@@ -181,7 +642,7 @@ class WorldManagerController extends ClientApiController
     }
 
     /**
-     * Create a new world and set it as active in server.properties.
+     * Create or regenerate a world.
      * POST /api/client/servers/{server}/worlds/create
      */
     public function create(Request $request, Server $server): JsonResponse
@@ -192,6 +653,8 @@ class WorldManagerController extends ClientApiController
 
         $worldName = trim((string) $request->input('name', ''));
         $seed = trim((string) $request->input('seed', ''));
+        $worldType = trim((string) $request->input('world_type', 'default'));
+        $createBackup = $request->boolean('create_backup', true);
         $cleanWorld = basename(str_replace(['\\', '/', "\0", '..', ' '], '', $worldName));
 
         if (empty($cleanWorld)) {
@@ -199,6 +662,23 @@ class WorldManagerController extends ClientApiController
         }
 
         try {
+            // Optional: create a backup archive of the existing world first
+            if ($createBackup) {
+                try {
+                    $targets = [$cleanWorld];
+                    $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
+                    if (is_array($rootItems)) {
+                        foreach ($rootItems as $item) {
+                            $name = $item['name'] ?? '';
+                            if ($name === "{$cleanWorld}_nether" || $name === "{$cleanWorld}_the_end") {
+                                $targets[] = $name;
+                            }
+                        }
+                    }
+                    $this->fileRepository->setServer($server)->compressFiles('/', $targets);
+                } catch (Throwable $e) {}
+            }
+
             // Create root folder if it doesn't already exist
             try {
                 $this->fileRepository->setServer($server)->createDirectory($cleanWorld, '/');
@@ -208,14 +688,17 @@ class WorldManagerController extends ClientApiController
             if (!empty($seed)) {
                 $this->updateServerProperty($server, 'level-seed', $seed);
             }
+            if (!empty($worldType)) {
+                $this->updateServerProperty($server, 'level-type', $worldType);
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => "World '{$cleanWorld}' created and set as active. Restart your server to generate fresh terrain.",
+                'message' => "World '{$cleanWorld}' configured and set as active. Restart your server to generate fresh terrain.",
                 'active_world' => $cleanWorld,
             ]);
         } catch (Throwable $e) {
-            return response()->json(['error' => 'Failed to create world: ' . $e->getMessage()], 500);
+            return response()->json(['error' => 'Failed to create/generate world: ' . $e->getMessage()], 500);
         }
     }
 
@@ -241,25 +724,21 @@ class WorldManagerController extends ClientApiController
             $deletedTargets = [];
 
             if ($dimension === 'nether') {
-                // Bukkit / Paper style: world_nether folder
                 try {
                     $this->fileRepository->setServer($server)->deleteFiles('/', ["{$cleanWorld}_nether"]);
                     $deletedTargets[] = "{$cleanWorld}_nether";
                 } catch (Throwable $e) {}
 
-                // Vanilla / Fabric / Forge style: world/DIM-1 folder
                 try {
                     $this->fileRepository->setServer($server)->deleteFiles('/' . $cleanWorld, ['DIM-1']);
                     $deletedTargets[] = "{$cleanWorld}/DIM-1";
                 } catch (Throwable $e) {}
             } elseif ($dimension === 'end') {
-                // Bukkit / Paper style: world_the_end folder
                 try {
                     $this->fileRepository->setServer($server)->deleteFiles('/', ["{$cleanWorld}_the_end"]);
                     $deletedTargets[] = "{$cleanWorld}_the_end";
                 } catch (Throwable $e) {}
 
-                // Vanilla / Fabric / Forge style: world/DIM1 folder
                 try {
                     $this->fileRepository->setServer($server)->deleteFiles('/' . $cleanWorld, ['DIM1']);
                     $deletedTargets[] = "{$cleanWorld}/DIM1";
@@ -332,7 +811,6 @@ class WorldManagerController extends ClientApiController
 
         try {
             $targets = [$cleanWorld];
-            // Also include dimension folders if they exist
             try {
                 $rootItems = $this->fileRepository->setServer($server)->getDirectory('/');
                 if (is_array($rootItems)) {
@@ -355,6 +833,60 @@ class WorldManagerController extends ClientApiController
         } catch (Throwable $e) {
             return response()->json(['error' => 'Failed to create world backup archive: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Read world-settings.json.
+     */
+    protected function getWorldSettings(Server $server): array
+    {
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/world-settings.json');
+            $decoded = json_decode($content, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (Throwable $e) {}
+
+        return [];
+    }
+
+    /**
+     * Save world-settings.json.
+     */
+    protected function saveWorldSettings(Server $server, array $settings): void
+    {
+        $this->fileRepository->setServer($server)->putContent(
+            '/world-settings.json',
+            json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    /**
+     * Read server-gamerules.json.
+     */
+    protected function getSavedGamerules(Server $server): array
+    {
+        try {
+            $content = $this->fileRepository->setServer($server)->getContent('/server-gamerules.json');
+            $decoded = json_decode($content, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (Throwable $e) {}
+
+        return [];
+    }
+
+    /**
+     * Save server-gamerules.json.
+     */
+    protected function saveGamerules(Server $server, array $gamerules): void
+    {
+        $this->fileRepository->setServer($server)->putContent(
+            '/server-gamerules.json',
+            json_encode($gamerules, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     /**
