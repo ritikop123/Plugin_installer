@@ -391,10 +391,15 @@ export default function ModInstallerContainer() {
         message: res.data.message || `Mod ${file.filename} was installed successfully!`,
       });
       fetchInstalledMods();
-    } catch (err: unknown) {
+    } catch (err: any) {
+      const serverMsg =
+        err?.response?.data?.errors?.[0]?.detail ||
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        httpErrorToHuman(err);
       setInstallNotice({
         success: false,
-        message: httpErrorToHuman(err) || 'Failed to install mod file to server.',
+        message: serverMsg || 'Failed to install mod file to server.',
       });
     } finally {
       setInstallingVersionId(null);

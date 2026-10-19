@@ -395,10 +395,15 @@ export default function PluginInstallerContainer() {
         message: res.data.message || `Plugin ${file.filename} was installed successfully!`,
       });
       fetchInstalledPlugins();
-    } catch (err: unknown) {
+    } catch (err: any) {
+      const serverMsg =
+        err?.response?.data?.errors?.[0]?.detail ||
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        httpErrorToHuman(err);
       setInstallNotice({
         success: false,
-        message: httpErrorToHuman(err) || 'Failed to install plugin file to server.',
+        message: serverMsg || 'Failed to install plugin file to server.',
       });
     } finally {
       setInstallingVersionId(null);

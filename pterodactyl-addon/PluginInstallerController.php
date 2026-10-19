@@ -705,19 +705,59 @@ class PluginInstallerController extends ClientApiController
             // 3. Ensure the /plugins directory exists
             try {
                 $this->fileRepository->setServer($server)->createDirectory('plugins', '/');
-            } catch (Exception $e) {}
+            } catch (Throwable $e) {}
 
-            // 4. Command Wings to pull the file directly into /plugins
-            // use_header => false guarantees Wings strictly saves the file with $cleanFilename (.jar)
-            $this->fileRepository->setServer($server)->pull(
-                $url,
-                '/plugins',
-                [
-                    'filename' => $cleanFilename,
-                    'use_header' => false,
-                    'foreground' => true,
-                ]
-            );
+            $installedSuccessfully = false;
+
+            // Strategy A: Wings direct pull (foreground => false ensures immediate async pull without gateway timeout)
+            try {
+                $this->fileRepository->setServer($server)->pull(
+                    $url,
+                    '/plugins',
+                    [
+                        'filename' => $cleanFilename,
+                        'use_header' => false,
+                        'foreground' => false,
+                    ]
+                );
+                $installedSuccessfully = true;
+            } catch (Throwable $wingsErr) {
+                $installedSuccessfully = false;
+            }
+
+            // Strategy B: If Wings daemon pull failed (e.g. Cloudflare block on Wings daemon, daemon timeout, or connectivity),
+            // Panel downloads using verified User-Agent and streams directly to server container via putContent
+            if (!$installedSuccessfully) {
+                try {
+                    $dlRes = $this->httpClient->get($url, [
+                        'headers' => [
+                            'User-Agent' => self::USER_AGENT,
+                            'Accept' => '*/*',
+                        ],
+                        'timeout' => 45,
+                    ]);
+
+                    if ($dlRes->getStatusCode() === 200) {
+                        $contents = $dlRes->getBody()->getContents();
+                        if (!empty($contents)) {
+                            $this->fileRepository->setServer($server)->putContent("/plugins/{$cleanFilename}", $contents);
+                            $installedSuccessfully = true;
+                        }
+                    }
+                } catch (Throwable $uploadEx) {
+                    throw new Exception("Unable to download plugin: " . $uploadEx->getMessage());
+                }
+            }
+
+            if (!$installedSuccessfully) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => [
+                        ['code' => 'InstallFailed', 'detail' => 'Could not download plugin file from remote host to server container.']
+                    ],
+                    'message' => 'Could not download plugin file from remote host to server container.',
+                ], 502);
+            }
 
             // 5. Cache icon if provided and update /plugins/.plugins_meta.json
             $iconUrl = (string) $request->input('icon_url', '');
@@ -744,8 +784,12 @@ class PluginInstallerController extends ClientApiController
                 'message' => "Plugin {$cleanFilename} installed successfully into /plugins.",
                 'filename' => $cleanFilename,
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
+                'success' => false,
+                'errors' => [
+                    ['code' => 'InstallException', 'detail' => 'Failed to install plugin: ' . $e->getMessage()]
+                ],
                 'error' => 'Failed to install plugin to server.',
                 'message' => $e->getMessage(),
             ], 500);

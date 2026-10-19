@@ -430,19 +430,58 @@ class ModInstallerController extends ClientApiController
             // 3. Ensure the /mods directory exists
             try {
                 $this->fileRepository->setServer($server)->createDirectory('mods', '/');
-            } catch (Exception $e) {}
+            } catch (Throwable $e) {}
 
-            // 4. Pull directly into /mods
-            // use_header => false guarantees Wings strictly saves the file with $cleanFilename (.jar)
-            $this->fileRepository->setServer($server)->pull(
-                $url,
-                '/mods',
-                [
-                    'filename' => $cleanFilename,
-                    'use_header' => false,
-                    'foreground' => true,
-                ]
-            );
+            $installedSuccessfully = false;
+
+            // Strategy A: Wings direct pull (foreground => false avoids gateway timeouts)
+            try {
+                $this->fileRepository->setServer($server)->pull(
+                    $url,
+                    '/mods',
+                    [
+                        'filename' => $cleanFilename,
+                        'use_header' => false,
+                        'foreground' => false,
+                    ]
+                );
+                $installedSuccessfully = true;
+            } catch (Throwable $wingsErr) {
+                $installedSuccessfully = false;
+            }
+
+            // Strategy B: If Wings daemon pull failed, Panel downloads using verified User-Agent and streams directly
+            if (!$installedSuccessfully) {
+                try {
+                    $dlRes = $this->httpClient->get($url, [
+                        'headers' => [
+                            'User-Agent' => self::USER_AGENT,
+                            'Accept' => '*/*',
+                        ],
+                        'timeout' => 45,
+                    ]);
+
+                    if ($dlRes->getStatusCode() === 200) {
+                        $contents = $dlRes->getBody()->getContents();
+                        if (!empty($contents)) {
+                            $this->fileRepository->setServer($server)->putContent("/mods/{$cleanFilename}", $contents);
+                            $installedSuccessfully = true;
+                        }
+                    }
+                } catch (Throwable $uploadEx) {
+                    throw new Exception("Unable to download mod: " . $uploadEx->getMessage());
+                }
+            }
+
+            if (!$installedSuccessfully) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => [
+                        ['code' => 'InstallFailed', 'detail' => 'Could not download mod file from remote host to server container.']
+                    ],
+                    'message' => 'Could not download mod file from remote host to server container.',
+                ], 502);
+            }
 
             // 4b. Auto-install required dependencies if provided
             $installDeps = (bool) $request->input('install_dependencies', true);
@@ -490,15 +529,24 @@ class ModInstallerController extends ClientApiController
                             if (!preg_match('/\.(jar|zip)$/i', $cleanDepFn)) {
                                 $cleanDepFn .= '.jar';
                             }
-                            $this->fileRepository->setServer($server)->pull(
-                                $depUrl,
-                                '/mods',
-                                [
-                                    'filename' => $cleanDepFn,
-                                    'use_header' => false,
-                                    'foreground' => true,
-                                ]
-                            );
+                            try {
+                                $this->fileRepository->setServer($server)->pull(
+                                    $depUrl,
+                                    '/mods',
+                                    [
+                                        'filename' => $cleanDepFn,
+                                        'use_header' => false,
+                                        'foreground' => false,
+                                    ]
+                                );
+                            } catch (Throwable $e2) {
+                                try {
+                                    $depDl = $this->httpClient->get($depUrl, ['headers' => ['User-Agent' => self::USER_AGENT], 'timeout' => 30]);
+                                    if ($depDl->getStatusCode() === 200) {
+                                        $this->fileRepository->setServer($server)->putContent("/mods/{$cleanDepFn}", $depDl->getBody()->getContents());
+                                    }
+                                } catch (Throwable $e3) {}
+                            }
                             $installedDeps[] = $cleanDepFn;
                         }
                     } catch (Throwable $e) {}
@@ -530,8 +578,12 @@ class ModInstallerController extends ClientApiController
                 'message' => "Mod {$cleanFilename} installed successfully into /mods.",
                 'filename' => $cleanFilename,
             ]);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
+                'success' => false,
+                'errors' => [
+                    ['code' => 'InstallException', 'detail' => 'Failed to install mod: ' . $e->getMessage()]
+                ],
                 'error' => 'Failed to install mod to server.',
                 'message' => $e->getMessage(),
             ], 500);
