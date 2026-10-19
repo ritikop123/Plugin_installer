@@ -669,7 +669,7 @@ if ($enablePlayers) {
 
 if ($enableWorlds) {
     $imports .= "import WorldManagerContainer from '@/components/server/world-manager/WorldManagerContainer';\n";
-    $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World Manager', component: WorldManagerContainer, exact: true },";
+    $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World', component: WorldManagerContainer, exact: true },";
     $routes .= "\n        { path: '/world', permission: 'file.*', component: WorldManagerContainer, exact: true },";
 }
 

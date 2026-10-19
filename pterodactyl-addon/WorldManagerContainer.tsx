@@ -4,6 +4,7 @@ import http, { httpErrorToHuman } from '@/api/http';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  faGlobe,
   faGlobeAmericas,
   faDownload,
   faUpload,
@@ -615,7 +616,7 @@ export default function WorldManagerContainer() {
 
   return (
     <ServerContentBlock
-      title="Worlds"
+      title="World"
       description="Manage Minecraft world dimensions, smart performance optimizations, gamerules, and backups."
     >
       {/* Toast Alert */}
@@ -672,10 +673,10 @@ export default function WorldManagerContainer() {
                 className="px-3.5 py-2 rounded-component bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white border border-gray-600/60 text-sm font-semibold flex items-center gap-2 transition-all shadow"
               >
                 <FontAwesomeIcon icon={faArrowLeft} />
-                <span>Back to Worlds</span>
+                <span>Back</span>
               </button>
-              <h1 className="text-2xl font-bold text-arix">
-                Worlds <span className="text-gray-400 font-normal text-lg">/ {viewingOptionsForWorld}</span>
+              <h1 className="text-2xl font-bold text-white tracking-wide">
+                World <span className="text-gray-400 font-normal text-lg">/ {viewingOptionsForWorld}</span>
               </h1>
             </div>
 
@@ -886,18 +887,7 @@ export default function WorldManagerContainer() {
         <div>
           {/* Header Bar */}
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-arix">Worlds</h1>
-            <button
-              type="button"
-              onClick={() => {
-                setTargetWorldForGenerate('world');
-                setGenerateModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-component bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold flex items-center gap-2 shadow-lg transition-all"
-            >
-              <FontAwesomeIcon icon={faSyncAlt} />
-              <span>Generate New World</span>
-            </button>
+            <h1 className="text-2xl font-bold text-white tracking-wide">World</h1>
           </div>
 
           {loading ? (
@@ -907,10 +897,10 @@ export default function WorldManagerContainer() {
             </div>
           ) : !data || data.worlds.length === 0 ? (
             <div className="bg-gray-700 backdrop boxBorder rounded-box p-12 text-center text-gray-400">
-              <FontAwesomeIcon icon={faGlobeAmericas} className="text-5xl text-gray-500 mb-3" />
+              <FontAwesomeIcon icon={faGlobe} className="text-5xl text-gray-500 mb-3" />
               <p className="text-base font-semibold text-gray-300">No Minecraft worlds detected.</p>
               <p className="text-xs text-gray-400 mt-1">
-                Start your server once or click "Generate New World" above to create one.
+                Start your server once to generate world files.
               </p>
             </div>
           ) : (
@@ -928,19 +918,14 @@ export default function WorldManagerContainer() {
                   >
                     {/* LEFT SECTION: Icon + World Name */}
                     <div className="flex items-center gap-4 w-full md:w-auto">
-                      <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 shadow-md">
-                        <FontAwesomeIcon icon={faGlobeAmericas} className="text-[#20272c] text-3xl" />
+                      <div className="w-12 h-12 flex items-center justify-center shrink-0">
+                        <FontAwesomeIcon icon={faGlobe} className="text-white text-3xl" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xl font-bold text-white tracking-wide">
                             {world.name}
                           </span>
-                          {isActive && (
-                            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              Active
-                            </span>
-                          )}
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">
                           {world.name.endsWith('_nether')

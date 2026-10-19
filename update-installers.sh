@@ -266,7 +266,7 @@ if (file_exists($routesTs)) {
 
     if (file_exists('resources/scripts/components/server/world-manager/WorldManagerContainer.tsx')) {
         $imports .= "import WorldManagerContainer from '@/components/server/world-manager/WorldManagerContainer';\n";
-        $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World Manager', component: WorldManagerContainer, exact: true }," .
+        $routes .= "\n        { path: '/worlds', permission: 'file.*', name: 'World', component: WorldManagerContainer, exact: true }," .
                     "\n        { path: '/world', permission: 'file.*', component: WorldManagerContainer, exact: true },";
     }
 
