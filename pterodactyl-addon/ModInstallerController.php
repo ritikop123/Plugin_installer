@@ -297,6 +297,7 @@ class ModInstallerController extends ClientApiController
                         ];
                     }
                 }
+            } // closes if (is_array($items))
             if (!empty($files)) {
                 $files = $this->enrichModIcons($server, $files);
             }

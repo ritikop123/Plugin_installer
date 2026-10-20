@@ -167,7 +167,7 @@ export default function ModInstallerContainer() {
     return `${Math.floor(days / 365)}y ago`;
   };
 
-  const getModSourceUrl = (mod: ModrinthModHit): { url: string; label: string } => {
+  const getModSourceUrl = (mod: ModSearchHit): { url: string; label: string } => {
     const provider = (mod as any).provider || selectedProvider;
     const slug = mod.slug || mod.project_id || mod.id || '';
     if (provider === 'curseforge') {
