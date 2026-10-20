@@ -334,6 +334,7 @@ export default function PluginInstallerContainer() {
     setVersionError(null);
     setVersions([]);
     setInstallNotice(null);
+    setCatalogError(null); // clear any stale page-level error so it doesn't show in the modal
 
     setModalLoader(selectedLoader !== 'all' ? selectedLoader : 'all');
     setModalGameVersion(selectedVersion !== 'all' ? selectedVersion : 'all');
