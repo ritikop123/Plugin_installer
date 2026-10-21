@@ -322,7 +322,7 @@ class ModInstallerController extends ClientApiController
         $filename = (string) $request->input('filename', '');
 
         // 1. If URL points to a GitHub release tag page, resolve the direct .jar release asset
-        if (preg_match('#github\.com/([^/]+)/([^/]+)/releases/tag/([^/?#]+)#i', $url, $m)) {
+        if (str_contains($url, 'github.com') && preg_match('{github\.com/([^/]+)/([^/]+)/releases/tag/([^/?#]+)}i', $url, $m)) {
             try {
                 $ghApi = "https://api.github.com/repos/{$m[1]}/{$m[2]}/releases/tags/{$m[3]}";
                 $ghRes = $this->httpClient->get($ghApi, [
