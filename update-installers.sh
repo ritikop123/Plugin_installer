@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -o pipefail
 
 echo -e "\033[0;36m================================================================\033[0m"
 echo -e "\033[0;36m  Pterodactyl Addon Suite - All-in-One Comprehensive Updater    \033[0m"
@@ -23,7 +23,9 @@ if [ ! -d "$PTERO_DIR" ]; then
 fi
 
 cd "$PTERO_DIR"
-CACHE_BUST=$(date +%s)
+rm -f bootstrap/cache/*.php 2>/dev/null || true
+rm -rf storage/framework/cache/data/* 2>/dev/null || true
+CACHE_BUST=$(date +%s%N)
 BASE_URL="https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon"
 
 echo -e "\033[0;32m[+] 1/9 Downloading updated backend controllers...\033[0m"
@@ -388,11 +390,12 @@ try {
 " || true
 
 echo -e "\033[0;32m[+] 8/9 Clearing caches and building production frontend assets...\033[0m"
-php artisan optimize:clear
-php artisan view:clear
-php artisan config:clear
-php artisan route:clear
-php artisan cache:clear
+rm -f bootstrap/cache/*.php 2>/dev/null || true
+php artisan optimize:clear 2>/dev/null || true
+php artisan view:clear 2>/dev/null || true
+php artisan config:clear 2>/dev/null || true
+php artisan route:clear 2>/dev/null || true
+php artisan cache:clear 2>/dev/null || true
 
 export NODE_OPTIONS="--max-old-space-size=4096"
 yarn build:production || npm run build:production
