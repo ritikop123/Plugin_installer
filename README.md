@@ -9,6 +9,8 @@ A native, secure suite of Minecraft server management addons built specifically 
 - 🎛️ **Server Options & Properties**: Visual `server.properties` manager with authentic Minecraft multiplayer server banner, unchangeable server address badge with copy button, live MOTD color code editor & in-game preview, instant auto-save on every change, default Sagarmatha Hosting logo auto-seeding, 1-click .zip resource pack uploader, and expiration notice banners.
 - ⏱️ **Admin Auto-Suspension & 3-Day Notice System**: Native expiration date scheduling on server creation and details, background auto-suspension via `ptero:auto-suspend`, and courteous 3-day notice emails sent to server owners.
 - 🆔 **Server Support IDs**: Every server receives a persistent unique support ID shown in its console header and searchable in **Admin → Servers**.
+- 💾 **Automated Daily Backups & Clean Auto-Purge**: 1-click modal for users to set daily backup time (24h format), live status badge in the server header, automated daily snapshot with old automated backup purging, and `[Automated]` badge tagging in the backup list.
+- ☁️ **Google Drive Cloud Backup**: Link personal Google Drive via OAuth or token, auto-mirror daily backups to Google Drive, and upload backups offsite on demand.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
 

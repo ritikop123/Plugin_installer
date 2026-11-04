@@ -851,7 +851,29 @@ fetch_addon_file "ServerSuspensionWarningNotification.php" "app/Notifications/Se
 
 # Download Server Expiry & Plan Card component
 mkdir -p "resources/scripts/components/server"
+mkdir -p "resources/scripts/components/server/backups"
 fetch_addon_file "ServerExpiryCard.tsx" "resources/scripts/components/server/ServerExpiryCard.tsx"
+
+# Download Automated Backup & Google Drive Addon components
+fetch_addon_file "AutoBackupButton.tsx" "resources/scripts/components/server/backups/AutoBackupButton.tsx"
+fetch_addon_file "AutoBackupModal.tsx" "resources/scripts/components/server/backups/AutoBackupModal.tsx"
+fetch_addon_file "AutoBackupHeaderBadge.tsx" "resources/scripts/components/server/backups/AutoBackupHeaderBadge.tsx"
+fetch_addon_file "GoogleDriveBackupButton.tsx" "resources/scripts/components/server/backups/GoogleDriveBackupButton.tsx"
+fetch_addon_file "GoogleDriveBackupModal.tsx" "resources/scripts/components/server/backups/GoogleDriveBackupModal.tsx"
+
+# Copy for root server component references
+cp -f "resources/scripts/components/server/backups/AutoBackupHeaderBadge.tsx" "resources/scripts/components/server/AutoBackupHeaderBadge.tsx" 2>/dev/null || true
+cp -f "resources/scripts/components/server/backups/AutoBackupButton.tsx" "resources/scripts/components/server/AutoBackupButton.tsx" 2>/dev/null || true
+cp -f "resources/scripts/components/server/backups/AutoBackupModal.tsx" "resources/scripts/components/server/AutoBackupModal.tsx" 2>/dev/null || true
+
+# Download AutoBackup Controller and Console Command
+mkdir -p "app/Console/Commands"
+fetch_addon_file "AutoBackupController.php" "app/Http/Controllers/Api/Client/Servers/AutoBackupController.php"
+fetch_addon_file "AutoBackupRunCommand.php" "app/Console/Commands/AutoBackupRunCommand.php"
+
+# Download AutoBackup migration
+mkdir -p "database/migrations"
+fetch_addon_file "migrations/2026_11_05_000000_create_server_backup_settings_table.php" "database/migrations/2026_11_05_000000_create_server_backup_settings_table.php"
 
 # Download Server Expiry Badge & Uptime components for Dashboard & Server Header
 mkdir -p "resources/scripts/components/dashboard"
@@ -900,6 +922,14 @@ fetch_addon_file "patch-dashboard-card.php" "/tmp/ptero_patch_dashboard_card.php
 
 php /tmp/ptero_patch_dashboard_card.php
 rm -f /tmp/ptero_patch_dashboard_card.php
+
+# Apply patch for Automated Backups & Google Drive integration
+echo -e "${CYAN}[*] Injecting Automated Backup & Google Drive Addon buttons...${NC}"
+rm -f "/tmp/ptero_patch_auto_backup.php"
+fetch_addon_file "patch-auto-backup.php" "/tmp/ptero_patch_auto_backup.php"
+
+php /tmp/ptero_patch_auto_backup.php
+rm -f /tmp/ptero_patch_auto_backup.php
 
 # 13. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"

@@ -38,6 +38,9 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/PlayerManagerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/WorldManagerController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/WorldManagerController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AiAssistantController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/AiAssistantController.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/SupportLookupController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/SupportLookupController.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupController.php?t=${CACHE_BUST}" -o app/Http/Controllers/Api/Client/Servers/AutoBackupController.php
+mkdir -p app/Console/Commands
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupRunCommand.php?t=${CACHE_BUST}" -o app/Console/Commands/AutoBackupRunCommand.php
 
 echo -e "\033[0;32m[+] 2/9 Downloading updated React frontend components...\033[0m"
 mkdir -p resources/scripts/components/server/plugin-installer
@@ -69,6 +72,21 @@ cp resources/scripts/components/server/ServerUptime.tsx resources/scripts/compon
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSupportId.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/ServerSupportId.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=${CACHE_BUST}" -o resources/scripts/components/dashboard/AdminSupportIdSearch.tsx
 cp resources/scripts/components/dashboard/AdminSupportIdSearch.tsx resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx 2>/dev/null || true
+
+mkdir -p resources/scripts/components/server/backups
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupButton.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupModal.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupModal.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupHeaderBadge.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupHeaderBadge.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/GoogleDriveBackupButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/GoogleDriveBackupButton.tsx
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/GoogleDriveBackupModal.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/GoogleDriveBackupModal.tsx
+
+cp resources/scripts/components/server/backups/AutoBackupHeaderBadge.tsx resources/scripts/components/server/AutoBackupHeaderBadge.tsx 2>/dev/null || true
+cp resources/scripts/components/server/backups/AutoBackupButton.tsx resources/scripts/components/server/AutoBackupButton.tsx 2>/dev/null || true
+cp resources/scripts/components/server/backups/AutoBackupModal.tsx resources/scripts/components/server/AutoBackupModal.tsx 2>/dev/null || true
+
+mkdir -p database/migrations
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_11_05_000000_create_server_backup_settings_table.php?t=${CACHE_BUST}" -o database/migrations/2026_11_05_000000_create_server_backup_settings_table.php 2>/dev/null || true
+php artisan migrate --force 2>/dev/null || true
 
 echo -e "\033[0;32m[+] 3/9 Registering API and Frontend routes for all installed addons...\033[0m"
 cat << 'PHP_ROUTER_PATCH_EOF' > /tmp/ptero_sync_routes.php
@@ -320,12 +338,14 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-dashboard-card.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_dashboard_card.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-ai-assistant.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_ai.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-backup.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_backup.php
 
 php /tmp/ptero_patch_auto_suspend.php || true
 php /tmp/ptero_patch_support_id.php || true
 php /tmp/ptero_patch_dashboard_card.php || true
 php /tmp/ptero_patch_ai.php || true
-rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php /tmp/ptero_patch_ai.php
+php /tmp/ptero_patch_auto_backup.php || true
+rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php /tmp/ptero_patch_ai.php /tmp/ptero_patch_auto_backup.php
 
 echo -e "\033[0;32m[+] 6/9 Setting up Auto-Suspend & Artisan Cron Job and Log File...\033[0m"
 touch /var/log/pterodactyl-auto-suspend.log
