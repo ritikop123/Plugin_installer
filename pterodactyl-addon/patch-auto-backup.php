@@ -9,6 +9,23 @@ echo "[*] Applying Automated Backup & Google Drive Addon patches...\n";
 $backupDir = "resources/scripts/components/server/backups";
 
 // -------------------------------------------------------------------------
+// PART 0: Clean CreateBackupButton.tsx
+// Ensures CreateBackupButton ONLY renders Create backup, eliminating duplicate AutoBackupButton
+// -------------------------------------------------------------------------
+$createBtnFile = "{$backupDir}/CreateBackupButton.tsx";
+if (file_exists($createBtnFile)) {
+    exec("git checkout HEAD -- " . escapeshellarg($createBtnFile) . " 2>/dev/null");
+    $c = file_get_contents($createBtnFile);
+    $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/\s*/s", "", $c);
+    $c = preg_replace("/<AutoBackupButton[^>]*\/>\s*/s", "", $c);
+    $c = preg_replace("/import\s+AutoBackupButton\s+from\s+[^;]+;\s*/s", "", $c);
+    $c = preg_replace("/<div[^>]*inline-flex[^>]*>\s*(<Button[\s\S]*?<\/Button>)\s*<\/div>/i", "$1", $c);
+    file_put_contents($createBtnFile, $c);
+    echo "[✓] Cleaned CreateBackupButton.tsx (eliminated any duplicate buttons)\n";
+}
+
+// -------------------------------------------------------------------------
 // PART 1: Patch BackupRow.tsx
 // Badges automated backups with [Automated] tag and clock icon
 // -------------------------------------------------------------------------

@@ -25,14 +25,39 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
+     * Authorize user access to server backup operations.
+     */
+    protected function authorizeServerAccess(Request $request, Server $server, string $permission = 'backup.read'): void
+    {
+        $user = $request->user();
+        if (!$user) {
+            throw new AuthorizationException('Unauthenticated.');
+        }
+
+        // Server owner and root administrators always have full access
+        if ($user->root_admin || (int) $user->id === (int) $server->owner_id) {
+            return;
+        }
+
+        // Subuser granular permission checks
+        try {
+            if ($user->can($permission, $server)) {
+                return;
+            }
+        } catch (Throwable $e) {
+            // Ignore gate errors, fallback to authorization exception below
+        }
+
+        throw new AuthorizationException('You do not have permission to perform this action.');
+    }
+
+    /**
      * Get auto-backup schedule and settings.
      * GET /api/client/servers/{server}/auto-backup
      */
     public function index(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_READ, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.read');
 
         $settings = $this->getSettings($server);
 
@@ -55,9 +80,7 @@ class AutoBackupController extends ClientApiController
      */
     public function update(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_CREATE, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.create');
 
         $request->validate([
             'is_enabled' => 'required|boolean',
@@ -83,9 +106,7 @@ class AutoBackupController extends ClientApiController
      */
     public function runNow(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_CREATE, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.create');
 
         try {
             $backup = $this->executeAutomatedBackup($server);
@@ -113,9 +134,7 @@ class AutoBackupController extends ClientApiController
      */
     public function gdriveAuth(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_READ, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.read');
 
         $settings = $this->getSettings($server);
         $gdrive = $settings['gdrive'] ?? [];
@@ -155,9 +174,7 @@ class AutoBackupController extends ClientApiController
      */
     public function gdriveConnect(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_CREATE, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.create');
 
         $settings = $this->getSettings($server);
         $gdrive = $settings['gdrive'] ?? [];
@@ -238,9 +255,7 @@ class AutoBackupController extends ClientApiController
      */
     public function gdriveUpload(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_CREATE, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.create');
 
         $settings = $this->getSettings($server);
         $gdrive = $settings['gdrive'] ?? [];
@@ -296,9 +311,7 @@ class AutoBackupController extends ClientApiController
      */
     public function gdriveDisconnect(Request $request, Server $server): JsonResponse
     {
-        if (!$request->user()->can(Permission::ACTION_BACKUP_DELETE, $server)) {
-            throw new AuthorizationException();
-        }
+        $this->authorizeServerAccess($request, $server, 'backup.delete');
 
         $settings = $this->getSettings($server);
         unset($settings['gdrive']);

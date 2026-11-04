@@ -123,7 +123,8 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                     };
                     window.addEventListener('message', messageListener);
                 } else {
-                    setErrorMsg('Google Drive OAuth is not configured on this panel. Please ask panel administrator to set GOOGLE_DRIVE_CLIENT_ID or provide an access token.');
+                    setShowCodeInput(true);
+                    setErrorMsg('Google Drive OAuth is not configured on this panel. You can connect directly by pasting a Google access token or authorization code below.');
                 }
             })
             .catch((err) => {
@@ -288,6 +289,14 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                 >
                                     <GoogleDriveIcon className="w-4 h-4" />
                                     <span>{connecting ? 'Requesting Access...' : 'Sign in with Google Drive'}</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCodeInput(!showCodeInput)}
+                                    className="text-[11px] text-gray-400 hover:text-cyan-400 underline block mx-auto pt-1 transition-colors cursor-pointer"
+                                >
+                                    {showCodeInput ? 'Hide manual token input' : 'Or connect manually with authorization code / token'}
                                 </button>
                             </div>
 
