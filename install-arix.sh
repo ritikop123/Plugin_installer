@@ -855,6 +855,7 @@ mkdir -p "resources/scripts/components/server/backups"
 fetch_addon_file "ServerExpiryCard.tsx" "resources/scripts/components/server/ServerExpiryCard.tsx"
 
 # Download Automated Backup & Google Drive Addon components
+fetch_addon_file "BackupContainer.tsx" "resources/scripts/components/server/backups/BackupContainer.tsx"
 fetch_addon_file "AutoBackupButton.tsx" "resources/scripts/components/server/backups/AutoBackupButton.tsx"
 fetch_addon_file "AutoBackupModal.tsx" "resources/scripts/components/server/backups/AutoBackupModal.tsx"
 fetch_addon_file "AutoBackupHeaderBadge.tsx" "resources/scripts/components/server/backups/AutoBackupHeaderBadge.tsx"

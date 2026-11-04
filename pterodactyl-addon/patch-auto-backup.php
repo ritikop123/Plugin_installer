@@ -7,75 +7,19 @@
 echo "[*] Applying Automated Backup & Google Drive Addon patches...\n";
 
 $backupDir = "resources/scripts/components/server/backups";
-if (!is_dir($backupDir)) {
-    echo "[!] Backup directory not found at: {$backupDir}\n";
-    exit(0);
-}
 
 // -------------------------------------------------------------------------
-// PART 1: Patch BackupContainer.tsx
-// Injects GoogleDriveBackupButton (D) and AutoBackupButton (A) cleanly wrapped
-// -------------------------------------------------------------------------
-$containerFiles = [
-    "{$backupDir}/BackupContainer.tsx",
-    "{$backupDir}/index.tsx",
-];
-
-foreach ($containerFiles as $containerFile) {
-    if (!file_exists($containerFile)) continue;
-
-    exec("git checkout HEAD -- " . escapeshellarg($containerFile) . " 2>/dev/null");
-
-    $c = file_get_contents($containerFile);
-
-    // Clean previous injections
-    $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/import\s+AutoBackupButton\s+from\s+[^;]+;\s*/s", "", $c);
-    $c = preg_replace("/import\s+GoogleDriveBackupButton\s+from\s+[^;]+;\s*/s", "", $c);
-    $c = preg_replace("/<div[^>]*inline-flex[^>]*>\s*<AutoBackupButton[^>]*\/>\s*(<CreateBackupButton[\s\S]*?\/>)\s*<\/div>/i", "$1", $c);
-    $c = preg_replace("/<div[^>]*justify-end[^>]*>\s*<GoogleDriveBackupButton[^>]*\/>\s*<\/div>\s*/i", "", $c);
-
-    // Add imports
-    $imports = "import AutoBackupButton from '@/components/server/backups/AutoBackupButton';\nimport GoogleDriveBackupButton from '@/components/server/backups/GoogleDriveBackupButton';\n";
-    $c = $imports . $c;
-
-    // 1. Inject GoogleDriveBackupButton (Button D) at top right above ItemList / under ServerContentBlock
-    if (preg_match('/(<(?:ServerContentBlock|PageContentBlock)[^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-        $pos = $m[1][1] + strlen($m[1][0]);
-        $gdriveJsx = "\n            <div className={'flex justify-end mb-3 -mt-1'}>\n                <GoogleDriveBackupButton />\n            </div>";
-        $c = substr($c, 0, $pos) . $gdriveJsx . substr($c, $pos);
-    } elseif (preg_match('/(<FlashMessageRender[\s\S]*?\/>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-        $pos = $m[1][1];
-        $gdriveJsx = "<div className={'flex justify-end mb-3 -mt-1'}>\n                <GoogleDriveBackupButton />\n            </div>\n            ";
-        $c = substr($c, 0, $pos) . $gdriveJsx . substr($c, $pos);
-    }
-
-    // 2. Wrap <CreateBackupButton ... /> with AutoBackupButton in a single <div>
-    // NOTE: DO NOT use {/* */} comment inside JS expression { ... && ( ... ) }
-    if (preg_match('/(<CreateBackupButton[\s\S]*?\/>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
-        $createBtnTag = $m[1][0];
-        $pos = $m[1][1];
-        $wrapped = "/* >>> ARIX BACKUP BUTTONS START >>> */\n                        <div className={'inline-flex items-center gap-2'}>\n                            <AutoBackupButton />\n                            " . $createBtnTag . "\n                        </div>\n                        /* <<< ARIX BACKUP BUTTONS END <<< */";
-        $c = substr($c, 0, $pos) . $wrapped . substr($c, $pos + strlen($createBtnTag));
-    }
-
-    file_put_contents($containerFile, $c);
-    echo "[✓] Injected wrapped backup buttons cleanly into: {$containerFile}\n";
-}
-
-// -------------------------------------------------------------------------
-// PART 2: Patch BackupRow.tsx
+// PART 1: Patch BackupRow.tsx
 // Badges automated backups with [Automated] tag and clock icon
 // -------------------------------------------------------------------------
 $backupRowFile = "{$backupDir}/BackupRow.tsx";
 if (file_exists($backupRowFile)) {
-    exec("git checkout HEAD -- " . escapeshellarg($backupRowFile) . " 2>/dev/null");
     $c = file_get_contents($backupRowFile);
 
     // Clean previous injections
     $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX AUTOMATED BADGE START[\s\S]*?ARIX AUTOMATED BADGE END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
     $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTOMATED BADGE START[\s\S]*?ARIX AUTOMATED BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
+    $c = preg_replace("/\{backup\.name\.toLowerCase\(\)\.includes\([\x27\x22]automated[\x27\x22]\)[\s\S]*?<\/span>\s*\)\s*\}/s", "", $c);
 
     // Add fontawesome icon if needed
     if (strpos($c, 'faClock') === false) {
@@ -94,7 +38,7 @@ if (file_exists($backupRowFile)) {
 }
 
 // -------------------------------------------------------------------------
-// PART 3: Register API Routes in routes/api-client.php
+// PART 2: Register API Routes in routes/api-client.php
 // -------------------------------------------------------------------------
 $routesFile = "routes/api-client.php";
 if (file_exists($routesFile)) {
@@ -129,7 +73,7 @@ PHP;
 }
 
 // -------------------------------------------------------------------------
-// PART 4: Schedule Command in app/Console/Kernel.php
+// PART 3: Schedule Command in app/Console/Kernel.php
 // -------------------------------------------------------------------------
 $kernelFile = "app/Console/Kernel.php";
 if (file_exists($kernelFile)) {
