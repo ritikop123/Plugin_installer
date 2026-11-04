@@ -3,6 +3,7 @@ import { ServerContext } from '@/state/server';
 import { SocketEvent, SocketRequest } from '@/components/server/events';
 import useWebsocketEvent from '@/plugins/useWebsocketEvent';
 import http from '@/api/http';
+import AutoBackupHeaderBadge from '@/components/server/backups/AutoBackupHeaderBadge';
 
 interface Props {
     uptime?: number | null;
@@ -273,6 +274,8 @@ const ServerUptime: React.FC<Props> = ({ uptime: propUptime, status: propStatus,
                     {suspendFormatted.text}
                 </span>
             </span>
+
+            <AutoBackupHeaderBadge />
         </div>
     );
 };

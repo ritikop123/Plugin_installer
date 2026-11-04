@@ -6,56 +6,114 @@
 
 echo "[*] Applying Automated Backup & Google Drive Addon patches...\n";
 
+$backupDir = "resources/scripts/components/server/backups";
+if (!is_dir($backupDir)) {
+    echo "[!] Backup directory not found at: {$backupDir}\n";
+}
+
 // -------------------------------------------------------------------------
-// PART 1: Patch BackupContainer.tsx
+// PART 1: Patch CreateBackupButton.tsx & BackupContainer.tsx
 // Injects AutoBackupButton (A) and GoogleDriveBackupButton (D)
 // -------------------------------------------------------------------------
-$backupContainerCandidates = [
-    "resources/scripts/components/server/backups/BackupContainer.tsx",
-];
 
-foreach ($backupContainerCandidates as $containerFile) {
-    if (!file_exists($containerFile)) continue;
-
-    $c = file_get_contents($containerFile);
-
-    // Clean previous injections
+// Helper to clean old patches
+function cleanBackupPatches(string $c): string {
     $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
     $c = preg_replace("/\/\*\s*>>>\s*ARIX BACKUP BUTTONS START[\s\S]*?ARIX BACKUP BUTTONS END\s*<<<\s*\*\/\s*/s", "", $c);
     $c = preg_replace("/<AutoBackupButton[^>]*\/>\s*/s", "", $c);
     $c = preg_replace("/<GoogleDriveBackupButton[^>]*\/>\s*/s", "", $c);
     $c = preg_replace("/import\s+AutoBackupButton\s+from\s+[^;]+;\s*/s", "", $c);
     $c = preg_replace("/import\s+GoogleDriveBackupButton\s+from\s+[^;]+;\s*/s", "", $c);
+    return $c;
+}
 
-    // Add imports
-    $imports = "import AutoBackupButton from '@/components/server/backups/AutoBackupButton';\nimport GoogleDriveBackupButton from '@/components/server/backups/GoogleDriveBackupButton';\n";
+// 1A. Patch CreateBackupButton.tsx directly
+$createBtnFile = "{$backupDir}/CreateBackupButton.tsx";
+if (file_exists($createBtnFile)) {
+    $c = file_get_contents($createBtnFile);
+    $c = cleanBackupPatches($c);
+
     if (strpos($c, 'import AutoBackupButton') === false) {
-        $c = $imports . $c;
+        $c = "import AutoBackupButton from '@/components/server/backups/AutoBackupButton';\n" . $c;
     }
 
-    // 1. Inject AutoBackupButton right before <CreateBackupButton
-    if (preg_match('/(<CreateBackupButton[\s\S]*?\/>)/', $c, $m, PREG_OFFSET_CAPTURE)) {
+    // Wrap the returned button with AutoBackupButton
+    // Matches <Button ...> ... Create backup ... </Button> or <Button ... onClick=...>
+    $patched = false;
+    if (preg_match('/(<Button[\s\S]*?>\s*(?:Create backup|Create Backup)[\s\S]*?<\/Button>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+        $btnCode = $m[1][0];
         $pos = $m[1][1];
-        $btnJsx = "{/* >>> ARIX BACKUP BUTTONS START >>> */}\n                        <AutoBackupButton className={'mr-2'} />\n                        {/* <<< ARIX BACKUP BUTTONS END <<< */}\n                        ";
-        $c = substr($c, 0, $pos) . $btnJsx . substr($c, $pos);
+        $wrapped = "{/* >>> ARIX BACKUP BUTTONS START >>> */}\n            <div className={'inline-flex items-center gap-2'}>\n                <AutoBackupButton />\n                " . $btnCode . "\n            </div>\n            {/* <<< ARIX BACKUP BUTTONS END <<< */}";
+        $c = substr($c, 0, $pos) . $wrapped . substr($c, $pos + strlen($btnCode));
+        $patched = true;
+    } elseif (preg_match('/(<Button[\s\S]*?<\/Button>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+        $btnCode = $m[1][0];
+        $pos = $m[1][1];
+        $wrapped = "{/* >>> ARIX BACKUP BUTTONS START >>> */}\n            <div className={'inline-flex items-center gap-2'}>\n                <AutoBackupButton />\n                " . $btnCode . "\n            </div>\n            {/* <<< ARIX BACKUP BUTTONS END <<< */}";
+        $c = substr($c, 0, $pos) . $wrapped . substr($c, $pos + strlen($btnCode));
+        $patched = true;
     }
 
-    // 2. Inject GoogleDriveBackupButton near the top header / action bar
-    if (preg_match('/(<ServerContentBlock[^>]*title=\{[\x27\x22]Backups[\x27\x22]\}[^>]*>)/', $c, $m, PREG_OFFSET_CAPTURE)) {
+    if ($patched) {
+        file_put_contents($createBtnFile, $c);
+        echo "[✓] Injected AutoBackupButton directly into: {$createBtnFile}\n";
+    }
+}
+
+// 1B. Patch BackupContainer.tsx
+$containerFiles = [
+    "{$backupDir}/BackupContainer.tsx",
+    "{$backupDir}/index.tsx",
+];
+
+foreach ($containerFiles as $containerFile) {
+    if (!file_exists($containerFile)) continue;
+
+    $c = file_get_contents($containerFile);
+    $c = cleanBackupPatches($c);
+
+    // Imports
+    $imports = "";
+    if (strpos($c, 'import AutoBackupButton') === false) {
+        $imports .= "import AutoBackupButton from '@/components/server/backups/AutoBackupButton';\n";
+    }
+    if (strpos($c, 'import GoogleDriveBackupButton') === false) {
+        $imports .= "import GoogleDriveBackupButton from '@/components/server/backups/GoogleDriveBackupButton';\n";
+    }
+    $c = $imports . $c;
+
+    // Inject GoogleDriveBackupButton (Button D) at top right
+    $gdriveInjected = false;
+    if (preg_match('/(<(?:ServerContentBlock|PageContentBlock)[^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
         $pos = $m[1][1] + strlen($m[1][0]);
-        $gdriveJsx = "\n            {/* >>> ARIX BACKUP BUTTONS START >>> */}\n            <div className={'flex justify-end mb-3 -mt-2'}>\n                <GoogleDriveBackupButton />\n            </div>\n            {/* <<< ARIX BACKUP BUTTONS END <<< */}";
+        $gdriveJsx = "\n            {/* >>> ARIX BACKUP BUTTONS START >>> */}\n            <div className={'flex justify-end mb-3 -mt-1'}>\n                <GoogleDriveBackupButton />\n            </div>\n            {/* <<< ARIX BACKUP BUTTONS END <<< */}";
         $c = substr($c, 0, $pos) . $gdriveJsx . substr($c, $pos);
+        $gdriveInjected = true;
+    } elseif (preg_match('/(<div[^>]*className=[\x27\x22][^>]*>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+        $pos = $m[1][1] + strlen($m[1][0]);
+        $gdriveJsx = "\n            {/* >>> ARIX BACKUP BUTTONS START >>> */}\n            <div className={'flex justify-end mb-3'}>\n                <GoogleDriveBackupButton />\n            </div>\n            {/* <<< ARIX BACKUP BUTTONS END <<< */}";
+        $c = substr($c, 0, $pos) . $gdriveJsx . substr($c, $pos);
+        $gdriveInjected = true;
+    }
+
+    // Inject AutoBackupButton right before <CreateBackupButton if not already handled
+    if (strpos($c, '<AutoBackupButton') === false) {
+        if (preg_match('/(<CreateBackupButton[\s\S]*?>)/i', $c, $m, PREG_OFFSET_CAPTURE)) {
+            $pos = $m[1][1];
+            $btnJsx = "{/* >>> ARIX BACKUP BUTTONS START >>> */}\n                        <AutoBackupButton className={'mr-2'} />\n                        {/* <<< ARIX BACKUP BUTTONS END <<< */}\n                        ";
+            $c = substr($c, 0, $pos) . $btnJsx . substr($c, $pos);
+        }
     }
 
     file_put_contents($containerFile, $c);
-    echo "[✓] Injected AutoBackupButton and GoogleDriveBackupButton into: {$containerFile}\n";
+    echo "[✓] Injected backup buttons into: {$containerFile}\n";
 }
 
 // -------------------------------------------------------------------------
 // PART 2: Patch BackupRow.tsx
 // Badges automated backups with [Automated] tag and clock icon
 // -------------------------------------------------------------------------
-$backupRowFile = "resources/scripts/components/server/backups/BackupRow.tsx";
+$backupRowFile = "{$backupDir}/BackupRow.tsx";
 if (file_exists($backupRowFile)) {
     $c = file_get_contents($backupRowFile);
 
@@ -69,11 +127,11 @@ if (file_exists($backupRowFile)) {
     }
 
     // Inject badge right after backup name
-    // Pattern: <p className={...}>{backup.name}</p>
-    $pattern = '/(<p[^>]*>\{backup\.name\}<\/p>)/';
+    // Matches {backup.name}
+    $pattern = '/(\{backup\.name\})/i';
     if (preg_match($pattern, $c, $m, PREG_OFFSET_CAPTURE)) {
         $pos = $m[1][1] + strlen($m[1][0]);
-        $badgeJsx = "\n                    {/* >>> ARIX AUTOMATED BADGE START >>> */}\n                    {backup.name.toLowerCase().includes('automated') && (\n                        <span className={'ml-2 px-2 py-0.5 text-[10px] font-semibold rounded-md bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 inline-flex items-center gap-1.5 shadow-sm'}>\n                            <FontAwesomeIcon icon={faClock} className={'text-[9px] text-cyan-400'} />\n                            <span>Automated</span>\n                        </span>\n                    )}\n                    {/* <<< ARIX AUTOMATED BADGE END <<< */}";
+        $badgeJsx = "{/* >>> ARIX AUTOMATED BADGE START >>> */}{backup.name.toLowerCase().includes('automated') && (\n                    <span className={'ml-2 px-2 py-0.5 text-[10px] font-semibold rounded-md bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 inline-flex items-center gap-1.5 shadow-sm'}>\n                        <FontAwesomeIcon icon={faClock} className={'text-[9px] text-cyan-400'} />\n                        <span>Automated</span>\n                    </span>\n                )}{/* <<< ARIX AUTOMATED BADGE END <<< */}";
         $c = substr($c, 0, $pos) . $badgeJsx . substr($c, $pos);
         file_put_contents($backupRowFile, $c);
         echo "[✓] Injected [Automated] badge into: {$backupRowFile}\n";
@@ -81,37 +139,7 @@ if (file_exists($backupRowFile)) {
 }
 
 // -------------------------------------------------------------------------
-// PART 3: Patch ServerContentBlock.tsx / ServerUptime
-// Injects AutoBackupHeaderBadge in the header next to Suspend info (Screenshot 2)
-// -------------------------------------------------------------------------
-$contentBlockFile = "resources/scripts/components/elements/ServerContentBlock.tsx";
-if (file_exists($contentBlockFile)) {
-    $c = file_get_contents($contentBlockFile);
-
-    // Clean previous injections
-    $c = preg_replace("/\{\s*\/\*\s*>>>\s*ARIX AUTO BACKUP BADGE START[\s\S]*?ARIX AUTO BACKUP BADGE END\s*<<<\s*\*\/[\s\r\n]*\}/s", "", $c);
-    $c = preg_replace("/\/\*\s*>>>\s*ARIX AUTO BACKUP BADGE START[\s\S]*?ARIX AUTO BACKUP BADGE END\s*<<<\s*\*\/\s*/s", "", $c);
-    $c = preg_replace("/<AutoBackupHeaderBadge[^>]*\/>\s*/s", "", $c);
-    $c = preg_replace("/import\s+AutoBackupHeaderBadge\s+from\s+[^;]+;\s*/s", "", $c);
-
-    if (strpos($c, 'import AutoBackupHeaderBadge') === false) {
-        $c = "import AutoBackupHeaderBadge from '@/components/server/backups/AutoBackupHeaderBadge';\n" . $c;
-    }
-
-    if (strpos($c, '<ServerUptime') !== false) {
-        $pattern = '/(<ServerUptime[^>]*\/>)/';
-        if (preg_match($pattern, $c, $m, PREG_OFFSET_CAPTURE)) {
-            $pos = $m[1][1] + strlen($m[1][0]);
-            $badgeJsx = "\n                    {/* >>> ARIX AUTO BACKUP BADGE START >>> */}\n                    <AutoBackupHeaderBadge />\n                    {/* <<< ARIX AUTO BACKUP BADGE END <<< */}";
-            $c = substr($c, 0, $pos) . $badgeJsx . substr($c, $pos);
-            file_put_contents($contentBlockFile, $c);
-            echo "[✓] Injected AutoBackupHeaderBadge into: {$contentBlockFile}\n";
-        }
-    }
-}
-
-// -------------------------------------------------------------------------
-// PART 4: Register API Routes in routes/api-client.php
+// PART 3: Register API Routes in routes/api-client.php
 // -------------------------------------------------------------------------
 $routesFile = "routes/api-client.php";
 if (file_exists($routesFile)) {
@@ -135,7 +163,6 @@ Route::group(['prefix' => '/servers/{server}/auto-backup'], function () {
 
 PHP;
 
-    // Insert before closing or inside client routes
     if (strpos($c, '/* >>> ARIX PLUGIN INSTALLER START >>> */') !== false) {
         $c = str_replace('/* >>> ARIX PLUGIN INSTALLER START >>> */', $routeBlock . "/* >>> ARIX PLUGIN INSTALLER START >>> */", $c);
     } else {
@@ -147,7 +174,7 @@ PHP;
 }
 
 // -------------------------------------------------------------------------
-// PART 5: Schedule Command in app/Console/Kernel.php
+// PART 4: Schedule Command in app/Console/Kernel.php
 // -------------------------------------------------------------------------
 $kernelFile = "app/Console/Kernel.php";
 if (file_exists($kernelFile)) {
