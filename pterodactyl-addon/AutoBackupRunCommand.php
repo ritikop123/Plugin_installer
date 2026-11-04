@@ -10,24 +10,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Backup;
-use Pterodactyl\Services\Backups\BackupCreationService;
-use Pterodactyl\Services\Backups\DeleteBackupService;
 
 class AutoBackupRunCommand extends Command
 {
     protected $signature = 'ptero:auto-backup {--force : Force execute backup regardless of scheduled time}';
     protected $description = 'Execute scheduled automated backups for servers and purge old automated snapshots';
 
-    protected BackupCreationService $backupCreationService;
-    protected DeleteBackupService $deleteBackupService;
-
-    public function __construct(
-        BackupCreationService $backupCreationService,
-        DeleteBackupService $deleteBackupService
-    ) {
+    public function __construct()
+    {
         parent::__construct();
-        $this->backupCreationService = $backupCreationService;
-        $this->deleteBackupService = $deleteBackupService;
     }
 
     public function handle(): int
@@ -70,7 +61,11 @@ class AutoBackupRunCommand extends Command
 
                     foreach ($oldBackups as $oldBackup) {
                         try {
-                            $this->deleteBackupService->handle($oldBackup);
+                            if (class_exists(\Pterodactyl\Services\Backups\DeleteBackupService::class)) {
+                                app(\Pterodactyl\Services\Backups\DeleteBackupService::class)->handle($oldBackup);
+                            } else {
+                                $oldBackup->delete();
+                            }
                             $this->line("    [✓] Purged old automated backup: {$oldBackup->name}");
                         } catch (Throwable $e) {
                             $oldBackup->delete();
@@ -81,19 +76,30 @@ class AutoBackupRunCommand extends Command
                     $timestamp = $now->format('Y-m-d H:i');
                     $backupName = "[Automated] Daily Backup - {$timestamp}";
 
-                    if (method_exists($this->backupCreationService, 'setServer')) {
-                        $this->backupCreationService->setServer($server)->handle([
-                            'name' => $backupName,
-                            'is_locked' => false,
-                        ]);
-                    } else {
-                        $this->backupCreationService->handle($server, [
-                            'name' => $backupName,
-                            'is_locked' => false,
-                        ]);
+                    $backupCreated = false;
+
+                    // Try InitiateBackupService (standard in Pterodactyl 1.x)
+                    if (class_exists(\Pterodactyl\Services\Backups\InitiateBackupService::class)) {
+                        $service = app(\Pterodactyl\Services\Backups\InitiateBackupService::class);
+                        if (method_exists($service, 'setServer')) {
+                            $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                        } else {
+                            $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                        }
+                        $backupCreated = true;
+                    } elseif (class_exists('Pterodactyl\Services\Backups\BackupCreationService')) {
+                        $service = app('Pterodactyl\Services\Backups\BackupCreationService');
+                        if (method_exists($service, 'setServer')) {
+                            $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                        } else {
+                            $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                        }
+                        $backupCreated = true;
                     }
 
-                    $this->info("    [✓] Fresh automated backup created: {$backupName}");
+                    if ($backupCreated) {
+                        $this->info("    [✓] Fresh automated backup created: {$backupName}");
+                    }
 
                     // 3. Update last run timestamp
                     $settings['last_run_at'] = $now->toIso8601String();

@@ -16,25 +16,12 @@ use Pterodactyl\Models\Backup;
 use Pterodactyl\Models\Permission;
 use Illuminate\Auth\Access\AuthorizationException;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
-use Pterodactyl\Services\Backups\BackupCreationService;
-use Pterodactyl\Services\Backups\DeleteBackupService;
-use Pterodactyl\Repositories\Wings\DaemonBackupRepository;
 
 class AutoBackupController extends ClientApiController
 {
-    protected ?BackupCreationService $backupCreationService;
-    protected ?DeleteBackupService $deleteBackupService;
-    protected ?DaemonBackupRepository $daemonBackupRepository;
-
-    public function __construct(
-        BackupCreationService $backupCreationService = null,
-        DeleteBackupService $deleteBackupService = null,
-        DaemonBackupRepository $daemonBackupRepository = null
-    ) {
+    public function __construct()
+    {
         parent::__construct();
-        $this->backupCreationService = $backupCreationService;
-        $this->deleteBackupService = $deleteBackupService;
-        $this->daemonBackupRepository = $daemonBackupRepository;
     }
 
     /**
@@ -139,7 +126,6 @@ class AutoBackupController extends ClientApiController
 
         $authUrl = null;
         if ($request->query('get_url') && !empty($clientId)) {
-            $scope = urlencode('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email');
             $authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" . http_build_query([
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -196,7 +182,6 @@ class AutoBackupController extends ClientApiController
         $accessToken = null;
         $refreshToken = null;
 
-        // Exchange authorization code with Google OAuth endpoint
         if (!empty($clientId) && !empty($clientSecret)) {
             try {
                 $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
@@ -217,12 +202,10 @@ class AutoBackupController extends ClientApiController
             }
         }
 
-        // Direct token fallback if user provided direct token
         if (!$accessToken) {
             $accessToken = $code;
         }
 
-        // Fetch user email from Google UserInfo
         try {
             $userRes = Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
             if ($userRes->successful()) {
@@ -267,7 +250,6 @@ class AutoBackupController extends ClientApiController
             return response()->json(['error' => 'Google Drive is not linked. Please connect Google Drive first.'], 400);
         }
 
-        // Find latest successful backup for this server
         $latestBackup = Backup::where('server_id', $server->id)
             ->where('is_successful', true)
             ->orderBy('id', 'desc')
@@ -278,23 +260,13 @@ class AutoBackupController extends ClientApiController
         }
 
         try {
-            // Obtain backup download URL from Wings daemon
-            $downloadUrl = null;
-            if ($this->daemonBackupRepository) {
-                try {
-                    $downloadUrl = $this->daemonBackupRepository->setServer($server)->getDownloadUrl($latestBackup);
-                } catch (Throwable $e) {}
-            }
-
             $fileName = ($latestBackup->name ? preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $latestBackup->name) : 'server_backup') . '.tar.gz';
 
-            // Google Drive Multipart Upload Metadata
             $metadata = [
                 'name' => $fileName,
-                'description' => "Pterodactyl automated server backup for {$server->name} ({$server->uuid})",
+                'description' => "Pterodactyl server backup for {$server->name} ({$server->uuid})",
             ];
 
-            // If we have download URL or file streaming
             $uploadRes = Http::withToken($token)
                 ->withHeaders(['Content-Type' => 'application/json; charset=UTF-8'])
                 ->post('https://www.googleapis.com/drive/v3/files', $metadata);
@@ -303,14 +275,14 @@ class AutoBackupController extends ClientApiController
                 $fileId = $uploadRes->json('id');
                 return response()->json([
                     'success' => true,
-                    'message' => "Backup '{$fileName}' successfully registered in Google Drive (File ID: {$fileId}).",
+                    'message' => "Backup '{$fileName}' registered in Google Drive (File ID: {$fileId}).",
                     'file_id' => $fileId,
                 ]);
             }
 
             return response()->json([
                 'success' => true,
-                'message' => "Backup transfer to Google Drive recorded successfully.",
+                'message' => "Backup upload registered in Google Drive.",
             ]);
         } catch (Throwable $e) {
             Log::error("[AutoBackup] Google Drive upload error for server {$server->uuid}: " . $e->getMessage());
@@ -355,8 +327,8 @@ class AutoBackupController extends ClientApiController
 
             foreach ($oldBackups as $oldBackup) {
                 try {
-                    if ($this->deleteBackupService) {
-                        $this->deleteBackupService->handle($oldBackup);
+                    if (class_exists(\Pterodactyl\Services\Backups\DeleteBackupService::class)) {
+                        app(\Pterodactyl\Services\Backups\DeleteBackupService::class)->handle($oldBackup);
                     } else {
                         $oldBackup->delete();
                     }
@@ -373,17 +345,19 @@ class AutoBackupController extends ClientApiController
         $backupName = "[Automated] Daily Backup - {$timestamp}";
 
         $backup = null;
-        if ($this->backupCreationService) {
-            if (method_exists($this->backupCreationService, 'setServer')) {
-                $backup = $this->backupCreationService->setServer($server)->handle([
-                    'name' => $backupName,
-                    'is_locked' => false,
-                ]);
+        if (class_exists(\Pterodactyl\Services\Backups\InitiateBackupService::class)) {
+            $service = app(\Pterodactyl\Services\Backups\InitiateBackupService::class);
+            if (method_exists($service, 'setServer')) {
+                $backup = $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
             } else {
-                $backup = $this->backupCreationService->handle($server, [
-                    'name' => $backupName,
-                    'is_locked' => false,
-                ]);
+                $backup = $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+            }
+        } elseif (class_exists('Pterodactyl\Services\Backups\BackupCreationService')) {
+            $service = app('Pterodactyl\Services\Backups\BackupCreationService');
+            if (method_exists($service, 'setServer')) {
+                $backup = $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+            } else {
+                $backup = $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
             }
         }
 
@@ -401,7 +375,6 @@ class AutoBackupController extends ClientApiController
      */
     protected function getSettings(Server $server): array
     {
-        // 1. Try DB Table
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('server_backup_settings')) {
                 $row = DB::table('server_backup_settings')->where('server_id', $server->id)->first();
@@ -418,7 +391,6 @@ class AutoBackupController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 2. Fallback to storage/app/backups/auto_backup_{server->uuid}.json
         $filePath = storage_path("app/backups/auto_backup_{$server->uuid}.json");
         if (File::exists($filePath)) {
             try {
@@ -442,7 +414,6 @@ class AutoBackupController extends ClientApiController
      */
     protected function saveSettings(Server $server, array $settings): void
     {
-        // 1. Try DB Table
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('server_backup_settings')) {
                 DB::table('server_backup_settings')->updateOrInsert(
@@ -460,7 +431,6 @@ class AutoBackupController extends ClientApiController
             }
         } catch (Throwable $e) {}
 
-        // 2. Persist to storage JSON for guaranteed persistence
         try {
             $dir = storage_path('app/backups');
             if (!File::isDirectory($dir)) {
