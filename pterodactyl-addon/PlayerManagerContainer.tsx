@@ -23,7 +23,7 @@ import {
   faCheck,
   faUnlockAlt,
   faTh,
-  faBoxArchive,
+  faArchive,
   faGlobeAmericas,
   faMapMarkerAlt,
   faClock,
@@ -1033,7 +1033,7 @@ export default function PlayerManagerContainer() {
                         }
                         className="relative z-10 px-2.5 py-1 rounded-component bg-gray-900/90 hover:bg-gray-900 text-white text-[11px] font-bold border border-gray-600 shadow transition-colors flex items-center gap-1.5"
                       >
-                        <FontAwesomeIcon icon={inventoryView === 'inventory' ? faBoxArchive : faTh} />
+                        <FontAwesomeIcon icon={inventoryView === 'inventory' ? faArchive : faTh} />
                         <span>{inventoryView === 'inventory' ? 'Open Ender Chest' : 'Open Inventory'}</span>
                       </button>
 
