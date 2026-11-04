@@ -398,7 +398,7 @@ php artisan route:clear 2>/dev/null || true
 php artisan cache:clear 2>/dev/null || true
 
 export NODE_OPTIONS="--max-old-space-size=4096"
-yarn build:production || npm run build:production
+yarn build:production --progress || yarn build:production || npm run build:production
 
 echo -e "\033[0;32m[+] 9/9 Reloading web server, PHP-FPM and setting permissions...\033[0m"
 systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || systemctl reload php8.1-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
