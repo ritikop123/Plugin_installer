@@ -128,27 +128,6 @@ PHP_ROUTES;
 }
 
 // -------------------------------------------------------------
-// PART 3: Routes in resources/scripts/routers/routes.ts
-// -------------------------------------------------------------
-$routesTs = 'resources/scripts/routers/routes.ts';
-if (file_exists($routesTs)) {
-    $c = file_get_contents($routesTs);
-
-    // Clean old import & route
-    $c = preg_replace('/import\s+AiAssistantContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/ai[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/[^\n]*AiAssistantContainer[^\n]*\n?/', '', $c);
-
-    $import = "import AiAssistantContainer from '@/components/server/AiAssistantContainer';\n";
-    $route = "\n        { path: '/ai', permission: 'file.*', name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
-
-    $c = $import . $c;
-    $c = preg_replace('/(server:\s*\[)/', '$1' . $route, $c, 1);
-    file_put_contents($routesTs, $c);
-    echo "[✓] Registered /ai route in resources/scripts/routers/routes.ts\n";
-}
-
-// -------------------------------------------------------------
 // PART 4: Ensure GROQ_MODEL in .env
 // -------------------------------------------------------------
 $envFile = '.env';

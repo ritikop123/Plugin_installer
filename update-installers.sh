@@ -242,36 +242,33 @@ if (file_exists($routesPhp)) {
 }
 
 if (file_exists($routesTs)) {
+    // Attempt git checkout to reset any prior syntax corruption in routes.ts
+    exec('git checkout HEAD -- resources/scripts/routers/routes.ts 2>/dev/null');
     $c = file_get_contents($routesTs);
 
-    // Clean old imports & routes
-    $c = preg_replace('/import\s+PluginInstallerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+ModInstallerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+ModpackInstallerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+SoftwareInstallerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+OptionsContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+PlayerManagerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+WorldManagerContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/import\s+AiAssistantContainer[^\n]*\n?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/plugins[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/mods[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/modpacks[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/software[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/options[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/players[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/worlds?[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/ai[\x27\x22][^\}]*\},?/s', '', $c);
-    $c = preg_replace('/[^\n]*PluginInstallerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*ModInstallerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*ModpackInstallerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*SoftwareInstallerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*OptionsContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*PlayerManagerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*WorldManagerContainer[^\n]*\n?/', '', $c);
-    $c = preg_replace('/[^\n]*AiAssistantContainer[^\n]*\n?/', '', $c);
+    // Clean previous marked addon blocks
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX ADDONS IMPORTS START[\s\S]*?ARIX ADDONS IMPORTS END\s*<<<\s*\*\/[\s\r\n]*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX ADDONS ROUTES START[\s\S]*?ARIX ADDONS ROUTES END\s*<<<\s*\*\/[\s\r\n]*/s', '', $c);
 
-    $imports = '';
-    $routes = '';
+    // Clean any legacy loose imports & route blocks
+    $addonNames = [
+        'PluginInstallerContainer',
+        'ModInstallerContainer',
+        'ModpackInstallerContainer',
+        'SoftwareInstallerContainer',
+        'OptionsContainer',
+        'PlayerManagerContainer',
+        'WorldManagerContainer',
+        'AiAssistantContainer',
+    ];
+    foreach ($addonNames as $name) {
+        $c = preg_replace('/import\s+' . $name . '[^\n]*\n?/s', '', $c);
+        $c = preg_replace('/\s*\{\s*path:\s*[\x27\x22]\/[^\x27\x22]+[\x27\x22][^}]*' . $name . '[^}]*\},?/s', '', $c);
+        $c = preg_replace('/[^\n]*' . $name . '[^\n]*\n?/', '', $c);
+    }
+
+    $imports = "/* >>> ARIX ADDONS IMPORTS START >>> */\n";
+    $routes = "\n        /* >>> ARIX ADDONS ROUTES START >>> */";
 
     if (file_exists('resources/scripts/components/server/plugin-installer/PluginInstallerContainer.tsx')) {
         $imports .= "import PluginInstallerContainer from '@/components/server/plugin-installer/PluginInstallerContainer';\n";
@@ -313,6 +310,9 @@ if (file_exists($routesTs)) {
         $imports .= "import AiAssistantContainer from '@/components/server/AiAssistantContainer';\n";
         $routes .= "\n        { path: '/ai', permission: 'file.*', name: 'AI Assistant', component: AiAssistantContainer, exact: true },";
     }
+
+    $imports .= "/* <<< ARIX ADDONS IMPORTS END <<< */\n";
+    $routes .= "\n        /* <<< ARIX ADDONS ROUTES END <<< */";
 
     $c = $imports . $c;
     $c = preg_replace('/(server:\s*\[)/', '$1' . $routes, $c, 1);
