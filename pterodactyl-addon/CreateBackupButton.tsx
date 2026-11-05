@@ -28,6 +28,10 @@ const CreateBackupDialog = asDialog({
     title: 'Create Backup',
 })(() => {
     const { t } = useTranslation('arix/server/backups');
+    const tr = (key: string, fallback: string) => {
+        const val = t(key, fallback);
+        return !val || val === key || val.startsWith('create.') ? fallback : val;
+    };
     const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
 
     const { clearFlashes, clearAndAddHttpError } = useFlash();
@@ -66,14 +70,14 @@ const CreateBackupDialog = asDialog({
                     <FlashMessageRender byKey={'backups:create'} css={tw`mb-4`} />
                     <Field
                         name={'name'}
-                        label={t('create.backup-name', 'Backup name')}
-                        description={t('create.backup-name-description', 'A name to identify this backup by.')}
+                        label={tr('create.backup-name', 'Backup name')}
+                        description={tr('create.backup-name-description', 'A name to identify this backup by.')}
                     />
                     <div css={tw`mt-6`}>
                         <FormikFieldWrapper
                             name={'ignored'}
-                            label={t('create.ignored-files-directories', 'Ignored files & directories')}
-                            description={t('create.ignored-files-directories-description', 'Enter the files or folders to ignore while generating this backup.')}
+                            label={tr('create.ignored-files-directories', 'Ignored files & directories')}
+                            description={tr('create.ignored-files-directories-description', 'Enter the files or folders to ignore while generating this backup.')}
                         >
                             <FormikField as={Textarea} name={'ignored'} rows={6} />
                         </FormikFieldWrapper>
@@ -82,14 +86,14 @@ const CreateBackupDialog = asDialog({
                         <div css={tw`mt-6 bg-neutral-700 border border-neutral-600 shadow-inner p-4 rounded-component`}>
                             <FormikSwitch
                                 name={'isLocked'}
-                                label={t('create.locked', 'Locked')}
-                                description={t('create.locked-description', 'Prevents this backup from being deleted until explicitly unlocked.')}
+                                label={tr('create.locked', 'Locked')}
+                                description={tr('create.locked-description', 'Prevents this backup from being deleted until explicitly unlocked.')}
                             />
                         </div>
                     </Can>
                     <Dialog.Footer>
                         <Button type={'submit'} css={tw`w-full sm:w-auto`} disabled={isSubmitting}>
-                            {(!t('create.start-backup') || t('create.start-backup').startsWith('create.')) ? 'Start backup' : t('create.start-backup', 'Start backup')}
+                            {tr('create.start-backup', 'Start backup')}
                         </Button>
                     </Dialog.Footer>
                 </Form>
@@ -100,6 +104,10 @@ const CreateBackupDialog = asDialog({
 
 export default ({ css }: { css?: any }) => {
     const { t } = useTranslation('arix/server/backups');
+    const tr = (key: string, fallback: string) => {
+        const val = t(key, fallback);
+        return !val || val === key || val.startsWith('create.') ? fallback : val;
+    };
     const { clearFlashes } = useFlash();
     const [visible, setVisible] = useState(false);
 
@@ -111,7 +119,7 @@ export default ({ css }: { css?: any }) => {
         <>
             <CreateBackupDialog open={visible} onClose={() => setVisible(false)} />
             <Button css={css || tw`w-full sm:w-auto`} onClick={() => setVisible(true)}>
-                {(!t('create.create-backup') || t('create.create-backup').startsWith('create.')) ? 'Create backup' : t('create.create-backup', 'Create backup')}
+                {tr('create.create-backup', 'Create backup')}
             </Button>
         </>
     );
