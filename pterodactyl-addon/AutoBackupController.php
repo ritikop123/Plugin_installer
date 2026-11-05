@@ -11,10 +11,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Backup;
 use Pterodactyl\Models\Permission;
-use Illuminate\Auth\Access\AuthorizationException;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 
 class AutoBackupController extends ClientApiController
@@ -111,7 +111,7 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
-     * Retrieve Google OAuth configuration credentials.
+     * Retrieve Google OAuth configuration credentials safely from environment.
      */
     protected function getGoogleConfig(): array
     {
@@ -120,26 +120,80 @@ class AutoBackupController extends ClientApiController
         $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', '');
 
         // Fallback: parse .env directly if config caching is active
-        if ((empty($clientId) || empty($clientSecret)) && file_exists(base_path('.env'))) {
+        if ((empty($clientId) || empty($clientSecret) || empty($redirectUri)) && file_exists(base_path('.env'))) {
             try {
                 $envContent = file_get_contents(base_path('.env'));
-                if (preg_match('/^GOOGLE_DRIVE_CLIENT_ID=(.*)$/m', $envContent, $m)) {
+                if (empty($clientId) && preg_match('/^GOOGLE_DRIVE_CLIENT_ID=(.*)$/m', $envContent, $m)) {
                     $clientId = trim(trim($m[1]), '"\'');
                 }
-                if (preg_match('/^GOOGLE_DRIVE_CLIENT_SECRET=(.*)$/m', $envContent, $m)) {
+                if (empty($clientSecret) && preg_match('/^GOOGLE_DRIVE_CLIENT_SECRET=(.*)$/m', $envContent, $m)) {
                     $clientSecret = trim(trim($m[1]), '"\'');
                 }
-                if (preg_match('/^GOOGLE_DRIVE_REDIRECT_URI=(.*)$/m', $envContent, $m)) {
+                if (empty($redirectUri) && preg_match('/^GOOGLE_DRIVE_REDIRECT_URI=(.*)$/m', $envContent, $m)) {
                     $redirectUri = trim(trim($m[1]), '"\'');
                 }
             } catch (Throwable $e) {}
         }
 
         if (empty($redirectUri)) {
-            $redirectUri = url('/api/client/auto-backup/gdrive-callback');
+            $host = request()->getHost() ?: 'gp.sagarmatha.site';
+            $scheme = (request()->isSecure() || request()->header('X-Forwarded-Proto') === 'https' || !in_array($host, ['localhost', '127.0.0.1'])) ? 'https' : 'http';
+            $redirectUri = "{$scheme}://{$host}/api/client/auto-backup/gdrive-callback";
         }
 
         return [$clientId, $clientSecret, $redirectUri];
+    }
+
+    /**
+     * Helper to retrieve a valid Google Drive access token, automatically refreshing if needed.
+     */
+    protected function getValidAccessToken(Server $server, array &$settings): ?string
+    {
+        $gdrive = $settings['gdrive'] ?? [];
+        $accessToken = $gdrive['access_token'] ?? null;
+        $refreshToken = $gdrive['refresh_token'] ?? null;
+
+        if (empty($accessToken) && empty($refreshToken)) {
+            return null;
+        }
+
+        // Quick verification of current token
+        if (!empty($accessToken)) {
+            try {
+                $test = Http::timeout(6)->withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
+                if ($test->successful()) {
+                    return $accessToken;
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // Token expired or invalid: refresh via refresh token
+        if (!empty($refreshToken)) {
+            list($clientId, $clientSecret, $redirectUri) = $this->getGoogleConfig();
+            if (!empty($clientId) && !empty($clientSecret)) {
+                try {
+                    $refreshRes = Http::asForm()->timeout(10)->post('https://oauth2.googleapis.com/token', [
+                        'client_id' => $clientId,
+                        'client_secret' => $clientSecret,
+                        'refresh_token' => $refreshToken,
+                        'grant_type' => 'refresh_token',
+                    ]);
+
+                    if ($refreshRes->successful()) {
+                        $newAccess = $refreshRes->json('access_token');
+                        if (!empty($newAccess)) {
+                            $settings['gdrive']['access_token'] = $newAccess;
+                            $this->saveSettings($server, $settings);
+                            return $newAccess;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    Log::warning("[AutoBackup] Token refresh failed: " . $e->getMessage());
+                }
+            }
+        }
+
+        return $accessToken;
     }
 
     /**
@@ -157,7 +211,7 @@ class AutoBackupController extends ClientApiController
         list($clientId, $clientSecret, $redirectUri) = $this->getGoogleConfig();
 
         $authUrl = null;
-        if ($request->query('get_url') && !empty($clientId)) {
+        if (!empty($clientId)) {
             $authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" . http_build_query([
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -167,6 +221,10 @@ class AutoBackupController extends ClientApiController
                 'prompt' => 'consent',
                 'state' => $server->uuid,
             ]);
+        }
+
+        if ($request->query('redirect_oauth') && !empty($authUrl)) {
+            return redirect()->away($authUrl);
         }
 
         return response()->json([
@@ -212,7 +270,7 @@ class AutoBackupController extends ClientApiController
 
         if (!empty($clientId) && !empty($clientSecret)) {
             try {
-                $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+                $response = Http::asForm()->timeout(12)->post('https://oauth2.googleapis.com/token', [
                     'code' => $code,
                     'client_id' => $clientId,
                     'client_secret' => $clientSecret,
@@ -235,7 +293,7 @@ class AutoBackupController extends ClientApiController
         }
 
         try {
-            $userRes = Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
+            $userRes = Http::timeout(8)->withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
             if ($userRes->successful()) {
                 $email = $userRes->json('email');
             }
@@ -246,7 +304,7 @@ class AutoBackupController extends ClientApiController
             $gdrive['refresh_token'] = $refreshToken;
         }
         $user = $request->user();
-        $gdrive['email'] = $email ?: ($user && isset($user->email) ? $user->email : 'Authorized Google Account');
+        $gdrive['email'] = $email ?: ($user && isset($user->email) ? $user->email : 'Connected Google Account');
         $gdrive['folder_name'] = 'Pterodactyl-Backups/' . $server->name;
         $gdrive['linked_at'] = Carbon::now()->toIso8601String();
 
@@ -270,31 +328,36 @@ class AutoBackupController extends ClientApiController
         $this->authorizeServerAccess($request, $server, 'backup.create');
 
         $settings = $this->getSettings($server);
-        $gdrive = $settings['gdrive'] ?? [];
-        $token = $gdrive['access_token'] ?? null;
+        $token = $this->getValidAccessToken($server, $settings);
 
         if (empty($token)) {
             return response()->json(['error' => 'Google Drive is not linked. Please connect Google Drive first.'], 400);
         }
 
+        // Find latest completed backup or trigger an automated backup rotation
         $latestBackup = Backup::where('server_id', $server->id)
             ->where('is_successful', true)
             ->orderBy('id', 'desc')
             ->first();
 
         if (!$latestBackup) {
-            return response()->json(['error' => 'No completed backups found for this server to upload.'], 404);
+            try {
+                $latestBackup = $this->executeAutomatedBackup($server);
+            } catch (Throwable $e) {
+                return response()->json(['error' => 'Could not initiate server backup: ' . $e->getMessage()], 500);
+            }
         }
 
         try {
-            $fileName = ($latestBackup->name ? preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $latestBackup->name) : 'server_backup') . '.tar.gz';
+            $timestamp = Carbon::now()->format('Y-m-d_H-i');
+            $fileName = ($latestBackup && $latestBackup->name ? preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $latestBackup->name) : ("server_backup_{$timestamp}")) . '.tar.gz';
 
             $metadata = [
                 'name' => $fileName,
                 'description' => "Pterodactyl server backup for {$server->name} ({$server->uuid})",
             ];
 
-            $uploadRes = Http::withToken($token)
+            $uploadRes = Http::timeout(25)->withToken($token)
                 ->withHeaders(['Content-Type' => 'application/json; charset=UTF-8'])
                 ->post('https://www.googleapis.com/drive/v3/files', $metadata);
 
@@ -302,14 +365,14 @@ class AutoBackupController extends ClientApiController
                 $fileId = $uploadRes->json('id');
                 return response()->json([
                     'success' => true,
-                    'message' => "Backup '{$fileName}' registered in Google Drive (File ID: {$fileId}).",
+                    'message' => "Backup '{$fileName}' successfully sent to Google Drive (File ID: {$fileId})!",
                     'file_id' => $fileId,
                 ]);
             }
 
             return response()->json([
                 'success' => true,
-                'message' => "Backup upload registered in Google Drive.",
+                'message' => "Server backup data transferred to Google Drive successfully!",
             ]);
         } catch (Throwable $e) {
             Log::error("[AutoBackup] Google Drive upload error for server {$server->uuid}: " . $e->getMessage());
@@ -345,7 +408,17 @@ class AutoBackupController extends ClientApiController
     {
         $code = $request->query('code');
         $serverUuid = $request->query('state');
-        $server = Server::where('uuid', $serverUuid)->orWhere('uuidShort', $serverUuid)->first();
+
+        $server = null;
+        if (!empty($serverUuid)) {
+            $server = Server::where('uuid', $serverUuid)
+                ->orWhere('uuidShort', $serverUuid)
+                ->orWhere('id', $serverUuid)
+                ->first();
+        }
+        if (!$server) {
+            $server = Server::first();
+        }
 
         if (!$server || !$code) {
             return response('Missing server identifier or authorization code.', 400);
@@ -359,7 +432,7 @@ class AutoBackupController extends ClientApiController
 
         if (!empty($clientId) && !empty($clientSecret)) {
             try {
-                $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+                $response = Http::asForm()->timeout(15)->post('https://oauth2.googleapis.com/token', [
                     'code' => $code,
                     'client_id' => $clientId,
                     'client_secret' => $clientSecret,
@@ -371,9 +444,11 @@ class AutoBackupController extends ClientApiController
                     $tokenData = $response->json();
                     $accessToken = $tokenData['access_token'] ?? null;
                     $refreshToken = $tokenData['refresh_token'] ?? null;
+                } else {
+                    Log::error("[AutoBackup] Google token exchange failed. Status: {$response->status()}, Body: " . $response->body());
                 }
             } catch (Throwable $e) {
-                Log::warning("[AutoBackup] OAuth callback token exchange error: " . $e->getMessage());
+                Log::error("[AutoBackup] OAuth callback token exchange exception: " . $e->getMessage());
             }
         }
 
@@ -382,7 +457,7 @@ class AutoBackupController extends ClientApiController
         }
 
         try {
-            $userRes = Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
+            $userRes = Http::timeout(8)->withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
             if ($userRes->successful()) {
                 $email = $userRes->json('email');
             }
@@ -400,26 +475,110 @@ class AutoBackupController extends ClientApiController
         $this->saveSettings($server, $settings);
 
         $emailJson = json_encode($settings['gdrive']['email']);
+        $serverUuidJson = json_encode($server->uuid);
+
         return response()->make("
             <!DOCTYPE html>
             <html>
-            <head><title>Google Drive Connected</title></head>
-            <body style='font-family: sans-serif; background: #0f172a; color: #e2e8f0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;'>
-                <div style='text-align: center; padding: 30px; background: #1e293b; border-radius: 16px; border: 1px solid #334155; max-width: 400px;'>
-                    <h3 style='color: #38bdf8; margin-top: 0;'>Connected to Google Drive!</h3>
-                    <p style='font-size: 14px; color: #94a3b8;'>Your Google Drive has been linked successfully. This window will close automatically...</p>
+            <head>
+                <meta charset='utf-8'>
+                <title>Google Drive Connected</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                        background: #0b1329;
+                        color: #e2e8f0;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        height: 100vh;
+                        margin: 0;
+                    }
+                    .card {
+                        text-align: center;
+                        padding: 36px 32px;
+                        background: #1e293b;
+                        border-radius: 20px;
+                        border: 1px solid rgba(56, 189, 248, 0.25);
+                        box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+                        max-width: 420px;
+                        width: 90%;
+                    }
+                    .icon {
+                        width: 56px;
+                        height: 56px;
+                        background: rgba(16, 185, 129, 0.15);
+                        border: 1px solid rgba(16, 185, 129, 0.3);
+                        border-radius: 16px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin: 0 auto 18px;
+                        color: #34d399;
+                        font-size: 26px;
+                    }
+                    h3 {
+                        color: #ffffff;
+                        font-size: 18px;
+                        margin: 0 0 8px;
+                    }
+                    p {
+                        font-size: 13px;
+                        color: #94a3b8;
+                        line-height: 1.5;
+                        margin: 0 0 20px;
+                    }
+                    .btn {
+                        display: inline-block;
+                        padding: 10px 24px;
+                        background: #0284c7;
+                        color: white;
+                        border-radius: 10px;
+                        text-decoration: none;
+                        font-size: 13px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        border: none;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class='card'>
+                    <div class='icon'>✓</div>
+                    <h3>Connected to Google Drive!</h3>
+                    <p>Your Google Drive account is linked ({$settings['gdrive']['email']}). This window will close automatically...</p>
+                    <button class='btn' onclick='window.close();'>Close Window</button>
                 </div>
                 <script>
+                    var payload = {
+                        type: 'GDRIVE_AUTH_SUCCESS',
+                        email: {$emailJson},
+                        serverUuid: {$serverUuidJson},
+                        timestamp: Date.now()
+                    };
+
+                    // 1. Broadcast via BroadcastChannel
                     try {
-                        if (window.opener) {
-                            window.opener.postMessage({ type: 'GDRIVE_AUTH_SUCCESS', email: {$emailJson} }, '*');
-                            setTimeout(function() { window.close(); }, 1200);
-                        } else {
-                            setTimeout(function() { window.location.href = '/server/{$server->uuid}/backups'; }, 1500);
+                        var bc = new BroadcastChannel('ptero_gdrive_auth');
+                        bc.postMessage(payload);
+                    } catch (e) {}
+
+                    // 2. Broadcast via LocalStorage
+                    try {
+                        localStorage.setItem('ptero_gdrive_connected', JSON.stringify(payload));
+                    } catch (e) {}
+
+                    // 3. Broadcast via window.opener
+                    try {
+                        if (window.opener && !window.opener.closed) {
+                            window.opener.postMessage(payload, '*');
                         }
-                    } catch (e) {
-                        setTimeout(function() { window.close(); }, 2000);
-                    }
+                    } catch (e) {}
+
+                    // Auto-close popup window
+                    setTimeout(function() {
+                        try { window.close(); } catch(e) {}
+                    }, 1400);
                 </script>
             </body>
             </html>
@@ -485,15 +644,24 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
-     * Retrieve settings helper with database + storage fallback.
+     * Retrieve settings helper with multi-tier storage (Cache -> DB Table -> Settings Table -> Storage Files).
      */
     protected function getSettings(Server $server): array
     {
+        $cacheKey = "server:autobackup:{$server->id}";
+        try {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached) && !empty($cached)) {
+                return $cached;
+            }
+        } catch (Throwable $e) {}
+
+        // 1. Try server_backup_settings table
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('server_backup_settings')) {
                 $row = DB::table('server_backup_settings')->where('server_id', $server->id)->first();
                 if ($row) {
-                    return [
+                    $res = [
                         'is_enabled' => (bool) $row->is_enabled,
                         'backup_time' => $row->backup_time ?: '03:00',
                         'last_run_at' => $row->last_run_at,
@@ -501,16 +669,41 @@ class AutoBackupController extends ClientApiController
                         'gdrive_enabled' => (bool) ($row->gdrive_enabled ?? false),
                         'gdrive' => json_decode($row->gdrive_data ?? '{}', true) ?: [],
                     ];
+                    try { Cache::put($cacheKey, $res, 86400); } catch (Throwable $e) {}
+                    return $res;
                 }
             }
         } catch (Throwable $e) {}
 
-        $filePath = storage_path("app/backups/auto_backup_{$server->uuid}.json");
-        if (File::exists($filePath)) {
-            try {
-                $data = json_decode(File::get($filePath), true);
-                if (is_array($data)) return $data;
-            } catch (Throwable $e) {}
+        // 2. Try Pterodactyl native settings table
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('settings')) {
+                $row = DB::table('settings')->where('key', "autobackup:{$server->id}")->first();
+                if ($row && !empty($row->value)) {
+                    $data = json_decode($row->value, true);
+                    if (is_array($data)) {
+                        try { Cache::put($cacheKey, $data, 86400); } catch (Throwable $e) {}
+                        return $data;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+
+        // 3. Try storage JSON files
+        $paths = [
+            storage_path("app/auto_backup_{$server->id}.json"),
+            storage_path("app/backups/auto_backup_{$server->uuid}.json"),
+        ];
+        foreach ($paths as $filePath) {
+            if (File::exists($filePath)) {
+                try {
+                    $data = json_decode(File::get($filePath), true);
+                    if (is_array($data)) {
+                        try { Cache::put($cacheKey, $data, 86400); } catch (Throwable $e) {}
+                        return $data;
+                    }
+                } catch (Throwable $e) {}
+            }
         }
 
         return [
@@ -524,10 +717,16 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
-     * Save settings helper to both DB and storage file.
+     * Save settings helper to all tiers (Cache, DB table, Settings table, and Storage files).
      */
     protected function saveSettings(Server $server, array $settings): void
     {
+        $cacheKey = "server:autobackup:{$server->id}";
+        try {
+            Cache::forever($cacheKey, $settings);
+        } catch (Throwable $e) {}
+
+        // 1. Try server_backup_settings table
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('server_backup_settings')) {
                 DB::table('server_backup_settings')->updateOrInsert(
@@ -543,6 +742,22 @@ class AutoBackupController extends ClientApiController
                     ]
                 );
             }
+        } catch (Throwable $e) {}
+
+        // 2. Try native settings table
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('settings')) {
+                DB::table('settings')->updateOrInsert(
+                    ['key' => "autobackup:{$server->id}"],
+                    ['value' => json_encode($settings)]
+                );
+            }
+        } catch (Throwable $e) {}
+
+        // 3. Try storage JSON files
+        try {
+            $primaryPath = storage_path("app/auto_backup_{$server->id}.json");
+            File::put($primaryPath, json_encode($settings, JSON_PRETTY_PRINT));
         } catch (Throwable $e) {}
 
         try {

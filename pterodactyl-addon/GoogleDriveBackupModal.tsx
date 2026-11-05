@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ServerContext } from '@/state/server';
 import http, { httpErrorToHuman } from '@/api/http';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -8,11 +8,10 @@ import {
     faTimes,
     faSpinner,
     faExclamationTriangle,
-    faExternalLinkAlt,
     faUnlink,
     faHdd,
     faFolder,
-    faSync,
+    faKey,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface Props {
@@ -56,34 +55,42 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
     const [quotaText, setQuotaText] = useState<string | null>(null);
     const [authCodeInput, setAuthCodeInput] = useState('');
     const [showCodeInput, setShowCodeInput] = useState(false);
+    const [authUrl, setAuthUrl] = useState<string>('');
 
-    // Fetch Google Drive status
+    const authWindowRef = useRef<Window | null>(null);
+
+    // Fetch current Google Drive status
     const loadGdriveStatus = () => {
         if (!serverUuid) return;
         setLoading(true);
-        setErrorMsg(null);
 
         http.get(`/api/client/servers/${serverUuid}/auto-backup/gdrive-auth`)
             .then(({ data }) => {
-                setConnected(Boolean(data.is_connected));
-                setUserEmail(data.email || null);
-                setDriveFolderName(data.folder_name || 'Pterodactyl-Backups');
-                setAutoSyncToGdrive(Boolean(data.auto_sync));
-                setQuotaText(data.quota_summary || null);
+                const isConn = Boolean(data.is_connected);
+                setConnected(isConn);
+                if (data.auth_url) {
+                    setAuthUrl(data.auth_url);
+                }
+                if (isConn) {
+                    setUserEmail(data.email || 'Connected Google Account');
+                    setDriveFolderName(data.folder_name || 'Pterodactyl-Backups');
+                    setAutoSyncToGdrive(Boolean(data.auto_sync));
+                    setQuotaText(data.quota_summary || 'Active & Ready');
+                    setShowCodeInput(false);
+                }
                 if (onStatusChange) {
-                    onStatusChange(Boolean(data.is_connected));
+                    onStatusChange(isConn);
                 }
             })
             .catch((err) => {
-                // Do not display blocking error banner on initial passive status check
-                console.warn('[GoogleDrive] Initial status check:', err);
-                setConnected(false);
+                console.warn('[GoogleDrive] Status check error:', err);
             })
             .finally(() => setLoading(false));
     };
 
+    // Initial load when modal becomes visible
     useEffect(() => {
-        if (visible) {
+        if (visible && serverUuid) {
             setErrorMsg(null);
             setSuccessMsg(null);
             setShowCodeInput(false);
@@ -92,55 +99,122 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
         }
     }, [visible, serverUuid]);
 
-    const oauthClientId = '886000762821-6c4goaror31s47pcojpbmevitgrnv152.apps.googleusercontent.com';
+    // Multi-channel listener for seamless authentication detection
+    useEffect(() => {
+        if (!visible) return;
 
-    const getOAuthUrl = () => {
-        const redirect = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/client/auto-backup/gdrive-callback';
-        const params = new URLSearchParams({
-            client_id: oauthClientId,
-            redirect_uri: redirect,
-            response_type: 'code',
-            scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
-            access_type: 'offline',
-            prompt: 'consent',
-            state: serverUuid,
-        });
-        return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-    };
+        const handleSuccessAuth = (email?: string) => {
+            setConnected(true);
+            setUserEmail(email || 'Connected Google Account');
+            setShowCodeInput(false);
+            setConnecting(false);
+            setSuccessMsg('Google Drive connected successfully!');
+            if (authWindowRef.current && !authWindowRef.current.closed) {
+                try { authWindowRef.current.close(); } catch {}
+            }
+            if (onStatusChange) onStatusChange(true);
+            loadGdriveStatus();
+        };
 
-    // Handle OAuth Authorization Click - Opens Synchronously so browser NEVER blocks popup!
-    const handleConnectClick = () => {
-        if (!serverUuid) return;
-        setConnecting(true);
-        setErrorMsg(null);
+        // Channel 1: BroadcastChannel
+        let bc: BroadcastChannel | null = null;
+        try {
+            bc = new BroadcastChannel('ptero_gdrive_auth');
+            bc.onmessage = (event) => {
+                if (event.data?.type === 'GDRIVE_AUTH_SUCCESS') {
+                    handleSuccessAuth(event.data.email);
+                }
+            };
+        } catch {}
 
-        const authUrl = getOAuthUrl();
+        // Channel 2: LocalStorage storage event
+        const storageListener = (e: StorageEvent) => {
+            if (e.key === 'ptero_gdrive_connected' && e.newValue) {
+                try {
+                    const data = JSON.parse(e.newValue);
+                    handleSuccessAuth(data.email);
+                } catch {}
+            }
+        };
+        window.addEventListener('storage', storageListener);
 
-        // Direct synchronous window.open guarantees no popup blocking
-        const authWindow = window.open(
-            authUrl,
-            'GoogleDriveAuth',
-            'width=600,height=700,status=no,toolbar=no,menubar=no'
-        );
-
-        setShowCodeInput(true);
-        setSuccessMsg('Google account selection window opened! Choose your Google account and grant Drive access.');
-
-        // Listen for message from callback popup
+        // Channel 3: Message event (postMessage from popup opener)
         const messageListener = (event: MessageEvent) => {
             if (event.data?.type === 'GDRIVE_AUTH_SUCCESS') {
-                setConnected(true);
-                setUserEmail(event.data.email || null);
-                setShowCodeInput(false);
-                setSuccessMsg('Google Drive connected successfully!');
-                if (authWindow) authWindow.close();
-                window.removeEventListener('message', messageListener);
-                loadGdriveStatus();
+                handleSuccessAuth(event.data.email);
             }
         };
         window.addEventListener('message', messageListener);
 
-        setConnecting(false);
+        // Channel 4: Window focus listener (when returning from popup)
+        const focusListener = () => {
+            if (!connected && serverUuid) {
+                http.get(`/api/client/servers/${serverUuid}/auto-backup/gdrive-auth`)
+                    .then(({ data }) => {
+                        if (data.is_connected) {
+                            handleSuccessAuth(data.email);
+                        }
+                    })
+                    .catch(() => {});
+            }
+        };
+        window.addEventListener('focus', focusListener);
+
+        return () => {
+            if (bc) bc.close();
+            window.removeEventListener('storage', storageListener);
+            window.removeEventListener('message', messageListener);
+            window.removeEventListener('focus', focusListener);
+        };
+    }, [visible, serverUuid, connected]);
+
+    // Active poller while connecting: checks status every 1.5s
+    useEffect(() => {
+        if (!connecting || connected || !serverUuid) return;
+
+        const interval = setInterval(() => {
+            http.get(`/api/client/servers/${serverUuid}/auto-backup/gdrive-auth`)
+                .then(({ data }) => {
+                    if (data.is_connected) {
+                        setConnected(true);
+                        setUserEmail(data.email || 'Connected Google Account');
+                        setShowCodeInput(false);
+                        setConnecting(false);
+                        setSuccessMsg('Google Drive connected successfully!');
+                        if (authWindowRef.current && !authWindowRef.current.closed) {
+                            try { authWindowRef.current.close(); } catch {}
+                        }
+                        if (onStatusChange) onStatusChange(true);
+                        loadGdriveStatus();
+                    }
+                })
+                .catch(() => {});
+        }, 1500);
+
+        return () => clearInterval(interval);
+    }, [connecting, connected, serverUuid]);
+
+    const getOAuthUrl = () => {
+        if (authUrl) return authUrl;
+        return `/api/client/servers/${serverUuid}/auto-backup/gdrive-auth?redirect_oauth=1`;
+    };
+
+    // Handle OAuth Authorization Click - Instant synchronous popup avoids browser blockers
+    const handleConnectClick = () => {
+        if (!serverUuid) return;
+        setConnecting(true);
+        setErrorMsg(null);
+        setSuccessMsg('Google sign-in window opened. Choose your account and grant Drive access.');
+
+        const targetUrl = getOAuthUrl();
+
+        const authWindow = window.open(
+            targetUrl,
+            'GoogleDriveAuth',
+            'width=600,height=700,status=no,toolbar=no,menubar=no'
+        );
+
+        authWindowRef.current = authWindow;
     };
 
     // Submit Authorization Code manually if needed
@@ -154,14 +228,15 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
         })
             .then(({ data }) => {
                 setConnected(true);
-                setUserEmail(data.email || null);
+                setUserEmail(data.email || 'Connected Google Account');
                 setShowCodeInput(false);
                 setAuthCodeInput('');
                 setSuccessMsg('Google Drive connected successfully!');
+                if (onStatusChange) onStatusChange(true);
                 loadGdriveStatus();
             })
             .catch((err) => {
-                setErrorMsg(httpErrorToHuman(err) || 'Invalid Google authorization code.');
+                setErrorMsg(httpErrorToHuman(err) || 'Invalid Google authorization code or token.');
             })
             .finally(() => setConnecting(false));
     };
@@ -202,18 +277,27 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
     const handleUploadToDrive = () => {
         if (!serverUuid) return;
         setUploading(true);
-        setUploadProgress(10);
-        setUploadStatusText('Preparing server backup for Google Drive transfer...');
+        setUploadProgress(20);
+        setUploadStatusText('Preparing server backup data for Google Drive transfer...');
         setErrorMsg(null);
         setSuccessMsg(null);
 
+        const progTimer = setInterval(() => {
+            setUploadProgress((prev) => {
+                if (prev >= 85) return prev;
+                return prev + 15;
+            });
+        }, 600);
+
         http.post(`/api/client/servers/${serverUuid}/auto-backup/gdrive-upload`)
             .then(({ data }) => {
+                clearInterval(progTimer);
                 setUploadProgress(100);
                 setUploadStatusText('Backup successfully transferred to Google Drive!');
-                setSuccessMsg(data.message || 'Server backup successfully sent to Google Drive!');
+                setSuccessMsg(data.message || 'Server backup data successfully sent to Google Drive!');
             })
             .catch((err) => {
+                clearInterval(progTimer);
                 setErrorMsg(httpErrorToHuman(err) || 'Failed to upload backup to Google Drive.');
                 setUploadStatusText('');
             })
@@ -295,10 +379,10 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                     type="button"
                                     onClick={handleConnectClick}
                                     disabled={connecting}
-                                    className="px-5 py-2.5 rounded-xl bg-white hover:bg-gray-100 text-gray-900 font-semibold text-xs inline-flex items-center gap-2.5 shadow-lg transition-all active:scale-95"
+                                    className="px-5 py-2.5 rounded-xl bg-white hover:bg-gray-100 text-gray-900 font-semibold text-xs inline-flex items-center gap-2.5 shadow-lg transition-all active:scale-95 cursor-pointer"
                                 >
                                     <GoogleDriveIcon className="w-4 h-4" />
-                                    <span>Sign in with Google Drive</span>
+                                    <span>{connecting ? 'Waiting for Sign-in...' : 'Sign in with Google Drive'}</span>
                                 </button>
 
                                 <a
@@ -321,9 +405,10 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
 
                             {showCodeInput && (
                                 <div className="p-4 rounded-xl bg-slate-900 border border-slate-700 space-y-3 text-left">
-                                    <label className="block text-xs font-medium text-gray-300">
-                                        Enter Authorization Code / Access Token:
-                                    </label>
+                                    <div className="flex items-center gap-2 text-xs font-medium text-gray-300">
+                                        <FontAwesomeIcon icon={faKey} className="text-cyan-400" />
+                                        <span>Enter Authorization Code or Access Token:</span>
+                                    </div>
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
@@ -342,7 +427,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                         </button>
                                     </div>
                                     <p className="text-[11px] text-gray-400 leading-relaxed">
-                                        Paste your OAuth authorization code, or generate a temporary access token with Drive scope from <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">Google OAuth Playground</a> (Select Drive API v3) to link directly.
+                                        Paste your Google OAuth code or access token to link your storage directly.
                                     </p>
                                 </div>
                             )}
@@ -367,7 +452,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                 <button
                                     type="button"
                                     onClick={handleDisconnect}
-                                    className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 border border-red-500/30 text-red-300 text-xs flex items-center gap-1.5 transition-all"
+                                    className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 border border-red-500/30 text-red-300 text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                                     title="Unlink this Google Drive account"
                                 >
                                     <FontAwesomeIcon icon={faUnlink} className="text-xs" />
@@ -392,7 +477,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                         <FontAwesomeIcon icon={faHdd} className="text-cyan-400" />
                                         <span>Storage Status:</span>
                                     </div>
-                                    <div className="text-gray-200">
+                                    <div className="text-emerald-400 font-medium">
                                         {quotaText || 'Active & Ready'}
                                     </div>
                                 </div>
@@ -449,7 +534,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                 type="button"
                                 onClick={handleUploadToDrive}
                                 disabled={uploading || loading}
-                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50"
+                                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
                             >
                                 <FontAwesomeIcon icon={uploading ? faSpinner : faCloudUploadAlt} spin={uploading} />
                                 <span>{uploading ? 'Sending to Drive...' : 'Send Server Data to Google Drive'}</span>
@@ -460,7 +545,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs text-gray-300 hover:text-white transition-colors"
+                        className="px-4 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs text-gray-300 hover:text-white transition-colors cursor-pointer"
                     >
                         Close
                     </button>

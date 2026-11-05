@@ -11,7 +11,7 @@ return new class extends Migration
         if (!Schema::hasTable('server_backup_settings')) {
             Schema::create('server_backup_settings', function (Blueprint $table) {
                 $table->id();
-                $table->unsignedInteger('server_id')->unique();
+                $table->unsignedBigInteger('server_id')->unique();
                 $table->boolean('is_enabled')->default(false);
                 $table->string('backup_time', 10)->default('03:00');
                 $table->timestamp('last_run_at')->nullable();
@@ -19,8 +19,6 @@ return new class extends Migration
                 $table->boolean('gdrive_enabled')->default(false);
                 $table->longText('gdrive_data')->nullable();
                 $table->timestamps();
-
-                $table->foreign('server_id')->references('id')->on('servers')->onDelete('cascade');
             });
         }
     }
