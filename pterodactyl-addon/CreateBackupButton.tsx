@@ -26,7 +26,7 @@ interface Values {
 
 const CreateBackupDialog = asDialog({
     title: 'Create Backup',
-})(() => {
+})<{ open?: boolean; onClose?: () => void }>(({ onClose }) => {
     const { t } = useTranslation('arix/server/backups');
     const tr = (key: string, fallback: string) => {
         const val = t(key, fallback);
@@ -39,17 +39,27 @@ const CreateBackupDialog = asDialog({
 
     const { close } = useContext(DialogWrapperContext);
 
+    const handleClose = () => {
+        if (typeof close === 'function') close();
+        if (typeof onClose === 'function') onClose();
+    };
+
     const submit = (values: Values, { setSubmitting }: FormikHelpers<Values>) => {
         clearFlashes('backups:create');
-        createServerBackup(uuid, values)
-            .then((backup) => {
-                mutate(
-                    (data) => ({ ...data, items: data.items.concat(backup), backupCount: data.backupCount + 1 }),
-                    false
-                );
-                close();
+        createServerBackup(uuid, {
+            name: values.name ? values.name.trim() : '',
+            ignored: values.ignored ? values.ignored.trim() : '',
+            is_locked: values.isLocked,
+            isLocked: values.isLocked,
+        } as any)
+            .then(() => {
+                try {
+                    mutate();
+                } catch (e) {}
+                handleClose();
             })
             .catch((error) => {
+                console.error('[CreateBackup]', error);
                 clearAndAddHttpError({ key: 'backups:create', error });
                 setSubmitting(false);
             });
@@ -60,13 +70,13 @@ const CreateBackupDialog = asDialog({
             onSubmit={submit}
             initialValues={{ name: '', ignored: '', isLocked: false }}
             validationSchema={object().shape({
-                name: string().max(191),
-                ignored: string(),
-                isLocked: boolean(),
+                name: string().max(191).nullable(),
+                ignored: string().nullable(),
+                isLocked: boolean().nullable(),
             })}
         >
             {({ submitForm, isSubmitting }) => (
-                <Form>
+                <Form onSubmit={(e) => { e.preventDefault(); submitForm(); }}>
                     <FlashMessageRender byKey={'backups:create'} css={tw`mb-4`} />
                     <Field
                         name={'name'}
@@ -92,8 +102,13 @@ const CreateBackupDialog = asDialog({
                         </div>
                     </Can>
                     <Dialog.Footer>
-                        <Button type={'submit'} css={tw`w-full sm:w-auto`} disabled={isSubmitting}>
-                            {tr('create.start-backup', 'Start backup')}
+                        <Button
+                            type={'button'}
+                            onClick={() => submitForm()}
+                            css={tw`w-full sm:w-auto`}
+                            disabled={isSubmitting}
+                        >
+                            {isSubmitting ? 'Starting backup...' : tr('create.start-backup', 'Start backup')}
                         </Button>
                     </Dialog.Footer>
                 </Form>
