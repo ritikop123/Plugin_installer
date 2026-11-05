@@ -111,6 +111,38 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
+     * Retrieve Google OAuth configuration credentials.
+     */
+    protected function getGoogleConfig(): array
+    {
+        $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
+        $clientSecret = env('GOOGLE_DRIVE_CLIENT_SECRET', config('services.google.client_secret', ''));
+        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', '');
+
+        // Fallback: parse .env directly if config caching is active
+        if ((empty($clientId) || empty($clientSecret)) && file_exists(base_path('.env'))) {
+            try {
+                $envContent = file_get_contents(base_path('.env'));
+                if (preg_match('/^GOOGLE_DRIVE_CLIENT_ID=(.*)$/m', $envContent, $m)) {
+                    $clientId = trim(trim($m[1]), '"\'');
+                }
+                if (preg_match('/^GOOGLE_DRIVE_CLIENT_SECRET=(.*)$/m', $envContent, $m)) {
+                    $clientSecret = trim(trim($m[1]), '"\'');
+                }
+                if (preg_match('/^GOOGLE_DRIVE_REDIRECT_URI=(.*)$/m', $envContent, $m)) {
+                    $redirectUri = trim(trim($m[1]), '"\'');
+                }
+            } catch (Throwable $e) {}
+        }
+
+        if (empty($redirectUri)) {
+            $redirectUri = url('/api/client/auto-backup/gdrive-callback');
+        }
+
+        return [$clientId, $clientSecret, $redirectUri];
+    }
+
+    /**
      * Get Google Drive link status or OAuth URL.
      * GET /api/client/servers/{server}/auto-backup/gdrive-auth
      */
@@ -122,8 +154,7 @@ class AutoBackupController extends ClientApiController
         $gdrive = $settings['gdrive'] ?? [];
         $isConnected = !empty($gdrive['access_token']) || !empty($gdrive['refresh_token']);
 
-        $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
-        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
+        list($clientId, $clientSecret, $redirectUri) = $this->getGoogleConfig();
 
         $authUrl = null;
         if ($request->query('get_url') && !empty($clientId)) {
@@ -173,9 +204,7 @@ class AutoBackupController extends ClientApiController
             return response()->json(['error' => 'Authorization code or token is required.'], 400);
         }
 
-        $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
-        $clientSecret = env('GOOGLE_DRIVE_CLIENT_SECRET', config('services.google.client_secret', ''));
-        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
+        list($clientId, $clientSecret, $redirectUri) = $this->getGoogleConfig();
 
         $email = null;
         $accessToken = null;
@@ -322,9 +351,7 @@ class AutoBackupController extends ClientApiController
             return response('Missing server identifier or authorization code.', 400);
         }
 
-        $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
-        $clientSecret = env('GOOGLE_DRIVE_CLIENT_SECRET', config('services.google.client_secret', ''));
-        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
+        list($clientId, $clientSecret, $redirectUri) = $this->getGoogleConfig();
 
         $email = null;
         $accessToken = null;
