@@ -92,48 +92,55 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
         }
     }, [visible, serverUuid]);
 
-    // Handle OAuth Authorization Click
+    const oauthClientId = '886000762821-6c4goaror31s47pcojpbmevitgrnv152.apps.googleusercontent.com';
+
+    const getOAuthUrl = () => {
+        const redirect = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/client/auto-backup/gdrive-callback';
+        const params = new URLSearchParams({
+            client_id: oauthClientId,
+            redirect_uri: redirect,
+            response_type: 'code',
+            scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+            access_type: 'offline',
+            prompt: 'consent',
+            state: serverUuid,
+        });
+        return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    };
+
+    // Handle OAuth Authorization Click - Opens Synchronously so browser NEVER blocks popup!
     const handleConnectClick = () => {
         if (!serverUuid) return;
         setConnecting(true);
         setErrorMsg(null);
 
-        http.get(`/api/client/servers/${serverUuid}/auto-backup/gdrive-auth?get_url=1`)
-            .then(({ data }) => {
-                if (data.auth_url) {
-                    // Open Google OAuth window
-                    const authWindow = window.open(
-                        data.auth_url,
-                        'GoogleDriveAuth',
-                        'width=600,height=700,status=no,toolbar=no,menubar=no'
-                    );
+        const authUrl = getOAuthUrl();
 
-                    setShowCodeInput(true);
-                    setSuccessMsg('Authorization window opened. Sign in and grant access to your Google Drive, then paste authorization code below or confirm.');
+        // Direct synchronous window.open guarantees no popup blocking
+        const authWindow = window.open(
+            authUrl,
+            'GoogleDriveAuth',
+            'width=600,height=700,status=no,toolbar=no,menubar=no'
+        );
 
-                    // Listen for message from popup if redirect handles postMessage
-                    const messageListener = (event: MessageEvent) => {
-                        if (event.data?.type === 'GDRIVE_AUTH_SUCCESS') {
-                            setConnected(true);
-                            setUserEmail(event.data.email || null);
-                            setShowCodeInput(false);
-                            setSuccessMsg('Google Drive connected successfully!');
-                            if (authWindow) authWindow.close();
-                            window.removeEventListener('message', messageListener);
-                            loadGdriveStatus();
-                        }
-                    };
-                    window.addEventListener('message', messageListener);
-                } else {
-                    setShowCodeInput(true);
-                    setSuccessMsg('Enter your Google Drive authorization code or access token below to link your storage.');
-                }
-            })
-            .catch(() => {
-                setShowCodeInput(true);
-                setSuccessMsg('Connect directly by entering your Google Drive authorization code or access token below.');
-            })
-            .finally(() => setConnecting(false));
+        setShowCodeInput(true);
+        setSuccessMsg('Google account selection window opened! Choose your Google account and grant Drive access.');
+
+        // Listen for message from callback popup
+        const messageListener = (event: MessageEvent) => {
+            if (event.data?.type === 'GDRIVE_AUTH_SUCCESS') {
+                setConnected(true);
+                setUserEmail(event.data.email || null);
+                setShowCodeInput(false);
+                setSuccessMsg('Google Drive connected successfully!');
+                if (authWindow) authWindow.close();
+                window.removeEventListener('message', messageListener);
+                loadGdriveStatus();
+            }
+        };
+        window.addEventListener('message', messageListener);
+
+        setConnecting(false);
     };
 
     // Submit Authorization Code manually if needed
@@ -291,8 +298,17 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                     className="px-5 py-2.5 rounded-xl bg-white hover:bg-gray-100 text-gray-900 font-semibold text-xs inline-flex items-center gap-2.5 shadow-lg transition-all active:scale-95"
                                 >
                                     <GoogleDriveIcon className="w-4 h-4" />
-                                    <span>{connecting ? 'Requesting Access...' : 'Sign in with Google Drive'}</span>
+                                    <span>Sign in with Google Drive</span>
                                 </button>
+
+                                <a
+                                    href={getOAuthUrl()}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[11px] text-cyan-400 hover:text-cyan-300 underline block mx-auto pt-0.5 transition-colors cursor-pointer"
+                                >
+                                    Click here if pop-up window does not open
+                                </a>
 
                                 <button
                                     type="button"
