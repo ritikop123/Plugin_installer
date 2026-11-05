@@ -426,6 +426,12 @@ systemctl reload nginx 2>/dev/null || systemctl reload apache2 2>/dev/null || tr
 chown -R www-data:www-data "$PTERO_DIR"/* 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR"/* 2>/dev/null || true
 chmod -R 755 public 2>/dev/null || true
 
+# Grant web server read access to Wings backup directory
+chmod 755 /var/lib/pterodactyl 2>/dev/null || true
+chmod 755 /var/lib/pterodactyl/backups 2>/dev/null || true
+chmod 644 /var/lib/pterodactyl/backups/*.tar.gz 2>/dev/null || true
+setfacl -R -m u:www-data:rX /var/lib/pterodactyl/backups 2>/dev/null || true
+
 echo -e "\033[0;32m================================================================\033[0m"
 echo -e "\033[0;32m[✓] All addons, updates & /world route updated successfully!    \033[0m"
 echo -e "\033[0;32m================================================================\033[0m"

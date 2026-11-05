@@ -405,38 +405,89 @@ class AutoBackupController extends ClientApiController
             }
         }
 
+        @set_time_limit(600);
+        @ini_set('max_execution_time', '600');
+
         // Resolve backup binary archive from node disk or Wings signed URL
         $filePath = null;
         $isTemp = false;
 
         $localCandidate = "/var/lib/pterodactyl/backups/{$latestBackup->uuid}.tar.gz";
+
+        // 1. Direct read from /var/lib/pterodactyl/backups
         if (file_exists($localCandidate) && is_readable($localCandidate) && filesize($localCandidate) > 0) {
             $filePath = $localCandidate;
-        } else {
+        }
+
+        // 2. Try copying if permission on directory blocks direct open
+        if (!$filePath && file_exists($localCandidate)) {
+            $altTemp = storage_path("app/backup_gdrive_{$latestBackup->uuid}.tar.gz");
+            @exec("cat " . escapeshellarg($localCandidate) . " > " . escapeshellarg($altTemp) . " 2>/dev/null");
+            if (file_exists($altTemp) && filesize($altTemp) > 0) {
+                $filePath = $altTemp;
+                $isTemp = true;
+            }
+        }
+
+        // 3. Fallback: Wings Download API via loopback 127.0.0.1 and direct
+        if (!$filePath) {
             $downloadUrl = null;
             try {
                 if (class_exists(\Pterodactyl\Repositories\Wings\DaemonBackupRepository::class)) {
                     $repo = app(\Pterodactyl\Repositories\Wings\DaemonBackupRepository::class);
-                    $downloadUrl = $repo->setServer($server)->getDownloadUrl($latestBackup);
+                    $downloadUrl = $repo->setServer($server)->getDownloadUrl($latestBackup, null);
                 }
-            } catch (Throwable $e) {}
+            } catch (Throwable $e) {
+                Log::warning("[AutoBackup] DaemonBackupRepository getDownloadUrl failed: " . $e->getMessage());
+            }
 
             if (!empty($downloadUrl)) {
                 $tempFile = storage_path("app/backup_gdrive_{$latestBackup->uuid}.tar.gz");
                 $fp = @fopen($tempFile, 'w+');
                 if ($fp) {
+                    $parsed = parse_url($downloadUrl);
+                    $host = $parsed['host'] ?? '';
+                    $port = $parsed['port'] ?? 443;
+
                     $ch = curl_init($downloadUrl);
                     curl_setopt($ch, CURLOPT_FILE, $fp);
-                    curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 600);
                     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
                     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                    curl_exec($ch);
+                    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+                    if (!empty($host)) {
+                        curl_setopt($ch, CURLOPT_RESOLVE, ["{$host}:{$port}:127.0.0.1"]);
+                    }
+                    $curlOk = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                     curl_close($ch);
                     fclose($fp);
 
-                    if (file_exists($tempFile) && filesize($tempFile) > 0) {
+                    if ($curlOk && $httpCode >= 200 && $httpCode < 300 && file_exists($tempFile) && filesize($tempFile) > 0) {
                         $filePath = $tempFile;
                         $isTemp = true;
+                    } else {
+                        // Direct fetch without loopback resolution
+                        $fp2 = @fopen($tempFile, 'w+');
+                        if ($fp2) {
+                            $ch2 = curl_init($downloadUrl);
+                            curl_setopt($ch2, CURLOPT_FILE, $fp2);
+                            curl_setopt($ch2, CURLOPT_TIMEOUT, 600);
+                            curl_setopt($ch2, CURLOPT_FOLLOWLOCATION, true);
+                            curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
+                            curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, false);
+                            $curlOk2 = curl_exec($ch2);
+                            $httpCode2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+                            curl_close($ch2);
+                            fclose($fp2);
+
+                            if ($curlOk2 && $httpCode2 >= 200 && $httpCode2 < 300 && file_exists($tempFile) && filesize($tempFile) > 0) {
+                                $filePath = $tempFile;
+                                $isTemp = true;
+                            } else {
+                                @unlink($tempFile);
+                            }
+                        }
                     }
                 }
             }
