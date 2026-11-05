@@ -52,6 +52,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
     const [userEmail, setUserEmail] = useState<string | null>(null);
     const [driveFolderName, setDriveFolderName] = useState<string>('Pterodactyl-Backups');
     const [autoSyncToGdrive, setAutoSyncToGdrive] = useState(false);
+    const [deleteLocal, setDeleteLocal] = useState(false);
     const [quotaText, setQuotaText] = useState<string | null>(null);
     const [authCodeInput, setAuthCodeInput] = useState('');
     const [showCodeInput, setShowCodeInput] = useState(false);
@@ -289,7 +290,9 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
             });
         }, 600);
 
-        http.post(`/api/client/servers/${serverUuid}/auto-backup/gdrive-upload`)
+        http.post(`/api/client/servers/${serverUuid}/auto-backup/gdrive-upload`, {
+            delete_local: deleteLocal,
+        })
             .then(({ data }) => {
                 clearInterval(progTimer);
                 setUploadProgress(100);
@@ -501,6 +504,27 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                                         className="sr-only peer"
                                     />
                                     <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600" />
+                                </label>
+                            </div>
+
+                            {/* Cloud-Only / Delete Local Copy Toggle */}
+                            <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+                                <div>
+                                    <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                                        <span>Cloud Only (Delete local copy after upload)</span>
+                                    </h4>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        Automatically delete the backup from your server machine after transferring to Google Drive to keep disk space 100% free.
+                                    </p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={deleteLocal}
+                                        onChange={(e) => setDeleteLocal(e.target.checked)}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600" />
                                 </label>
                             </div>
 

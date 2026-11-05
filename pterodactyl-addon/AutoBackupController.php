@@ -320,7 +320,38 @@ class AutoBackupController extends ClientApiController
     }
 
     /**
-     * Upload server backup directly to Google Drive.
+     * Helper to get or create the Pterodactyl-Backups folder in Google Drive.
+     */
+    protected function getOrCreateDriveFolder(string $token, string $folderName = 'Pterodactyl-Backups'): ?string
+    {
+        try {
+            $search = Http::timeout(10)->withToken($token)->get('https://www.googleapis.com/drive/v3/files', [
+                'q' => "mimeType='application/vnd.google-apps.folder' and name='{$folderName}' and trashed=false",
+                'spaces' => 'drive',
+                'fields' => 'files(id, name)',
+            ]);
+
+            if ($search->successful() && !empty($search->json('files.0.id'))) {
+                return $search->json('files.0.id');
+            }
+
+            $create = Http::timeout(10)->withToken($token)->post('https://www.googleapis.com/drive/v3/files', [
+                'name' => $folderName,
+                'mimeType' => 'application/vnd.google-apps.folder',
+            ]);
+
+            if ($create->successful() && !empty($create->json('id'))) {
+                return $create->json('id');
+            }
+        } catch (Throwable $e) {
+            Log::warning("[AutoBackup] Drive folder error: " . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Upload server backup directly to Google Drive with full binary content.
      * POST /api/client/servers/{server}/auto-backup/gdrive-upload
      */
     public function gdriveUpload(Request $request, Server $server): JsonResponse
@@ -334,47 +365,176 @@ class AutoBackupController extends ClientApiController
             return response()->json(['error' => 'Google Drive is not linked. Please connect Google Drive first.'], 400);
         }
 
-        // Find latest completed backup or trigger an automated backup rotation
+        // Find latest completed backup or initiate one
         $latestBackup = Backup::where('server_id', $server->id)
             ->where('is_successful', true)
             ->orderBy('id', 'desc')
             ->first();
 
         if (!$latestBackup) {
-            try {
-                $latestBackup = $this->executeAutomatedBackup($server);
-            } catch (Throwable $e) {
-                return response()->json(['error' => 'Could not initiate server backup: ' . $e->getMessage()], 500);
+            // Check if one is currently in progress
+            $inProgressBackup = Backup::where('server_id', $server->id)
+                ->where('is_successful', false)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if (!$inProgressBackup) {
+                try {
+                    $latestBackup = $this->executeAutomatedBackup($server);
+                } catch (Throwable $e) {
+                    return response()->json(['error' => 'Could not initiate server backup: ' . $e->getMessage()], 500);
+                }
+            } else {
+                $latestBackup = $inProgressBackup;
+            }
+
+            // Allow Wings up to 25 seconds to finish compression
+            $waited = 0;
+            while ($latestBackup && !$latestBackup->is_successful && $waited < 25) {
+                sleep(2);
+                $waited += 2;
+                $latestBackup = $latestBackup->fresh();
+            }
+
+            if (!$latestBackup || !$latestBackup->is_successful) {
+                return response()->json([
+                    'success' => true,
+                    'in_progress' => true,
+                    'message' => 'Server backup creation is in progress on your machine. Please click Send to Google Drive in a few moments once the archive finishes compressing.',
+                ]);
             }
         }
 
+        // Resolve backup binary archive from node disk or Wings signed URL
+        $filePath = null;
+        $isTemp = false;
+
+        $localCandidate = "/var/lib/pterodactyl/backups/{$latestBackup->uuid}.tar.gz";
+        if (file_exists($localCandidate) && is_readable($localCandidate) && filesize($localCandidate) > 0) {
+            $filePath = $localCandidate;
+        } else {
+            $downloadUrl = null;
+            try {
+                if (class_exists(\Pterodactyl\Repositories\Wings\DaemonBackupRepository::class)) {
+                    $repo = app(\Pterodactyl\Repositories\Wings\DaemonBackupRepository::class);
+                    $downloadUrl = $repo->setServer($server)->getDownloadUrl($latestBackup);
+                }
+            } catch (Throwable $e) {}
+
+            if (!empty($downloadUrl)) {
+                $tempFile = storage_path("app/backup_gdrive_{$latestBackup->uuid}.tar.gz");
+                $fp = @fopen($tempFile, 'w+');
+                if ($fp) {
+                    $ch = curl_init($downloadUrl);
+                    curl_setopt($ch, CURLOPT_FILE, $fp);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+                    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+                    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                    curl_exec($ch);
+                    curl_close($ch);
+                    fclose($fp);
+
+                    if (file_exists($tempFile) && filesize($tempFile) > 0) {
+                        $filePath = $tempFile;
+                        $isTemp = true;
+                    }
+                }
+            }
+        }
+
+        if (!$filePath || !file_exists($filePath) || filesize($filePath) === 0) {
+            return response()->json([
+                'error' => "Backup file is not ready on the node. Please wait a moment for the backup to finish creating, then try again.",
+            ], 400);
+        }
+
         try {
-            $timestamp = Carbon::now()->format('Y-m-d_H-i');
-            $fileName = ($latestBackup && $latestBackup->name ? preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $latestBackup->name) : ("server_backup_{$timestamp}")) . '.tar.gz';
+            $fileSize = filesize($filePath);
+            $cleanName = ($latestBackup && $latestBackup->name) ? preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $latestBackup->name) : ('backup_' . Carbon::now()->format('Y-m-d_H-i'));
+            $fileName = "{$cleanName}.tar.gz";
+
+            $folderId = $this->getOrCreateDriveFolder($token, 'Pterodactyl-Backups');
 
             $metadata = [
                 'name' => $fileName,
                 'description' => "Pterodactyl server backup for {$server->name} ({$server->uuid})",
             ];
+            if (!empty($folderId)) {
+                $metadata['parents'] = [$folderId];
+            }
 
-            $uploadRes = Http::timeout(25)->withToken($token)
-                ->withHeaders(['Content-Type' => 'application/json; charset=UTF-8'])
-                ->post('https://www.googleapis.com/drive/v3/files', $metadata);
+            // Step 1: Initiate Google Drive Resumable Upload
+            $initRes = Http::timeout(25)->withToken($token)
+                ->withHeaders([
+                    'Content-Type' => 'application/json; charset=UTF-8',
+                    'X-Upload-Content-Type' => 'application/gzip',
+                ])
+                ->post('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', $metadata);
 
-            if ($uploadRes->successful()) {
-                $fileId = $uploadRes->json('id');
-                return response()->json([
-                    'success' => true,
-                    'message' => "Backup '{$fileName}' successfully sent to Google Drive (File ID: {$fileId})!",
-                    'file_id' => $fileId,
-                ]);
+            if (!$initRes->successful() || !$initRes->header('Location')) {
+                if ($isTemp && file_exists($filePath)) @unlink($filePath);
+                Log::error("[AutoBackup] Resumable init failed: " . $initRes->body());
+                return response()->json(['error' => 'Failed to initialize Google Drive upload session: ' . $initRes->body()], 500);
+            }
+
+            $uploadUrl = $initRes->header('Location');
+
+            // Step 2: Stream the actual .tar.gz archive content
+            $stream = fopen($filePath, 'rb');
+            $uploadRes = Http::timeout(600)
+                ->withHeaders([
+                    'Content-Type' => 'application/gzip',
+                    'Content-Length' => $fileSize,
+                ])
+                ->withBody($stream, 'application/gzip')
+                ->put($uploadUrl);
+
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            if ($isTemp && file_exists($filePath)) {
+                @unlink($filePath);
+            }
+
+            if (!$uploadRes->successful()) {
+                Log::error("[AutoBackup] Google Drive upload error: " . $uploadRes->body());
+                return response()->json(['error' => 'Google Drive rejected archive upload: ' . $uploadRes->body()], 500);
+            }
+
+            $fileId = $uploadRes->json('id');
+            $sizeMb = round($fileSize / (1024 * 1024), 2);
+
+            // Optional: delete local backup copy on machine if requested
+            $deletedLocal = false;
+            if ($request->input('delete_local', false)) {
+                try {
+                    if (class_exists(\Pterodactyl\Services\Backups\DeleteBackupService::class)) {
+                        app(\Pterodactyl\Services\Backups\DeleteBackupService::class)->handle($latestBackup);
+                        $deletedLocal = true;
+                    } else {
+                        $latestBackup->delete();
+                        $deletedLocal = true;
+                    }
+                } catch (Throwable $e) {
+                    try { $latestBackup->delete(); $deletedLocal = true; } catch (Throwable $e2) {}
+                }
+            }
+
+            $msg = "Backup '{$fileName}' ({$sizeMb} MB) uploaded to Google Drive successfully!";
+            if ($deletedLocal) {
+                $msg .= " Local copy on machine was removed to preserve disk space.";
             }
 
             return response()->json([
                 'success' => true,
-                'message' => "Server backup data transferred to Google Drive successfully!",
+                'message' => $msg,
+                'file_id' => $fileId,
+                'size_mb' => $sizeMb,
+                'deleted_local' => $deletedLocal,
             ]);
         } catch (Throwable $e) {
+            if ($isTemp && file_exists($filePath)) @unlink($filePath);
             Log::error("[AutoBackup] Google Drive upload error for server {$server->uuid}: " . $e->getMessage());
             return response()->json(['error' => 'Failed to upload backup to Google Drive: ' . $e->getMessage()], 500);
         }
