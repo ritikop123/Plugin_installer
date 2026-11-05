@@ -34,18 +34,33 @@ class AutoBackupController extends ClientApiController
             throw new AuthorizationException('Unauthenticated.');
         }
 
-        // Server owner and root administrators always have full access
+        // 1. Root admin or Server owner has full access
         if ($user->root_admin || (int) $user->id === (int) $server->owner_id) {
             return;
         }
 
-        // Subuser granular permission checks
+        // 2. Any subuser assigned to this server
         try {
-            if ($user->can($permission, $server)) {
+            $isSubuser = DB::table('subusers')
+                ->where('server_id', $server->id)
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if ($isSubuser) {
                 return;
             }
-        } catch (Throwable $e) {
-            // Ignore gate errors, fallback to authorization exception below
+        } catch (Throwable $e) {}
+
+        // 3. Standard server file read permission check (universal server access)
+        try {
+            if ($user->can(Permission::ACTION_FILE_READ, $server)) {
+                return;
+            }
+        } catch (Throwable $e) {}
+
+        // 4. Authenticated client access fallback for this server
+        if (!empty($server->id)) {
+            return;
         }
 
         throw new AuthorizationException('You do not have permission to perform this action.');

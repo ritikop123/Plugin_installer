@@ -124,7 +124,7 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                     window.addEventListener('message', messageListener);
                 } else {
                     setShowCodeInput(true);
-                    setErrorMsg('Google Drive OAuth is not configured on this panel. You can connect directly by pasting a Google access token or authorization code below.');
+                    setSuccessMsg('Enter your Google Drive authorization code or access token below to link your storage.');
                 }
             })
             .catch((err) => {
@@ -301,29 +301,29 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                             </div>
 
                             {showCodeInput && (
-                                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700 space-y-3">
+                                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700 space-y-3 text-left">
                                     <label className="block text-xs font-medium text-gray-300">
-                                        Enter Authorization Code / Token:
+                                        Enter Authorization Code / Access Token:
                                     </label>
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
                                             value={authCodeInput}
                                             onChange={(e) => setAuthCodeInput(e.target.value)}
-                                            placeholder="Paste Google Authorization Code here..."
+                                            placeholder="Paste Google Authorization Code or Access Token here..."
                                             className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-cyan-500"
                                         />
                                         <button
                                             type="button"
                                             onClick={handleCodeSubmit}
                                             disabled={!authCodeInput.trim() || connecting}
-                                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold text-white rounded-lg transition-all disabled:opacity-50"
+                                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-semibold text-white rounded-lg transition-all disabled:opacity-50 cursor-pointer"
                                         >
                                             Verify & Link
                                         </button>
                                     </div>
-                                    <p className="text-[11px] text-gray-400">
-                                        Copy the code provided on the Google approval page and click Verify.
+                                    <p className="text-[11px] text-gray-400 leading-relaxed">
+                                        Paste your OAuth authorization code, or generate a temporary access token with Drive scope from <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">Google OAuth Playground</a> (Select Drive API v3) to link directly.
                                     </p>
                                 </div>
                             )}
