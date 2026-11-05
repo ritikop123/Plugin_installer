@@ -76,7 +76,7 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=
 cp resources/scripts/components/dashboard/AdminSupportIdSearch.tsx resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx 2>/dev/null || true
 
 mkdir -p resources/scripts/components/server/backups
-git checkout -f HEAD -- resources/scripts/components/server/backups/CreateBackupButton.tsx 2>/dev/null || true
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/CreateBackupButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/CreateBackupButton.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/BackupContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/BackupContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupButton.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupModal.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupModal.tsx
@@ -122,6 +122,8 @@ if (file_exists($routesPhp)) {
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/players[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/worlds?[\x27\x22]\],.*?\}\);\s*/s', '', $c);
     $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/ai[\x27\x22]\],.*?\}\);\s*/s', '', $c);
+    $c = preg_replace('/\/\*\s*>>>\s*ARIX AUTO BACKUP START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX AUTO BACKUP END\s*<<<\s*\*\/\s*/s', '', $c);
+    $c = preg_replace('/Route::group\(\[\x27prefix\x27\s*=>\s*[\x27\x22]\/servers\/\{server\}\/auto-backup[\x27\x22]\],.*?\}\);\s*/s', '', $c);
 
     $append = '';
 

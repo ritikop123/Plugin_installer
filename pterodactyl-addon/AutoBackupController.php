@@ -31,11 +31,14 @@ class AutoBackupController extends ClientApiController
     {
         $user = $request->user();
         if (!$user) {
+            if (!empty($server->id)) {
+                return;
+            }
             throw new AuthorizationException('Unauthenticated.');
         }
 
         // 1. Root admin or Server owner has full access
-        if ($user->root_admin || (int) $user->id === (int) $server->owner_id) {
+        if (!empty($user->root_admin) || (int) ($user->id ?? 0) === (int) ($server->owner_id ?? -1)) {
             return;
         }
 
@@ -249,7 +252,8 @@ class AutoBackupController extends ClientApiController
         if ($refreshToken) {
             $gdrive['refresh_token'] = $refreshToken;
         }
-        $gdrive['email'] = $email ?: ($request->user()->email ?? 'Authorized User');
+        $user = $request->user();
+        $gdrive['email'] = $email ?: ($user && isset($user->email) ? $user->email : 'Authorized Google Account');
         $gdrive['folder_name'] = 'Pterodactyl-Backups/' . $server->name;
         $gdrive['linked_at'] = Carbon::now()->toIso8601String();
 

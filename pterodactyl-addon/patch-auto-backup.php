@@ -9,16 +9,6 @@ echo "[*] Applying Automated Backup & Google Drive Addon patches...\n";
 $backupDir = "resources/scripts/components/server/backups";
 
 // -------------------------------------------------------------------------
-// PART 0: Restore pristine CreateBackupButton.tsx from git HEAD
-// Ensures the manual "Create backup" button is fully intact and clean
-// -------------------------------------------------------------------------
-$createBtnFile = "{$backupDir}/CreateBackupButton.tsx";
-if (file_exists($createBtnFile)) {
-    exec("git checkout -f HEAD -- " . escapeshellarg($createBtnFile) . " 2>/dev/null");
-    echo "[✓] Restored pristine CreateBackupButton.tsx from git\n";
-}
-
-// -------------------------------------------------------------------------
 // PART 1: Patch BackupRow.tsx
 // Badges automated backups with [Automated] tag and clock icon
 // -------------------------------------------------------------------------
