@@ -82,17 +82,25 @@ class AutoBackupRunCommand extends Command
                     if (class_exists(\Pterodactyl\Services\Backups\InitiateBackupService::class)) {
                         $service = app(\Pterodactyl\Services\Backups\InitiateBackupService::class);
                         if (method_exists($service, 'setServer')) {
-                            $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                            try {
+                                $service->setServer($server)->handle($backupName, false);
+                            } catch (Throwable $e) {
+                                $service->handle($server, $backupName, false);
+                            }
                         } else {
-                            $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                            $service->handle($server, $backupName, false);
                         }
                         $backupCreated = true;
                     } elseif (class_exists('Pterodactyl\Services\Backups\BackupCreationService')) {
                         $service = app('Pterodactyl\Services\Backups\BackupCreationService');
                         if (method_exists($service, 'setServer')) {
-                            $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                            try {
+                                $service->setServer($server)->handle($backupName, false);
+                            } catch (Throwable $e) {
+                                $service->handle($server, $backupName, false);
+                            }
                         } else {
-                            $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                            $service->handle($server, $backupName, false);
                         }
                         $backupCreated = true;
                     }

@@ -621,16 +621,24 @@ class AutoBackupController extends ClientApiController
         if (class_exists(\Pterodactyl\Services\Backups\InitiateBackupService::class)) {
             $service = app(\Pterodactyl\Services\Backups\InitiateBackupService::class);
             if (method_exists($service, 'setServer')) {
-                $backup = $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                try {
+                    $backup = $service->setServer($server)->handle($backupName, false);
+                } catch (Throwable $e) {
+                    $backup = $service->handle($server, $backupName, false);
+                }
             } else {
-                $backup = $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                $backup = $service->handle($server, $backupName, false);
             }
         } elseif (class_exists('Pterodactyl\Services\Backups\BackupCreationService')) {
             $service = app('Pterodactyl\Services\Backups\BackupCreationService');
             if (method_exists($service, 'setServer')) {
-                $backup = $service->setServer($server)->handle(['name' => $backupName, 'is_locked' => false]);
+                try {
+                    $backup = $service->setServer($server)->handle($backupName, false);
+                } catch (Throwable $e) {
+                    $backup = $service->handle($server, $backupName, false);
+                }
             } else {
-                $backup = $service->handle($server, ['name' => $backupName, 'is_locked' => false]);
+                $backup = $service->handle($server, $backupName, false);
             }
         }
 
