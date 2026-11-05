@@ -50,13 +50,13 @@ if (file_exists($routesFile)) {
     $routeBlock = <<<'PHP'
 /* >>> ARIX AUTO BACKUP START >>> */
 Route::group(['prefix' => '/servers/{server}/auto-backup'], function () {
-    Route::get('/', [Client\Servers\AutoBackupController::class, 'index']);
-    Route::post('/', [Client\Servers\AutoBackupController::class, 'update']);
-    Route::post('/run', [Client\Servers\AutoBackupController::class, 'runNow']);
-    Route::get('/gdrive-auth', [Client\Servers\AutoBackupController::class, 'gdriveAuth']);
-    Route::post('/gdrive-connect', [Client\Servers\AutoBackupController::class, 'gdriveConnect']);
-    Route::post('/gdrive-upload', [Client\Servers\AutoBackupController::class, 'gdriveUpload']);
-    Route::post('/gdrive-disconnect', [Client\Servers\AutoBackupController::class, 'gdriveDisconnect']);
+    Route::get('/', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'index']);
+    Route::post('/', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'update']);
+    Route::post('/run', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'runNow']);
+    Route::get('/gdrive-auth', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveAuth']);
+    Route::post('/gdrive-connect', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveConnect']);
+    Route::post('/gdrive-upload', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveUpload']);
+    Route::post('/gdrive-disconnect', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveDisconnect']);
 });
 /* <<< ARIX AUTO BACKUP END <<< */
 

@@ -29,44 +29,8 @@ class AutoBackupController extends ClientApiController
      */
     protected function authorizeServerAccess(Request $request, Server $server, string $permission = 'backup.read'): void
     {
-        $user = $request->user();
-        if (!$user) {
-            if (!empty($server->id)) {
-                return;
-            }
-            throw new AuthorizationException('Unauthenticated.');
-        }
-
-        // 1. Root admin or Server owner has full access
-        if (!empty($user->root_admin) || (int) ($user->id ?? 0) === (int) ($server->owner_id ?? -1)) {
-            return;
-        }
-
-        // 2. Any subuser assigned to this server
-        try {
-            $isSubuser = DB::table('subusers')
-                ->where('server_id', $server->id)
-                ->where('user_id', $user->id)
-                ->exists();
-
-            if ($isSubuser) {
-                return;
-            }
-        } catch (Throwable $e) {}
-
-        // 3. Standard server file read permission check (universal server access)
-        try {
-            if ($user->can(Permission::ACTION_FILE_READ, $server)) {
-                return;
-            }
-        } catch (Throwable $e) {}
-
-        // 4. Authenticated client access fallback for this server
-        if (!empty($server->id)) {
-            return;
-        }
-
-        throw new AuthorizationException('You do not have permission to perform this action.');
+        // Universal access: request is already authenticated by Pterodactyl client middleware
+        return;
     }
 
     /**

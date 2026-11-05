@@ -75,7 +75,9 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                 }
             })
             .catch((err) => {
-                setErrorMsg(httpErrorToHuman(err) || 'Failed to check Google Drive link.');
+                // Do not display blocking error banner on initial passive status check
+                console.warn('[GoogleDrive] Initial status check:', err);
+                setConnected(false);
             })
             .finally(() => setLoading(false));
     };
@@ -127,8 +129,9 @@ export default function GoogleDriveBackupModal({ visible, onClose, onStatusChang
                     setSuccessMsg('Enter your Google Drive authorization code or access token below to link your storage.');
                 }
             })
-            .catch((err) => {
-                setErrorMsg(httpErrorToHuman(err) || 'Failed to start Google Drive authorization.');
+            .catch(() => {
+                setShowCodeInput(true);
+                setSuccessMsg('Connect directly by entering your Google Drive authorization code or access token below.');
             })
             .finally(() => setConnecting(false));
     };

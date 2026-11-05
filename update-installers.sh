@@ -127,6 +127,19 @@ if (file_exists($routesPhp)) {
 
     $append = '';
 
+    if (file_exists('app/Http/Controllers/Api/Client/Servers/AutoBackupController.php')) {
+        $append .= "\n/* >>> ARIX AUTO BACKUP START >>> */\n" .
+                   "Route::group(['prefix' => '/servers/{server}/auto-backup'], function () {\n" .
+                   "    Route::get('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'index']);\n" .
+                   "    Route::post('/', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'update']);\n" .
+                   "    Route::post('/run', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'runNow']);\n" .
+                   "    Route::get('/gdrive-auth', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveAuth']);\n" .
+                   "    Route::post('/gdrive-connect', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveConnect']);\n" .
+                   "    Route::post('/gdrive-upload', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveUpload']);\n" .
+                   "    Route::post('/gdrive-disconnect', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveDisconnect']);\n" .
+                   "});\n/* <<< ARIX AUTO BACKUP END <<< */\n";
+    }
+
     if (file_exists('app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php')) {
         $append .= "\n/* >>> ARIX PLUGIN INSTALLER START >>> */\n" .
                    "Route::group(['prefix' => '/servers/{server}/plugins'], function () {\n" .
