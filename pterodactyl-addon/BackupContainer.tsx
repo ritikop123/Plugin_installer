@@ -57,12 +57,12 @@ const BackupContainer = () => {
                             )}
                         </div>
                         <Can action={'backup.create'}>
-                            {backupLimit > 0 && backupLimit > backups.backupCount && (
-                                <div className={'inline-flex items-center gap-2'}>
-                                    <AutoBackupButton />
+                            <div className={'inline-flex items-center gap-2'}>
+                                <AutoBackupButton />
+                                {backupLimit > 0 && backupLimit > backups.backupCount && (
                                     <CreateBackupButton css={tw`w-full sm:w-auto`} />
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </Can>
                     </div>
                 }

@@ -76,7 +76,7 @@ curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AdminSupportIdSearch.tsx?t=
 cp resources/scripts/components/dashboard/AdminSupportIdSearch.tsx resources/scripts/components/dashboard/dashboard/AdminSupportIdSearch.tsx 2>/dev/null || true
 
 mkdir -p resources/scripts/components/server/backups
-git checkout HEAD -- resources/scripts/components/server/backups/CreateBackupButton.tsx 2>/dev/null || true
+git checkout -f HEAD -- resources/scripts/components/server/backups/CreateBackupButton.tsx 2>/dev/null || true
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/BackupContainer.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/BackupContainer.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupButton.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupButton.tsx
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoBackupModal.tsx?t=${CACHE_BUST}" -o resources/scripts/components/server/backups/AutoBackupModal.tsx
