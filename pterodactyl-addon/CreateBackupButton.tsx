@@ -66,14 +66,14 @@ const CreateBackupDialog = asDialog({
                     <FlashMessageRender byKey={'backups:create'} css={tw`mb-4`} />
                     <Field
                         name={'name'}
-                        label={t('create.backup-name')}
-                        description={t('create.backup-name-description')}
+                        label={t('create.backup-name', 'Backup name')}
+                        description={t('create.backup-name-description', 'A name to identify this backup by.')}
                     />
                     <div css={tw`mt-6`}>
                         <FormikFieldWrapper
                             name={'ignored'}
-                            label={t('create.ignored-files-directories')}
-                            description={t('create.ignored-files-directories-description')}
+                            label={t('create.ignored-files-directories', 'Ignored files & directories')}
+                            description={t('create.ignored-files-directories-description', 'Enter the files or folders to ignore while generating this backup.')}
                         >
                             <FormikField as={Textarea} name={'ignored'} rows={6} />
                         </FormikFieldWrapper>
@@ -82,14 +82,14 @@ const CreateBackupDialog = asDialog({
                         <div css={tw`mt-6 bg-neutral-700 border border-neutral-600 shadow-inner p-4 rounded-component`}>
                             <FormikSwitch
                                 name={'isLocked'}
-                                label={t('create.locked')}
-                                description={t('create.locked-description')}
+                                label={t('create.locked', 'Locked')}
+                                description={t('create.locked-description', 'Prevents this backup from being deleted until explicitly unlocked.')}
                             />
                         </div>
                     </Can>
                     <Dialog.Footer>
                         <Button type={'submit'} css={tw`w-full sm:w-auto`} disabled={isSubmitting}>
-                            {t('create.start-backup')}
+                            {(!t('create.start-backup') || t('create.start-backup').startsWith('create.')) ? 'Start backup' : t('create.start-backup', 'Start backup')}
                         </Button>
                     </Dialog.Footer>
                 </Form>
@@ -111,7 +111,7 @@ export default ({ css }: { css?: any }) => {
         <>
             <CreateBackupDialog open={visible} onClose={() => setVisible(false)} />
             <Button css={css || tw`w-full sm:w-auto`} onClick={() => setVisible(true)}>
-                {t('create.create-backup')}
+                {(!t('create.create-backup') || t('create.create-backup').startsWith('create.')) ? 'Create backup' : t('create.create-backup', 'Create backup')}
             </Button>
         </>
     );
