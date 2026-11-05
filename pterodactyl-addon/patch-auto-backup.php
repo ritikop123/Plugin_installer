@@ -58,6 +58,7 @@ Route::group(['prefix' => '/servers/{server}/auto-backup'], function () {
     Route::post('/gdrive-upload', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveUpload']);
     Route::post('/gdrive-disconnect', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveDisconnect']);
 });
+Route::get('/auto-backup/gdrive-callback', [\Pterodactyl\Http\Controllers\Api\Client\Servers\AutoBackupController::class, 'gdriveCallback']);
 /* <<< ARIX AUTO BACKUP END <<< */
 
 PHP;

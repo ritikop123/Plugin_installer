@@ -137,7 +137,9 @@ if (file_exists($routesPhp)) {
                    "    Route::post('/gdrive-connect', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveConnect']);\n" .
                    "    Route::post('/gdrive-upload', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveUpload']);\n" .
                    "    Route::post('/gdrive-disconnect', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveDisconnect']);\n" .
-                   "});\n/* <<< ARIX AUTO BACKUP END <<< */\n";
+                   "});\n" .
+                   "Route::get('/auto-backup/gdrive-callback', [\\Pterodactyl\\Http\\Controllers\\Api\\Client\\Servers\\AutoBackupController::class, 'gdriveCallback']);\n" .
+                   "/* <<< ARIX AUTO BACKUP END <<< */\n";
     }
 
     if (file_exists('app/Http/Controllers/Api/Client/Servers/PluginInstallerController.php')) {

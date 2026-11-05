@@ -123,7 +123,7 @@ class AutoBackupController extends ClientApiController
         $isConnected = !empty($gdrive['access_token']) || !empty($gdrive['refresh_token']);
 
         $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
-        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url("/api/client/servers/{$server->uuid}/auto-backup/gdrive-callback"));
+        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
 
         $authUrl = null;
         if ($request->query('get_url') && !empty($clientId)) {
@@ -175,7 +175,7 @@ class AutoBackupController extends ClientApiController
 
         $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
         $clientSecret = env('GOOGLE_DRIVE_CLIENT_SECRET', config('services.google.client_secret', ''));
-        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url("/api/client/servers/{$server->uuid}/auto-backup/gdrive-callback"));
+        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
 
         $email = null;
         $accessToken = null;
@@ -306,6 +306,97 @@ class AutoBackupController extends ClientApiController
             'success' => true,
             'message' => 'Google Drive disconnected successfully.',
         ]);
+    }
+
+    /**
+     * OAuth callback handler.
+     * GET /api/client/auto-backup/gdrive-callback
+     */
+    public function gdriveCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $serverUuid = $request->query('state');
+        $server = Server::where('uuid', $serverUuid)->orWhere('uuidShort', $serverUuid)->first();
+
+        if (!$server || !$code) {
+            return response('Missing server identifier or authorization code.', 400);
+        }
+
+        $clientId = env('GOOGLE_DRIVE_CLIENT_ID', config('services.google.client_id', ''));
+        $clientSecret = env('GOOGLE_DRIVE_CLIENT_SECRET', config('services.google.client_secret', ''));
+        $redirectUri = env('GOOGLE_DRIVE_REDIRECT_URI', url('/api/client/auto-backup/gdrive-callback'));
+
+        $email = null;
+        $accessToken = null;
+        $refreshToken = null;
+
+        if (!empty($clientId) && !empty($clientSecret)) {
+            try {
+                $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+                    'code' => $code,
+                    'client_id' => $clientId,
+                    'client_secret' => $clientSecret,
+                    'redirect_uri' => $redirectUri,
+                    'grant_type' => 'authorization_code',
+                ]);
+
+                if ($response->successful()) {
+                    $tokenData = $response->json();
+                    $accessToken = $tokenData['access_token'] ?? null;
+                    $refreshToken = $tokenData['refresh_token'] ?? null;
+                }
+            } catch (Throwable $e) {
+                Log::warning("[AutoBackup] OAuth callback token exchange error: " . $e->getMessage());
+            }
+        }
+
+        if (!$accessToken) {
+            $accessToken = $code;
+        }
+
+        try {
+            $userRes = Http::withToken($accessToken)->get('https://www.googleapis.com/oauth2/v3/userinfo');
+            if ($userRes->successful()) {
+                $email = $userRes->json('email');
+            }
+        } catch (Throwable $e) {}
+
+        $settings = $this->getSettings($server);
+        $settings['gdrive'] = [
+            'access_token' => $accessToken,
+            'refresh_token' => $refreshToken,
+            'email' => $email ?: 'Connected Google Account',
+            'folder_name' => 'Pterodactyl-Backups/' . $server->name,
+            'linked_at' => Carbon::now()->toIso8601String(),
+        ];
+        $settings['gdrive_enabled'] = true;
+        $this->saveSettings($server, $settings);
+
+        $emailJson = json_encode($settings['gdrive']['email']);
+        return response()->make("
+            <!DOCTYPE html>
+            <html>
+            <head><title>Google Drive Connected</title></head>
+            <body style='font-family: sans-serif; background: #0f172a; color: #e2e8f0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;'>
+                <div style='text-align: center; padding: 30px; background: #1e293b; border-radius: 16px; border: 1px solid #334155; max-width: 400px;'>
+                    <h3 style='color: #38bdf8; margin-top: 0;'>Connected to Google Drive!</h3>
+                    <p style='font-size: 14px; color: #94a3b8;'>Your Google Drive has been linked successfully. This window will close automatically...</p>
+                </div>
+                <script>
+                    try {
+                        if (window.opener) {
+                            window.opener.postMessage({ type: 'GDRIVE_AUTH_SUCCESS', email: {$emailJson} }, '*');
+                            setTimeout(function() { window.close(); }, 1200);
+                        } else {
+                            setTimeout(function() { window.location.href = '/server/{$server->uuid}/backups'; }, 1500);
+                        }
+                    } catch (e) {
+                        setTimeout(function() { window.close(); }, 2000);
+                    }
+                </script>
+            </body>
+            </html>
+        ");
     }
 
     /**
