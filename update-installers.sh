@@ -348,12 +348,14 @@ mkdir -p database/migrations
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php?t=${CACHE_BUST}" -o database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php 2>/dev/null || true
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php?t=${CACHE_BUST}" -o database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php 2>/dev/null || true
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_10_09_000002_add_support_id_to_servers_table.php?t=${CACHE_BUST}" -o database/migrations/2026_10_09_000002_add_support_id_to_servers_table.php 2>/dev/null || true
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php?t=${CACHE_BUST}" -o database/migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php 2>/dev/null || true
 php artisan migrate --force || true
 
-echo -e "\033[0;32m[+] 5/9 Applying Admin Sales Analytics & Dashboard Patches...\033[0m"
+echo -e "\033[0;32m[+] 5/9 Applying Admin Sales Analytics, CPU Burst Governor & Dashboard Patches...\033[0m"
 mkdir -p app/Console/Commands
 mkdir -p app/Notifications
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/AutoSuspendServersCommand.php?t=${CACHE_BUST}" -o app/Console/Commands/AutoSuspendServersCommand.php
+curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/CpuBurstGovernorCommand.php?t=${CACHE_BUST}" -o app/Console/Commands/CpuBurstGovernorCommand.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/ServerSuspensionWarningNotification.php?t=${CACHE_BUST}" -o app/Notifications/ServerSuspensionWarningNotification.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-auto-suspend.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_auto_suspend.php
 curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-support-id.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_support_id.php
@@ -368,10 +370,13 @@ php /tmp/ptero_patch_ai.php || true
 php /tmp/ptero_patch_auto_backup.php || true
 rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php /tmp/ptero_patch_ai.php /tmp/ptero_patch_auto_backup.php
 
-echo -e "\033[0;32m[+] 6/9 Setting up Auto-Suspend & Artisan Cron Job and Log File...\033[0m"
+echo -e "\033[0;32m[+] 6/9 Setting up Auto-Suspend, CPU Burst Governor & Artisan Cron Job...\033[0m"
 touch /var/log/pterodactyl-auto-suspend.log
 chown www-data:www-data /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
 chmod 664 /var/log/pterodactyl-auto-suspend.log
+touch /var/log/pterodactyl-cpu-burst.log
+chown www-data:www-data /var/log/pterodactyl-cpu-burst.log 2>/dev/null || true
+chmod 664 /var/log/pterodactyl-cpu-burst.log
 
 setup_panel_cron() {
   local target_user="$1"
@@ -381,12 +386,13 @@ setup_panel_cron() {
   local current_cron
   current_cron=$($cmd_prefix -l 2>/dev/null || true)
   local filtered_cron
-  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' || true)
+  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' | grep -v 'ptero:cpu-burst' || true)
 
   {
     [ -n "$filtered_cron" ] && echo "$filtered_cron"
     echo "* * * * * cd $PTERO_DIR && php artisan schedule:run >> /dev/null 2>&1"
     echo "* * * * * cd $PTERO_DIR && php artisan ptero:auto-suspend >> /var/log/pterodactyl-auto-suspend.log 2>&1"
+    echo "* * * * * cd $PTERO_DIR && php artisan ptero:cpu-burst >> /var/log/pterodactyl-cpu-burst.log 2>&1"
   } | $cmd_prefix - 2>/dev/null || true
 }
 

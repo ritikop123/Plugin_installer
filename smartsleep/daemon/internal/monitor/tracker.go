@@ -38,6 +38,7 @@ type Tracker struct {
 	cfg         *config.Config
 	pteroClient *ptero.Client
 	servers     map[string]*ServerRuntime
+	cpuGovernor *CPUGovernor
 	mu          sync.RWMutex
 	stopChan    chan struct{}
 }
@@ -47,13 +48,15 @@ func NewTracker(cfg *config.Config, pteroClient *ptero.Client) *Tracker {
 		cfg:         cfg,
 		pteroClient: pteroClient,
 		servers:     make(map[string]*ServerRuntime),
+		cpuGovernor: NewCPUGovernor(),
 		stopChan:    make(chan struct{}),
 	}
 }
 
 func (t *Tracker) Start() {
-	log.Printf("[SmartSleep] Auto-stop tracker started. Monitoring interval: %v", t.cfg.Sleep.CheckInterval)
+	log.Printf("[SmartSleep] Auto-stop & CPU Burst Governor started. Monitoring interval: %v", t.cfg.Sleep.CheckInterval)
 	ticker := time.NewTicker(t.cfg.Sleep.CheckInterval)
+	cpuTicker := time.NewTicker(cpuTickInterval)
 
 	t.syncServers()
 
@@ -62,8 +65,11 @@ func (t *Tracker) Start() {
 			select {
 			case <-ticker.C:
 				t.syncServers()
+			case <-cpuTicker.C:
+				t.cpuGovernor.Tick()
 			case <-t.stopChan:
 				ticker.Stop()
+				cpuTicker.Stop()
 				return
 			}
 		}
@@ -75,13 +81,15 @@ func (t *Tracker) Stop() {
 }
 
 func (t *Tracker) syncServers() {
-	if !t.cfg.Sleep.Enabled {
-		return
-	}
-
 	serverList, err := t.pteroClient.GetNodeServers(t.cfg.Panel.NodeID)
 	if err != nil {
 		log.Printf("[SmartSleep] Failed to fetch servers from Pterodactyl: %v", err)
+		return
+	}
+
+	t.cpuGovernor.UpdateServers(serverList)
+
+	if !t.cfg.Sleep.Enabled {
 		return
 	}
 

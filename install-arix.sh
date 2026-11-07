@@ -261,6 +261,7 @@ cp "$ROUTES_PHP" "$BACKUP_DIR/api-client.php"
 [ -f "app/Http/Controllers/Admin/ServersController.php" ] && cp "app/Http/Controllers/Admin/ServersController.php" "$BACKUP_DIR/ServersController.php" || true
 [ -f "app/Console/Kernel.php" ] && cp "app/Console/Kernel.php" "$BACKUP_DIR/Kernel.php" || true
 [ -f "app/Models/Server.php" ] && cp "app/Models/Server.php" "$BACKUP_DIR/Server.php" || true
+[ -f "app/Services/Servers/ServerConfigurationStructureService.php" ] && cp "app/Services/Servers/ServerConfigurationStructureService.php" "$BACKUP_DIR/ServerConfigurationStructureService.php" || true
 
 echo -e "${GREEN}[✓] Backup created at: ${BACKUP_DIR}${NC}"
 
@@ -281,6 +282,7 @@ rollback() {
   [ -f "$BACKUP_DIR/ServersController.php" ] && cp "$BACKUP_DIR/ServersController.php" "app/Http/Controllers/Admin/ServersController.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/Kernel.php" ] && cp "$BACKUP_DIR/Kernel.php" "app/Console/Kernel.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/Server.php" ] && cp "$BACKUP_DIR/Server.php" "app/Models/Server.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/ServerConfigurationStructureService.php" ] && cp "$BACKUP_DIR/ServerConfigurationStructureService.php" "app/Services/Servers/ServerConfigurationStructureService.php" 2>/dev/null || true
   rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php /tmp/ptero_patch_auto_suspend.php
   chmod -R 755 public 2>/dev/null || true
   chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
@@ -844,6 +846,8 @@ sed -i 's/IlluminateSupportFacadesSchema/Illuminate\\Support\\Facades\\Schema/g'
 # Download Artisan command
 mkdir -p "app/Console/Commands"
 fetch_addon_file "AutoSuspendServersCommand.php" "app/Console/Commands/AutoSuspendServersCommand.php"
+fetch_addon_file "CpuBurstGovernorCommand.php" "app/Console/Commands/CpuBurstGovernorCommand.php"
+fetch_addon_file "migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php" "database/migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php"
 
 # Download Owner Notification
 mkdir -p "app/Notifications"
@@ -970,11 +974,14 @@ if [ -f "$WRAPPER_FILE" ]; then
   touch "$WRAPPER_FILE" 2>/dev/null || true
 fi
 
-# Configure cron jobs for schedule:run and auto-suspend checks (running every minute and logged)
-echo -e "${CYAN}[*] Configuring cron jobs for automated tasks and auto-suspension...${NC}"
+# Configure cron jobs for schedule:run, auto-suspend, and cpu-burst checks (running every minute and logged)
+echo -e "${CYAN}[*] Configuring cron jobs for automated tasks, auto-suspension, and CPU Burst Governor...${NC}"
 touch /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
 chown www-data:www-data /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
 chmod 664 /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true
+touch /var/log/pterodactyl-cpu-burst.log 2>/dev/null || true
+chown www-data:www-data /var/log/pterodactyl-cpu-burst.log 2>/dev/null || true
+chmod 664 /var/log/pterodactyl-cpu-burst.log 2>/dev/null || true
 
 setup_panel_cron() {
   local target_user="$1"
@@ -984,12 +991,13 @@ setup_panel_cron() {
   local current_cron
   current_cron=$($cmd_prefix -l 2>/dev/null || true)
   local filtered_cron
-  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' || true)
+  filtered_cron=$(echo "$current_cron" | grep -v 'schedule:run' | grep -v 'ptero:auto-suspend' | grep -v 'ptero:cpu-burst' || true)
 
   {
     [ -n "$filtered_cron" ] && echo "$filtered_cron"
     echo "* * * * * cd $PTERO_DIR && php artisan schedule:run >> /dev/null 2>&1"
     echo "* * * * * cd $PTERO_DIR && php artisan ptero:auto-suspend >> /var/log/pterodactyl-auto-suspend.log 2>&1"
+    echo "* * * * * cd $PTERO_DIR && php artisan ptero:cpu-burst >> /var/log/pterodactyl-cpu-burst.log 2>&1"
   } | $cmd_prefix - 2>/dev/null || true
 }
 
@@ -1050,6 +1058,8 @@ echo -e "  Servers approaching expiration receive a courteous notice 3 days prio
 echo -e "• ${CYAN}Server Expiry & Plan Card${NC}: Displayed directly beneath stat cards on the dashboard."
 echo -e "  Color-coded: ${YELLOW}Yellow${NC} when ≤ 3 days, ${RED}Red${NC} when ≤ 24 hours / expired."
 echo -e "• ${CYAN}Admin Sales & Revenue Overview${NC}: Live card showing Total Sales, 7-day & 30-day sales, and Best Selling Plans."
+echo -e "• ${CYAN}Real CPU + Burst CPU Governor${NC}: Active via scheduled command (${BOLD}ptero:cpu-burst${NC})"
+echo -e "  Admin Server Creation & Build pages now feature ${CYAN}Real CPU Limit${NC} and ${CYAN}Burst CPU Limit${NC}."
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"

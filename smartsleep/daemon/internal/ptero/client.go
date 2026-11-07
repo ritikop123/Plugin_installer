@@ -25,8 +25,10 @@ type ServerInfo struct {
 	Environment map[string]string `json:"environment"`
 
 	// Auto-stop properties derived from server configuration.
-	Enabled        bool
-	IsProxy        bool
+	Enabled   bool
+	IsProxy   bool
+	RealCPU   int
+	BurstCPU  int
 }
 
 type AllocationInfo struct {
@@ -99,6 +101,10 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 				Name              string `json:"name"`
 				NodeID            int    `json:"node"`
 				SmartSleepEnabled *bool  `json:"smartsleep_enabled"`
+				Limits            struct {
+					CPU      int `json:"cpu"`
+					BurstCPU int `json:"burst_cpu"`
+				} `json:"limits"`
 				Container         struct {
 					Startup     string                 `json:"startup"`
 					Image       string                 `json:"image"`
@@ -139,8 +145,10 @@ func (c *Client) GetNodeServers(nodeID int) ([]*ServerInfo, error) {
 			Name:        attr.Name,
 			NodeID:      attr.NodeID,
 			Environment: make(map[string]string),
-			Enabled: true, // Default ENABLED for all servers (new and existing)
-			IsProxy: false,
+			Enabled:     true, // Default ENABLED for all servers (new and existing)
+			IsProxy:     false,
+			RealCPU:     attr.Limits.CPU,
+			BurstCPU:    attr.Limits.BurstCPU,
 		}
 
 		// 1. Auto-detect Proxy servers (Velocity, BungeeCord, Waterfall, FlameCord, Gate, etc.)

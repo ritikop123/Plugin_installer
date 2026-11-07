@@ -40,8 +40,32 @@ if (file_exists($newBladeFile)) {
 CARD;
     if (strpos($c, '<h3 class="box-title">Core Details</h3>') !== false) {
         $c = preg_replace('/(\s*<div class="row">\s*<div class="col-xs-12">\s*<div class="box">\s*<div class="box-header with-border">\s*<h3 class="box-title">Core Details<\/h3>)/', "\n" . $card . '$1', $c, 1);
-        file_put_contents($newBladeFile, $c);
     }
+
+    // Clean any previous Burst CPU patch in new.blade.php
+    $c = preg_replace("/<!--\s*>>>\s*ARIX BURST CPU START\s*>>>\s*-->.*?<!--\s*<<<\s*ARIX BURST CPU END\s*<<<\s*-->\s*/s", "", $c);
+    $c = str_replace('<label for="pCPU">Real CPU Limit</label>', '<label for="pCPU">CPU Limit</label>', $c);
+
+    // Relabel CPU Limit -> Real CPU Limit and inject Burst CPU Limit field
+    $c = str_replace('<label for="pCPU">CPU Limit</label>', '<label for="pCPU">Real CPU Limit</label>', $c);
+    $burstNewHtml = <<<'BURST_NEW'
+<!-- >>> ARIX BURST CPU START >>> -->
+                    <div class="form-group col-xs-6">
+                        <label for="pBurstCPU">Burst CPU Limit</label>
+
+                        <div class="input-group">
+                            <input type="text" id="pBurstCPU" name="burst_cpu" class="form-control" value="{{ old('burst_cpu', 0) }}" placeholder="e.g. 300" />
+                            <span class="input-group-addon">%</span>
+                        </div>
+
+                        <p class="text-muted small">Temporary peak CPU limit (e.g. <code>300</code>%) automatically granted when the server restarts or experiences a performance spike. Normally the server uses its <strong>Real CPU Limit</strong> (e.g. <code>100</code>%). Set to <code>0</code> to disable bursting.</p>
+                    </div>
+<!-- <<< ARIX BURST CPU END <<< -->
+BURST_NEW;
+    if (preg_match('/(<input[^>]*name="cpu"[^>]*>[\s\S]*?<\/div>\s*<p class="text-muted small">[\s\S]*?(<\/p>|<p>)\s*<\/div>)/', $c, $m)) {
+        $c = str_replace($m[1], $m[1] . "\n\n" . $burstNewHtml, $c);
+    }
+    file_put_contents($newBladeFile, $c);
 }
 
 // Patch 2: resources/views/admin/servers/view/build.blade.php (Build Configuration Page - already created servers)
@@ -82,8 +106,30 @@ if (file_exists($buildBladeFile)) {
 CARD;
     if (strpos($c, "admin.servers.view.build") !== false) {
         $c = preg_replace('/(<form action="\{\{\s*route\(\x27admin\.servers\.view\.build\x27,\s*\$server->id\)\s*\}\}" method="POST">\s*)/', "$1" . $card, $c, 1);
-        file_put_contents($buildBladeFile, $c);
     }
+
+    // Clean any previous Burst CPU patch in build.blade.php
+    $c = preg_replace("/<!--\s*>>>\s*ARIX BURST CPU START\s*>>>\s*-->.*?<!--\s*<<<\s*ARIX BURST CPU END\s*<<<\s*-->\s*/s", "", $c);
+    $c = str_replace('<label for="cpu" class="control-label">Real CPU Limit</label>', '<label for="cpu" class="control-label">CPU Limit</label>', $c);
+
+    // Relabel CPU Limit -> Real CPU Limit and inject Burst CPU Limit field
+    $c = str_replace('<label for="cpu" class="control-label">CPU Limit</label>', '<label for="cpu" class="control-label">Real CPU Limit</label>', $c);
+    $burstBuildHtml = <<<'BURST_BUILD'
+<!-- >>> ARIX BURST CPU START >>> -->
+                    <div class="form-group">
+                        <label for="burst_cpu" class="control-label">Burst CPU Limit</label>
+                        <div class="input-group">
+                            <input type="text" name="burst_cpu" id="burst_cpu" class="form-control" value="{{ old('burst_cpu', $server->burst_cpu ?? 0) }}" placeholder="e.g. 300"/>
+                            <span class="input-group-addon">%</span>
+                        </div>
+                        <p class="text-muted small">Temporary peak CPU limit (e.g. <code>300</code>%) granted during server startups and performance spikes. Normally the container runs at its <strong>Real CPU Limit</strong> (e.g. <code>100</code>%) to prevent node lag. Set to <code>0</code> to disable bursting.</p>
+                    </div>
+<!-- <<< ARIX BURST CPU END <<< -->
+BURST_BUILD;
+    if (preg_match('/(<input[^>]*name="cpu"[^>]*>[\s\S]*?<\/div>\s*<p class="text-muted small">[\s\S]*?<\/p>\s*<\/div>)/', $c, $m)) {
+        $c = str_replace($m[1], $m[1] . "\n" . $burstBuildHtml, $c);
+    }
+    file_put_contents($buildBladeFile, $c);
 }
 
 // Patch 3: resources/views/admin/servers/view/details.blade.php (Details Page - already created servers)
@@ -133,6 +179,9 @@ if (file_exists($createCtrlFile)) {
         }
         $server->plan_name = $request->input("plan_name") ?: null;
         $server->plan_price = $request->input("plan_price") ?: null;
+        if ($request->has("burst_cpu")) {
+            $server->burst_cpu = max(0, (int) $request->input("burst_cpu", 0));
+        }
         $server->save();
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
@@ -166,6 +215,12 @@ if (file_exists($serversCtrlFile)) {
         }
         if ($request->has("plan_price")) {
             $server->plan_price = $request->input("plan_price") ?: null;
+        }
+        if ($request->has("burst_cpu")) {
+            $server->burst_cpu = max(0, (int) $request->input("burst_cpu", 0));
+            if ($server->burst_cpu <= $server->cpu && $server->is_bursting) {
+                $server->is_bursting = false;
+            }
         }
         $server->save();
 
@@ -220,6 +275,12 @@ foreach ($buildFiles as $buildCtrlFile) {
         }
         if ($request->has("plan_price")) {
             $server->plan_price = $request->input("plan_price") ?: null;
+        }
+        if ($request->has("burst_cpu")) {
+            $server->burst_cpu = max(0, (int) $request->input("burst_cpu", 0));
+            if ($server->burst_cpu <= $server->cpu && $server->is_bursting) {
+                $server->is_bursting = false;
+            }
         }
         $server->save();
 
@@ -294,6 +355,7 @@ if (file_exists($kernelFile)) {
     $patch = <<<'PATCH'
 /* >>> ARIX AUTO SUSPENSION START >>> */
         $schedule->command('ptero:auto-suspend')->everyMinute()->withoutOverlapping();
+        $schedule->command('ptero:cpu-burst')->everyMinute()->runInBackground();
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
@@ -312,13 +374,119 @@ if (file_exists($modelFile)) {
 /* >>> ARIX AUTO SUSPENSION START >>> */
         'expire_at' => 'datetime',
         'expiration_warning_sent_at' => 'datetime',
+        'burst_cpu' => 'integer',
+        'is_bursting' => 'boolean',
         /* <<< ARIX AUTO SUSPENSION END <<< */
 
 PATCH;
     if (strpos($c, "'installed_at' => 'datetime',") !== false) {
         $c = preg_replace("/('installed_at' => 'datetime',\s*)/", "$1        " . $patch, $c, 1);
-        file_put_contents($modelFile, $c);
     }
+    $rulesPatch = <<<'RULES_PATCH'
+/* >>> ARIX AUTO SUSPENSION START >>> */
+        'burst_cpu' => 'sometimes|nullable|numeric|min:0',
+        /* <<< ARIX AUTO SUSPENSION END <<< */
+RULES_PATCH;
+    if (strpos($c, "'cpu' =>") !== false) {
+        $c = preg_replace("/('cpu'\s*=>\s*[^,\n]+,\s*)/", "$1        " . $rulesPatch . "\n", $c, 1);
+    }
+    file_put_contents($modelFile, $c);
+}
+
+// Patch 9b: app/Services/Servers/ServerConfigurationStructureService.php (Dynamic Real CPU vs Burst CPU for Wings)
+$structServiceFile = "app/Services/Servers/ServerConfigurationStructureService.php";
+if (file_exists($structServiceFile)) {
+    $c = file_get_contents($structServiceFile);
+    // Clean any previous Burst CPU patch
+    $c = str_replace(
+        "'cpu_limit' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? (int) \$server->burst_cpu : \$server->cpu,",
+        "'cpu_limit' => \$server->cpu,",
+        $c
+    );
+    $c = str_replace(
+        "'io_weight' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? max(10, (int) (\$server->io / 2)) : \$server->io,",
+        "'io_weight' => \$server->io,",
+        $c
+    );
+    $c = str_replace(
+        "'cpu' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? (int) \$server->burst_cpu : (int) \$server->cpu,",
+        "'cpu' => (int) \$server->cpu,",
+        $c
+    );
+
+    // Apply Dynamic Real CPU + Burst CPU logic for Wings
+    $c = str_replace(
+        "'cpu_limit' => \$server->cpu,",
+        "'cpu_limit' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? (int) \$server->burst_cpu : \$server->cpu,",
+        $c
+    );
+    $c = str_replace(
+        "'io_weight' => \$server->io,",
+        "'io_weight' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? max(10, (int) (\$server->io / 2)) : \$server->io,",
+        $c
+    );
+    $c = str_replace(
+        "'cpu' => (int) \$server->cpu,",
+        "'cpu' => (\$server->is_bursting && (\$server->burst_cpu ?? 0) > \$server->cpu) ? (int) \$server->burst_cpu : (int) \$server->cpu,",
+        $c
+    );
+    file_put_contents($structServiceFile, $c);
+}
+
+// Patch 9c: app/Transformers/Api/Application/ServerTransformer.php (Expose burst_cpu & is_bursting to Application API)
+$appTransformerFile = "app/Transformers/Api/Application/ServerTransformer.php";
+if (file_exists($appTransformerFile)) {
+    $c = file_get_contents($appTransformerFile);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX BURST CPU START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX BURST CPU END\s*<<<\s*\*\/\s*/s", "", $c);
+    $appBurstPatch = <<<'APP_BURST'
+/* >>> ARIX BURST CPU START >>> */
+                'burst_cpu' => (int) ($server->burst_cpu ?? 0),
+                'is_bursting' => (bool) ($server->is_bursting ?? false),
+                /* <<< ARIX BURST CPU END <<< */
+APP_BURST;
+    if (strpos($c, "'cpu' => \$server->cpu,") !== false) {
+        $c = str_replace(
+            "'cpu' => \$server->cpu,",
+            "'cpu' => \$server->cpu,\n                " . $appBurstPatch,
+            $c
+        );
+        file_put_contents($appTransformerFile, $c);
+    }
+}
+
+// Patch 9d: Prevent false red "Low Resources" banner on client panel when server bursts up to burst_cpu
+$clientTransformerFile = "app/Transformers/Api/Client/ServerTransformer.php";
+if (file_exists($clientTransformerFile)) {
+    $c = file_get_contents($clientTransformerFile);
+    $c = preg_replace("/\/\*\s*>>>\s*ARIX BURST CPU CLIENT START\s*>>>\s*\*\/.*?\/\*\s*<<<\s*ARIX BURST CPU CLIENT END\s*<<<\s*\*\/\s*/s", "", $c);
+    $clientBurstPatch = <<<'CLIENT_BURST'
+/* >>> ARIX BURST CPU CLIENT START >>> */
+                'burst_cpu' => (int) ($server->burst_cpu ?? 0),
+                /* <<< ARIX BURST CPU CLIENT END <<< */
+CLIENT_BURST;
+    if (strpos($c, "'cpu' => \$server->cpu,") !== false) {
+        $c = str_replace(
+            "'cpu' => \$server->cpu,",
+            "'cpu' => \$server->cpu,\n                " . $clientBurstPatch,
+            $c
+        );
+        file_put_contents($clientTransformerFile, $c);
+    }
+}
+$lowResFile = "resources/scripts/components/server/LowResourcesAlert.tsx";
+if (file_exists($lowResFile)) {
+    $c = file_get_contents($lowResFile);
+    $c = str_replace(
+        "getBackgroundColor(stats.cpu, stats.uptime / 1000, (limits as any).burst_cpu > limits.cpu ? (limits as any).burst_cpu : limits.cpu)",
+        "getBackgroundColor(stats.cpu, stats.uptime / 1000, limits.cpu)",
+        $c
+    );
+    $c = str_replace(
+        "getBackgroundColor(stats.cpu, stats.uptime / 1000, limits.cpu)",
+        "getBackgroundColor(stats.cpu, stats.uptime / 1000, (limits as any).burst_cpu > limits.cpu ? (limits as any).burst_cpu : limits.cpu)",
+        $c
+    );
+    file_put_contents($lowResFile, $c);
 }
 
 // Patch 10: resources/scripts/api/server/getServer.ts (Map expire_at and plan attributes directly into ServerContext)
@@ -348,6 +516,9 @@ MAPPING;
     }
     if (strpos($c, 'isSuspended: data.is_suspended,') !== false) {
         $c = preg_replace('/(isSuspended:\s*data\.is_suspended,\s*)/', "$1    " . $mappingPatch . "\n", $c, 1);
+    }
+    if (strpos($c, 'cpu: number;') !== false && strpos($c, 'burst_cpu?: number;') === false) {
+        $c = str_replace('cpu: number;', "cpu: number;\n        burst_cpu?: number;", $c);
     }
     file_put_contents($getServerFile, $c);
 }

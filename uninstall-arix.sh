@@ -57,6 +57,7 @@ rm -f "app/Http/Controllers/Api/Client/Servers/OptionsController.php" 2>/dev/nul
 rm -f "app/Http/Controllers/Api/Client/Servers/PlayerManagerController.php" 2>/dev/null || true
 rm -f "app/Http/Controllers/Api/Client/Servers/WorldManagerController.php" 2>/dev/null || true
 rm -f "app/Console/Commands/AutoSuspendServersCommand.php" 2>/dev/null || true
+rm -f "app/Console/Commands/CpuBurstGovernorCommand.php" 2>/dev/null || true
 rm -f "app/Notifications/ServerSuspensionWarningNotification.php" 2>/dev/null || true
 rm -f "resources/scripts/components/server/ServerExpiryCard.tsx" 2>/dev/null || true
 rm -f "resources/scripts/components/server/ServerExpiryBadge.tsx" 2>/dev/null || true
@@ -65,6 +66,7 @@ rm -f "resources/scripts/components/dashboard/ServerExpiryBadge.tsx" 2>/dev/null
 rm -f "resources/scripts/components/dashboard/ServerUptime.tsx" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php" 2>/dev/null || true
+rm -f "database/migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Cleaning routes from routes/api-client.php...${NC}"
 cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php

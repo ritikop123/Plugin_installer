@@ -162,6 +162,7 @@ install_node_daemon() {
         download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/player_query.go" "${BUILD_DIR}/internal/gateway/player_query.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/cpu_governor.go" "${BUILD_DIR}/internal/monitor/cpu_governor.go"
         SRC_DIR="${BUILD_DIR}"
         CLEANUP_BUILD=1
     fi
@@ -480,6 +481,7 @@ update_daemon() {
         download_file "${REPO_BASE}/smartsleep/daemon/internal/ptero/client.go" "${BUILD_DIR}/internal/ptero/client.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/gateway/player_query.go" "${BUILD_DIR}/internal/gateway/player_query.go"
         download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/tracker.go" "${BUILD_DIR}/internal/monitor/tracker.go"
+        download_file "${REPO_BASE}/smartsleep/daemon/internal/monitor/cpu_governor.go" "${BUILD_DIR}/internal/monitor/cpu_governor.go"
     fi
 
     log_info "Compiling latest SmartSleep binary..."
