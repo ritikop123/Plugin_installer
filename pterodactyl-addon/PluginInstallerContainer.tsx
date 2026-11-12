@@ -158,6 +158,17 @@ export default function PluginInstallerContainer() {
   const [installedVersions, setInstalledVersions] = useState<Record<string, boolean>>({});
   const [installNotice, setInstallNotice] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Floating Toast State
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Auto-dismiss Toast
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
   // Helpers
   const formatNumber = (num: number): string => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -413,10 +424,12 @@ export default function PluginInstallerContainer() {
       );
 
       const savedFilename = res.data.filename || file.filename;
+      const successMsg = res.data.message || `Plugin ${savedFilename} was installed successfully!`;
+
       setInstalledVersions((prev) => ({ ...prev, [ver.id]: true }));
       setInstallNotice({
         success: true,
-        message: res.data.message || `Plugin ${savedFilename} was installed successfully!`,
+        message: successMsg,
       });
 
       // Optimistically add to installedFiles so UI immediately reflects installed state
@@ -433,15 +446,27 @@ export default function PluginInstallerContainer() {
       };
       setInstalledFiles((prev) => [newFileItem, ...prev.filter((f) => f.name !== newFileItem.name)]);
       fetchInstalledPlugins();
+
+      // Close the modal popup and trigger side toast notification
+      setInstallModalOpen(false);
+      setToastMessage({
+        type: 'success',
+        text: successMsg,
+      });
     } catch (err: any) {
       const serverMsg =
         err?.response?.data?.errors?.[0]?.detail ||
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         httpErrorToHuman(err);
+      const errorMsg = serverMsg || 'Failed to install plugin file to server.';
       setInstallNotice({
         success: false,
-        message: serverMsg || 'Failed to install plugin file to server.',
+        message: errorMsg,
+      });
+      setToastMessage({
+        type: 'error',
+        text: errorMsg,
       });
     } finally {
       setInstallingVersionId(null);
@@ -460,8 +485,16 @@ export default function PluginInstallerContainer() {
       await http.post(`/api/client/servers/${uuid}/plugins/delete`, { filename });
       setInstalledFiles((prev) => prev.filter((f) => f.name !== filename));
       setInstalledVersions({});
+      setToastMessage({
+        type: 'success',
+        text: `Plugin ${filename} was deleted successfully from /plugins.`,
+      });
     } catch (err: unknown) {
-      alert(httpErrorToHuman(err) || `Failed to delete ${filename}.`);
+      const errMsg = httpErrorToHuman(err) || `Failed to delete ${filename}.`;
+      setToastMessage({
+        type: 'error',
+        text: errMsg,
+      });
     } finally {
       setUninstallingFile(null);
     }
@@ -612,6 +645,29 @@ export default function PluginInstallerContainer() {
 
   return (
     <ServerContentBlock title={'Minecraft Plugins Installer'}>
+      {/* Floating Side Toast Notification */}
+      {toastMessage && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border text-sm font-medium transition-all duration-200 ${
+            toastMessage.type === 'success'
+              ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-100 shadow-emerald-950/40'
+              : 'bg-rose-950/95 border-rose-500/50 text-rose-100 shadow-rose-950/40'
+          }`}
+        >
+          <FontAwesomeIcon
+            icon={toastMessage.type === 'success' ? faCheck : faExclamationTriangle}
+            className={toastMessage.type === 'success' ? 'text-emerald-400 text-base' : 'text-rose-400 text-base'}
+          />
+          <span className={'max-w-md break-words'}>{toastMessage.text}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className={'ml-2 text-neutral-400 hover:text-white transition-colors p-1'}
+          >
+            <FontAwesomeIcon icon={faTimes} />
+          </button>
+        </div>
+      )}
+
       <div className={'my-6'}>
         {/* Header Section */}
         <div className={'flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6'}>
