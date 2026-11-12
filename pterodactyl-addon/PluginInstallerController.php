@@ -636,7 +636,11 @@ class PluginInstallerController extends ClientApiController
                 if ($headRes->getStatusCode() >= 300 && $headRes->getStatusCode() < 400) {
                     $loc = $headRes->getHeaderLine('Location');
                     if (!empty($loc)) {
-                        $url = $loc;
+                        if (str_starts_with($loc, '/')) {
+                            $url = 'https://api.spiget.org' . $loc;
+                        } else {
+                            $url = $loc;
+                        }
                     }
                 }
             } catch (Throwable $e) {}
@@ -704,14 +708,14 @@ class PluginInstallerController extends ClientApiController
             }
         }
 
-        // Validate URL: require HTTPS
+        // Validate URL
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
             return response()->json(['error' => 'Invalid file download URL.'], 400);
         }
 
         $parsedUrl = parse_url($url);
-        if (($parsedUrl['scheme'] ?? '') !== 'https') {
-            return response()->json(['error' => 'Only secure HTTPS download URLs are permitted.'], 400);
+        if (!in_array(strtolower($parsedUrl['scheme'] ?? ''), ['http', 'https'], true)) {
+            return response()->json(['error' => 'Only HTTP and HTTPS download URLs are permitted.'], 400);
         }
 
         $host = strtolower($parsedUrl['host'] ?? '');
@@ -795,8 +799,9 @@ class PluginInstallerController extends ClientApiController
             } catch (Throwable $e) {}
 
             $installedSuccessfully = false;
+            $downloadError = null;
 
-            // Strategy A: Wings direct pull (synchronous foreground pull guarantees file is written before API returns)
+            // Strategy A: Wings direct pull (foreground => false avoids gateway timeouts)
             try {
                 $this->fileRepository->setServer($server)->pull(
                     $url,
@@ -804,12 +809,13 @@ class PluginInstallerController extends ClientApiController
                     [
                         'filename' => $cleanFilename,
                         'use_header' => false,
-                        'foreground' => true,
+                        'foreground' => false,
                     ]
                 );
                 $installedSuccessfully = true;
             } catch (Throwable $wingsErr) {
                 $installedSuccessfully = false;
+                $downloadError = $wingsErr->getMessage();
             }
 
             // Strategy B: If Wings daemon pull failed (e.g. Cloudflare block on Wings daemon, daemon timeout, or connectivity),
@@ -850,7 +856,7 @@ class PluginInstallerController extends ClientApiController
                         }
                     }
                 } catch (Throwable $uploadEx) {
-                    throw new Exception("Unable to download plugin: " . $uploadEx->getMessage());
+                    $downloadError = $uploadEx->getMessage();
                 }
             }
 
@@ -858,9 +864,9 @@ class PluginInstallerController extends ClientApiController
                 return response()->json([
                     'success' => false,
                     'errors' => [
-                        ['code' => 'InstallFailed', 'detail' => 'Could not download plugin file from remote host to server container.']
+                        ['code' => 'InstallFailed', 'detail' => 'Could not download plugin file from remote host to server container' . (!empty($downloadError) ? ': ' . $downloadError : '.')]
                     ],
-                    'message' => 'Could not download plugin file from remote host to server container.',
+                    'message' => 'Could not download plugin file from remote host to server container' . (!empty($downloadError) ? ': ' . $downloadError : '.'),
                 ], 502);
             }
 

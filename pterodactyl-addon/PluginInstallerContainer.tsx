@@ -500,39 +500,52 @@ export default function PluginInstallerContainer() {
 
     const fullTitleClean = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
     const slugClean = rawSlug.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const GENERIC_NAMES = ['plugin', 'download', 'server', 'core', 'main', 'base', 'temp', 'test', 'file'];
 
     return installedFiles.find((f) => {
       const fn = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
       const fnNoExt = f.name.toLowerCase().replace(/\.(jar|zip)$/i, '').replace(/[^a-z0-9]/g, '');
 
-      // Check Spigot ID pattern in filename: e.g. "spigot-28140-1.0.jar" or "28140.jar" matches pluginId "28140"
-      if (pluginId && pluginId.length >= 2 && (fn.includes(`spigot${pluginId}`) || fn.startsWith(pluginId) || fn === `${pluginId}jar`)) {
-        return true;
+      // Check Spigot ID pattern in filename: e.g. "spigot-28140-1.0.jar" or "28140.jar"
+      if (pluginId && /^\d+$/.test(pluginId) && pluginId.length >= 2) {
+        if (fn.includes(`spigot${pluginId}`) || fn === `${pluginId}jar` || (fn.startsWith(pluginId) && !/^\d+$/.test(fnNoExt))) {
+          return true;
+        }
+      }
+
+      // Skip generic filenames from fuzzy matching by base or title
+      if (GENERIC_NAMES.includes(fnNoExt)) {
+        return false;
       }
 
       // Base title match: e.g. "luckperms" in "luckperms54102jar"
-      if (cleanBaseTitle.length >= 3 && fn.includes(cleanBaseTitle)) {
+      if (cleanBaseTitle.length >= 3 && !GENERIC_NAMES.includes(cleanBaseTitle) && fn.includes(cleanBaseTitle)) {
         return true;
       }
 
       // Reverse check: e.g. filename base in title
-      if (fnNoExt.length >= 4 && cleanBaseTitle.includes(fnNoExt)) {
+      if (fnNoExt.length >= 4 && cleanBaseTitle.startsWith(fnNoExt)) {
         return true;
       }
 
       // Full title match
-      if (fullTitleClean.length >= 3 && (fn.includes(fullTitleClean) || fullTitleClean.includes(fnNoExt))) {
+      if (fullTitleClean.length >= 4 && !GENERIC_NAMES.includes(fullTitleClean) && (fn.includes(fullTitleClean) || fullTitleClean.includes(fnNoExt))) {
         return true;
       }
 
       // Slug match
-      if (slugClean.length >= 3 && (fn.includes(slugClean) || slugClean.includes(fnNoExt))) {
+      if (slugClean.length >= 3 && !GENERIC_NAMES.includes(slugClean) && (fn.includes(slugClean) || slugClean.includes(fnNoExt))) {
         return true;
       }
 
       return false;
     });
   };
+
+  // Active installed match for the plugin currently viewed in modal
+  const activeInstalledMatch = useMemo(() => {
+    return activePlugin ? getInstalledFile(activePlugin) : undefined;
+  }, [activePlugin, installedFiles]);
 
   // Resolve icon for an installed file (from API response or catalog match)
   const getPluginIconForFile = (filename: string, fileIcon?: string | null): string | null => {
@@ -1113,9 +1126,7 @@ export default function PluginInstallerContainer() {
         )}
 
         {/* VERSION SELECTOR MODAL */}
-        {installModalOpen && activePlugin && (() => {
-          const activeInstalledMatch = getInstalledFile(activePlugin);
-          return (
+        {installModalOpen && activePlugin && (
           <div className={'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm'}>
             <div className={'bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden'}>
               {/* Modal Header */}
@@ -1228,8 +1239,7 @@ export default function PluginInstallerContainer() {
                     const isInstalled =
                       installedVersions[ver.id] ||
                       (primaryFile && installedFiles.some((f) => f.name.toLowerCase() === primaryFile.filename.toLowerCase())) ||
-                      (!!activeInstalledMatch && !!ver.version_number && ver.version_number !== 'latest' && activeInstalledMatch.name.toLowerCase().includes(ver.version_number.toLowerCase())) ||
-                      (filteredVersions.length === 1 && !!activeInstalledMatch);
+                      (!!activeInstalledMatch && !!ver.version_number && ver.version_number !== 'latest' && activeInstalledMatch.name.toLowerCase().includes(ver.version_number.toLowerCase()));
                     const isInstalling = installingVersionId === ver.id;
 
                     const typeBadgeColor =
@@ -1270,15 +1280,18 @@ export default function PluginInstallerContainer() {
                           </div>
                         </div>
 
-                        {/* Install Button */}
+                        {/* Install / Reinstall Button */}
                         <button
                           onClick={() => handleInstallVersion(ver)}
                           disabled={isInstalling || !primaryFile}
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                            isInstalled
-                              ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-[#034f80] hover:bg-[#023e65] text-white shadow-md shadow-[#034f80]/30'
+                            isInstalling || !primaryFile
+                              ? 'opacity-60 cursor-not-allowed bg-neutral-800 text-neutral-400 border border-neutral-700'
+                              : isInstalled
+                              ? 'bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 cursor-pointer'
+                              : 'bg-[#034f80] hover:bg-[#023e65] text-white shadow-md shadow-[#034f80]/30 cursor-pointer'
                           }`}
+                          title={isInstalled ? 'Reinstall or update this version' : 'Install this version'}
                         >
                           {isInstalling ? (
                             <>
@@ -1288,7 +1301,7 @@ export default function PluginInstallerContainer() {
                           ) : isInstalled ? (
                             <>
                               <FontAwesomeIcon icon={faCheck} />
-                              Installed
+                              Reinstall
                             </>
                           ) : (
                             <>
@@ -1314,7 +1327,7 @@ export default function PluginInstallerContainer() {
               </div>
             </div>
           </div>
-        )})}
+        )}
       </div>
     </ServerContentBlock>
   );
