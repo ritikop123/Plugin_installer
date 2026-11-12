@@ -59,6 +59,10 @@ interface PteroFileItem {
   isFile: boolean;
   modifiedAt: string;
   icon_url?: string | null;
+  title?: string | null;
+  plugin_id?: string | null;
+  slug?: string | null;
+  provider?: string | null;
 }
 
 const COMMON_LOADERS = [
@@ -220,7 +224,16 @@ export default function PluginInstallerContainer() {
         .filter((f) => f.isFile && /\.(jar|zip)$/i.test(f.name));
     };
 
-    http.get<Array<{ name: string; size: number; modified_at?: string; icon_url?: string | null }>>(
+    http.get<Array<{
+      name: string;
+      size: number;
+      modified_at?: string;
+      icon_url?: string | null;
+      title?: string | null;
+      plugin_id?: string | null;
+      slug?: string | null;
+      provider?: string | null;
+    }>>(
       `/api/client/servers/${uuid}/plugins/installed`
     )
       .then((res) => {
@@ -233,6 +246,10 @@ export default function PluginInstallerContainer() {
               isFile: true,
               modifiedAt: item.modified_at || '',
               icon_url: item.icon_url || null,
+              title: item.title || null,
+              plugin_id: item.plugin_id ? String(item.plugin_id) : null,
+              slug: item.slug || null,
+              provider: item.provider || null,
             }))
           );
           setLoadingInstalled(false);
@@ -348,6 +365,8 @@ export default function PluginInstallerContainer() {
         params: {
           plugin: pluginId,
           provider,
+          title: plugin.title,
+          slug: plugin.slug,
           loader: selectedLoader !== 'all' ? selectedLoader : undefined,
           game_version: selectedVersion !== 'all' ? selectedVersion : undefined,
         },
@@ -380,21 +399,39 @@ export default function PluginInstallerContainer() {
     setInstallNotice(null);
 
     try {
-      const res = await http.post<{ success: boolean; message?: string }>(
+      const res = await http.post<{ success: boolean; message?: string; filename?: string }>(
         `/api/client/servers/${uuid}/plugins/install`,
         {
           url: file.url,
           filename: file.filename,
           icon_url: activePlugin.icon_url,
           title: activePlugin.title,
+          plugin_id: activePlugin.project_id || activePlugin.id || activePlugin.slug,
+          slug: activePlugin.slug,
+          provider: (activePlugin as any).provider || selectedProvider,
         }
       );
 
+      const savedFilename = res.data.filename || file.filename;
       setInstalledVersions((prev) => ({ ...prev, [ver.id]: true }));
       setInstallNotice({
         success: true,
-        message: res.data.message || `Plugin ${file.filename} was installed successfully!`,
+        message: res.data.message || `Plugin ${savedFilename} was installed successfully!`,
       });
+
+      // Optimistically add to installedFiles so UI immediately reflects installed state
+      const newFileItem: PteroFileItem = {
+        name: savedFilename,
+        size: file.size || 0,
+        isFile: true,
+        modifiedAt: new Date().toISOString(),
+        icon_url: activePlugin.icon_url,
+        title: activePlugin.title,
+        plugin_id: activePlugin.project_id || activePlugin.id || activePlugin.slug,
+        slug: activePlugin.slug,
+        provider: (activePlugin as any).provider || selectedProvider,
+      };
+      setInstalledFiles((prev) => [newFileItem, ...prev.filter((f) => f.name !== newFileItem.name)]);
       fetchInstalledPlugins();
     } catch (err: any) {
       const serverMsg =
@@ -422,6 +459,7 @@ export default function PluginInstallerContainer() {
     try {
       await http.post(`/api/client/servers/${uuid}/plugins/delete`, { filename });
       setInstalledFiles((prev) => prev.filter((f) => f.name !== filename));
+      setInstalledVersions({});
     } catch (err: unknown) {
       alert(httpErrorToHuman(err) || `Failed to delete ${filename}.`);
     } finally {
@@ -431,14 +469,68 @@ export default function PluginInstallerContainer() {
 
   // Check if a plugin hit matches an installed file on server
   const getInstalledFile = (plugin: ModrinthPluginHit): PteroFileItem | undefined => {
-    const titleClean = plugin.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const slugClean = (plugin.slug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const pluginId = String(plugin.project_id || plugin.id || '').trim();
+    const rawTitle = (plugin.title || '').trim();
+    const rawSlug = (plugin.slug || '').trim();
+
+    // 1. Direct ID / Slug / Title match from server metadata
+    const directMetaMatch = installedFiles.find((f) => {
+      if (pluginId && f.plugin_id && String(f.plugin_id).toLowerCase() === pluginId.toLowerCase()) {
+        return true;
+      }
+      if (rawSlug && f.slug && f.slug.toLowerCase() === rawSlug.toLowerCase()) {
+        return true;
+      }
+      if (rawTitle && f.title && f.title.toLowerCase() === rawTitle.toLowerCase()) {
+        return true;
+      }
+      return false;
+    });
+    if (directMetaMatch) return directMetaMatch;
+
+    // 2. Cleaned Base Title & Cleaned Filename matching
+    // Extract base plugin name: e.g. "LuckPerms | An advanced..." -> "luckperms"
+    // "ClearLagg - Prevent lag! [1.8 - 1.21]" -> "clearlagg"
+    // "WorldEdit [1.13 - 1.21.3]" -> "worldedit"
+    const cleanBaseTitle = rawTitle
+      .replace(/(\[[^\]]*\]|\([^\)]*\))/g, '')
+      .split(/[\/|:–—\-]/)[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    const fullTitleClean = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const slugClean = rawSlug.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     return installedFiles.find((f) => {
       const fn = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return (
-        (titleClean.length >= 3 && fn.includes(titleClean)) ||
-        (slugClean.length >= 3 && fn.includes(slugClean))
-      );
+      const fnNoExt = f.name.toLowerCase().replace(/\.(jar|zip)$/i, '').replace(/[^a-z0-9]/g, '');
+
+      // Check Spigot ID pattern in filename: e.g. "spigot-28140-1.0.jar" or "28140.jar" matches pluginId "28140"
+      if (pluginId && pluginId.length >= 2 && (fn.includes(`spigot${pluginId}`) || fn.startsWith(pluginId) || fn === `${pluginId}jar`)) {
+        return true;
+      }
+
+      // Base title match: e.g. "luckperms" in "luckperms54102jar"
+      if (cleanBaseTitle.length >= 3 && fn.includes(cleanBaseTitle)) {
+        return true;
+      }
+
+      // Reverse check: e.g. filename base in title
+      if (fnNoExt.length >= 4 && cleanBaseTitle.includes(fnNoExt)) {
+        return true;
+      }
+
+      // Full title match
+      if (fullTitleClean.length >= 3 && (fn.includes(fullTitleClean) || fullTitleClean.includes(fnNoExt))) {
+        return true;
+      }
+
+      // Slug match
+      if (slugClean.length >= 3 && (fn.includes(slugClean) || slugClean.includes(fnNoExt))) {
+        return true;
+      }
+
+      return false;
     });
   };
 
@@ -449,9 +541,17 @@ export default function PluginInstallerContainer() {
     const found = plugins.find((p) => {
       const titleClean = p.title.toLowerCase().replace(/[^a-z0-9]/g, '');
       const slugClean = (p.slug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const baseClean = p.title
+        .replace(/(\[[^\]]*\]|\([^\)]*\))/g, '')
+        .split(/[\/|:–—\-]/)[0]
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+
       return (
+        (baseClean.length >= 3 && fnClean.includes(baseClean)) ||
         (titleClean.length >= 3 && fnClean.includes(titleClean)) ||
-        (slugClean.length >= 3 && fnClean.includes(slugClean))
+        (slugClean.length >= 3 && fnClean.includes(slugClean)) ||
+        (p.id && fnClean.includes(String(p.id).toLowerCase()))
       );
     });
     return found?.icon_url || null;
@@ -984,9 +1084,12 @@ export default function PluginInstallerContainer() {
                           <FontAwesomeIcon icon={faPuzzlePiece} />
                         </div>
                         <div className={'min-w-0'}>
-                          <p className={'text-xs font-bold text-neutral-100 truncate'} title={file.name}>
-                            {file.name}
+                          <p className={'text-xs font-bold text-neutral-100 truncate'} title={file.title || file.name}>
+                            {file.title || file.name}
                           </p>
+                          {file.title && file.title !== file.name && (
+                            <p className={'text-[10px] text-neutral-400 truncate font-mono'}>{file.name}</p>
+                          )}
                           <p className={'text-[11px] text-neutral-400'}>
                             {formatSize(file.size)} {file.modifiedAt ? `• ${formatTimeAgo(file.modifiedAt)}` : ''}
                           </p>
@@ -1010,7 +1113,9 @@ export default function PluginInstallerContainer() {
         )}
 
         {/* VERSION SELECTOR MODAL */}
-        {installModalOpen && activePlugin && (
+        {installModalOpen && activePlugin && (() => {
+          const activeInstalledMatch = getInstalledFile(activePlugin);
+          return (
           <div className={'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm'}>
             <div className={'bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden'}>
               {/* Modal Header */}
@@ -1024,7 +1129,15 @@ export default function PluginInstallerContainer() {
                     </div>
                   )}
                   <div className={'min-w-0'}>
-                    <h3 className={'text-sm font-bold text-neutral-100 truncate'}>{activePlugin.title}</h3>
+                    <div className={'flex items-center gap-2 flex-wrap'}>
+                      <h3 className={'text-sm font-bold text-neutral-100 truncate'}>{activePlugin.title}</h3>
+                      {activeInstalledMatch && (
+                        <span className={'px-2 py-0.5 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full font-semibold flex items-center gap-1 shrink-0'}>
+                          <FontAwesomeIcon icon={faCheck} className={'text-[9px]'} />
+                          Installed ({activeInstalledMatch.name})
+                        </span>
+                      )}
+                    </div>
                     <p className={'text-[11px] text-neutral-400'}>Select Version to Install</p>
                   </div>
                 </div>
@@ -1112,7 +1225,11 @@ export default function PluginInstallerContainer() {
                 ) : (
                   filteredVersions.map((ver) => {
                     const primaryFile = ver.files?.find((f) => f.primary) || ver.files?.[0];
-                    const isInstalled = installedVersions[ver.id];
+                    const isInstalled =
+                      installedVersions[ver.id] ||
+                      (primaryFile && installedFiles.some((f) => f.name.toLowerCase() === primaryFile.filename.toLowerCase())) ||
+                      (!!activeInstalledMatch && !!ver.version_number && ver.version_number !== 'latest' && activeInstalledMatch.name.toLowerCase().includes(ver.version_number.toLowerCase())) ||
+                      (filteredVersions.length === 1 && !!activeInstalledMatch);
                     const isInstalling = installingVersionId === ver.id;
 
                     const typeBadgeColor =
@@ -1197,7 +1314,7 @@ export default function PluginInstallerContainer() {
               </div>
             </div>
           </div>
-        )}
+        )})}
       </div>
     </ServerContentBlock>
   );

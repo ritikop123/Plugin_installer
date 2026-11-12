@@ -124,6 +124,27 @@ class PluginInstallerController extends ClientApiController
     }
 
     /**
+     * Clean plugin name by removing version brackets, tags, and common title separators.
+     */
+    protected function cleanPluginName(string $rawName): string
+    {
+        $name = trim($rawName);
+        // Remove version tags in brackets or parentheses: [1.8 - 1.21], (FAWE), [UPDATED], etc.
+        $name = preg_replace('/(\[[^\]]*\]|\([^\)]*\))/u', ' ', $name);
+        // Split on common tagline separators: ' | ', ' - ', ' — ', ' : ', ' / '
+        $parts = preg_split('/(?:\s+[|–—:\/]\s+|\s+-\s+)/u', $name);
+        $candidate = trim($parts[0] ?? $name);
+        if (empty($candidate)) {
+            $candidate = $name;
+        }
+        // Remove characters unsafe for filenames but keep alphanumeric, dash, dot, space, underscore
+        $candidate = preg_replace('/[^a-zA-Z0-9_\-\.\+ ]/u', '', $candidate);
+        $candidate = trim(preg_replace('/\s+/', ' ', $candidate));
+
+        return !empty($candidate) ? $candidate : 'plugin';
+    }
+
+    /**
      * Search SpigotMC resources using Spiget API.
      */
     protected function searchSpigot(string $query, int $page, int $limit): JsonResponse
@@ -155,11 +176,14 @@ class PluginInstallerController extends ClientApiController
                     $iconUrl = 'data:image/png;base64,' . $item['icon']['data'];
                 }
 
+                $cleanTitle = $this->cleanPluginName($item['name']);
+
                 $hits[] = [
                     'project_id' => (string) $item['id'],
                     'id' => (string) $item['id'],
-                    'slug' => Str::slug($item['name']) ?: (string) $item['id'],
+                    'slug' => Str::slug($cleanTitle) ?: (string) $item['id'],
                     'title' => $item['name'],
+                    'clean_title' => $cleanTitle,
                     'author' => !empty($item['author']['id']) ? 'Author #' . $item['author']['id'] : 'SpigotMC',
                     'description' => $item['tag'] ?? 'SpigotMC Resource',
                     'categories' => ['spigot', 'bukkit'],
@@ -313,7 +337,7 @@ class PluginInstallerController extends ClientApiController
         switch ($provider) {
             case 'spigotmc':
             case 'spigot':
-                return $this->getSpigotVersions($pluginId);
+                return $this->getSpigotVersions($pluginId, $request);
             case 'hangar':
                 return $this->getHangarVersions($pluginId);
             case 'curseforge':
@@ -353,9 +377,30 @@ class PluginInstallerController extends ClientApiController
         }
     }
 
-    protected function getSpigotVersions(string $pluginId): JsonResponse
+    protected function getSpigotVersions(string $pluginId, Request $request): JsonResponse
     {
         try {
+            // Get plugin title/name if passed, or fetch resource from Spiget
+            $rawTitle = trim((string) $request->query('title', $request->query('name', $request->query('slug', ''))));
+            $externalUrl = null;
+
+            if (empty($rawTitle)) {
+                try {
+                    $resInfo = $this->httpClient->get(self::SPIGET_API . "resources/{$pluginId}", ['timeout' => 5]);
+                    if ($resInfo->getStatusCode() === 200) {
+                        $resData = json_decode($resInfo->getBody()->getContents(), true);
+                        if (!empty($resData['name'])) {
+                            $rawTitle = $resData['name'];
+                        }
+                        if (!empty($resData['file']['externalUrl'])) {
+                            $externalUrl = $resData['file']['externalUrl'];
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            $cleanBase = $this->cleanPluginName($rawTitle ?: "plugin-{$pluginId}");
+
             $response = $this->httpClient->get(self::SPIGET_API . "resources/{$pluginId}/versions", [
                 'query' => ['size' => 15, 'sort' => '-releaseDate'],
             ]);
@@ -366,8 +411,14 @@ class PluginInstallerController extends ClientApiController
             foreach ($items as $item) {
                 $verName = $item['name'] ?? 'Latest';
                 $verId = (string) ($item['id'] ?? $verName);
-                $downloadUrl = self::SPIGET_API . "resources/{$pluginId}/download";
-                $filename = "spigot-{$pluginId}-{$verName}.jar";
+                $downloadUrl = !empty($externalUrl) ? $externalUrl : (self::SPIGET_API . "resources/{$pluginId}/download");
+
+                $cleanVer = trim(preg_replace('/[^a-zA-Z0-9_\.\-]/', '', $verName));
+                if (!empty($cleanVer) && strtolower($cleanVer) !== 'latest') {
+                    $filename = "{$cleanBase}-{$cleanVer}.jar";
+                } else {
+                    $filename = "{$cleanBase}.jar";
+                }
 
                 $versions[] = [
                     'id' => $verId,
@@ -389,6 +440,7 @@ class PluginInstallerController extends ClientApiController
             }
 
             if (empty($versions)) {
+                $downloadUrl = !empty($externalUrl) ? $externalUrl : (self::SPIGET_API . "resources/{$pluginId}/download");
                 $versions[] = [
                     'id' => 'latest',
                     'name' => 'Latest Version',
@@ -398,8 +450,8 @@ class PluginInstallerController extends ClientApiController
                     'loaders' => ['spigot', 'paper', 'bukkit'],
                     'files' => [
                         [
-                            'url' => self::SPIGET_API . "resources/{$pluginId}/download",
-                            'filename' => "spigot-{$pluginId}.jar",
+                            'url' => $downloadUrl,
+                            'filename' => "{$cleanBase}.jar",
                             'primary' => true,
                             'size' => 0,
                         ],
@@ -568,8 +620,13 @@ class PluginInstallerController extends ClientApiController
 
         $url = (string) $request->input('url', '');
         $filename = (string) $request->input('filename', '');
+        $pluginTitle = (string) $request->input('title', '');
+        $iconUrl = (string) $request->input('icon_url', '');
+        $pluginId = (string) $request->input('plugin_id', '');
+        $slug = (string) $request->input('slug', '');
+        $provider = (string) $request->input('provider', '');
 
-        // 1. Resolve potential Spiget / GitHub release redirects to direct .jar assets
+        // 1. Resolve potential Spiget / CDN redirects to direct download URLs
         if (str_contains($url, 'api.spiget.org') && str_contains($url, '/download')) {
             try {
                 $headRes = $this->httpClient->get($url, [
@@ -585,38 +642,66 @@ class PluginInstallerController extends ClientApiController
             } catch (Throwable $e) {}
         }
 
-        // If URL points to a GitHub release tag page (e.g. EssentialsX), resolve the direct .jar release asset
-        if (str_contains($url, 'github.com') && preg_match('{github\.com/([^/]+)/([^/]+)/releases/tag/([^/?#]+)}i', $url, $m)) {
+        // 2. Resolve GitHub release tag page or tag redirect to direct .jar release asset
+        if (str_contains($url, 'github.com') && preg_match('{github\.com/([^/]+)/([^/]+)/releases/(?:tag|expanded_assets)/([^/?#]+)}i', $url, $m)) {
+            $ghOwner = $m[1];
+            $ghRepo = $m[2];
+            $ghTag = $m[3];
+            $resolvedJarUrl = null;
+            $resolvedJarName = null;
+
+            // Attempt A: Official GitHub API
             try {
-                $ghApi = "https://api.github.com/repos/{$m[1]}/{$m[2]}/releases/tags/{$m[3]}";
+                $ghApi = "https://api.github.com/repos/{$ghOwner}/{$ghRepo}/releases/tags/{$ghTag}";
                 $ghRes = $this->httpClient->get($ghApi, [
                     'headers' => [
                         'User-Agent' => self::USER_AGENT,
                         'Accept' => 'application/vnd.github.v3+json',
                     ],
-                    'timeout' => 8,
+                    'timeout' => 6,
                 ]);
                 if ($ghRes->getStatusCode() === 200) {
                     $ghData = json_decode($ghRes->getBody()->getContents(), true);
                     $assets = $ghData['assets'] ?? [];
-                    $jarAsset = null;
                     foreach ($assets as $asset) {
                         $assetName = $asset['name'] ?? '';
                         if (str_ends_with(strtolower($assetName), '.jar')) {
                             if (!str_contains(strtolower($assetName), 'javadoc') && !str_contains(strtolower($assetName), 'sources')) {
-                                $jarAsset = $asset;
+                                $resolvedJarUrl = $asset['browser_download_url'] ?? null;
+                                $resolvedJarName = $assetName;
                                 break;
                             }
                         }
                     }
-                    if ($jarAsset && !empty($jarAsset['browser_download_url'])) {
-                        $url = $jarAsset['browser_download_url'];
-                        if (empty($filename) || $filename === 'plugin.jar') {
-                            $filename = $jarAsset['name'];
-                        }
-                    }
                 }
             } catch (Throwable $e) {}
+
+            // Attempt B: If GitHub API failed (e.g. rate limit), scrape release HTML page directly
+            if (empty($resolvedJarUrl)) {
+                try {
+                    $htmlRes = $this->httpClient->get("https://github.com/{$ghOwner}/{$ghRepo}/releases/tag/{$ghTag}", [
+                        'headers' => [
+                            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Accept' => 'text/html,application/xhtml+xml',
+                        ],
+                        'timeout' => 8,
+                    ]);
+                    if ($htmlRes->getStatusCode() === 200) {
+                        $html = $htmlRes->getBody()->getContents();
+                        if (preg_match('{href="(/'.preg_quote($ghOwner, '{').'/'.preg_quote($ghRepo, '{').'/releases/download/[^"]+?\.jar)"}i', $html, $assetMatch)) {
+                            $resolvedJarUrl = "https://github.com" . $assetMatch[1];
+                            $resolvedJarName = basename($assetMatch[1]);
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            if (!empty($resolvedJarUrl)) {
+                $url = $resolvedJarUrl;
+                if (!empty($resolvedJarName)) {
+                    $filename = $resolvedJarName;
+                }
+            }
         }
 
         // Validate URL: require HTTPS
@@ -630,47 +715,49 @@ class PluginInstallerController extends ClientApiController
         }
 
         $host = strtolower($parsedUrl['host'] ?? '');
-        $allowedSuffixes = [
-            'modrinth.com',
-            'spiget.org',
-            'spigotmc.org',
-            'papermc.io',
-            'forgecdn.net',
-            'curseforge.com',
-            'curse.tools',
-            'github.com',
-            'githubusercontent.com',
-            'amazonaws.com',
-            'geysermc.org',
-            'opencollab.dev',
-            'viaversion.com',
-            'dmulloy2.net',
-            'enginehub.org',
-            'ender.zone',
-            'jitpack.io',
-            'gitlab.com',
-            'codeberg.org',
-            'jsdelivr.net',
-            'creeper.host',
-        ];
+        if (empty($host)) {
+            return response()->json(['error' => 'Invalid download host in URL.'], 400);
+        }
 
-        $isAllowedHost = false;
-        foreach ($allowedSuffixes as $suffix) {
-            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
-                $isAllowedHost = true;
-                break;
+        // SSRF protection: reject local, loopback, link-local, and cloud metadata endpoints
+        $blockedHosts = [
+            'localhost',
+            '127.0.0.1',
+            '::1',
+            '0.0.0.0',
+            '169.254.169.254',
+            'metadata.google.internal',
+            'instance-data',
+        ];
+        if (in_array($host, $blockedHosts, true)) {
+            return response()->json(['error' => 'Access to internal or private hosts is prohibited.'], 403);
+        }
+
+        $resolvedIp = gethostbyname($host);
+        if ($resolvedIp !== $host) {
+            if (!filter_var($resolvedIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                return response()->json(['error' => "Resolved IP address for {$host} is in a reserved or private network range."], 403);
             }
         }
 
-        if (!$isAllowedHost) {
-            return response()->json(['error' => "Untrusted download host ({$host}). Only verified plugin CDN URLs are allowed."], 400);
-        }
-
-        // 2. Validate and Sanitize Filename
+        // 3. Validate and Sanitize Filename with Spigot Proper Name Support
         $filename = trim((string) urldecode($filename));
-        if (empty($filename)) {
-            $urlPath = parse_url($url, PHP_URL_PATH) ?? '';
-            $filename = basename($urlPath);
+
+        // If filename is missing, generic, or a Spigot numeric/temp placeholder, use cleaned title
+        if (
+            empty($filename) ||
+            preg_match('/^(plugin|download|file|spigot-\d+[\w\.\-]*|\d+)\.(jar|zip)$/i', $filename)
+        ) {
+            if (!empty($pluginTitle)) {
+                $cleanName = $this->cleanPluginName($pluginTitle);
+                $filename = "{$cleanName}.jar";
+            } else {
+                $urlPath = parse_url($url, PHP_URL_PATH) ?? '';
+                $urlBasename = basename($urlPath);
+                if (!empty($urlBasename) && !preg_match('/^\d+\.(jar|zip)$/i', $urlBasename)) {
+                    $filename = $urlBasename;
+                }
+            }
         }
 
         // Remove path traversal characters, directory separators, and null bytes
@@ -689,7 +776,7 @@ class PluginInstallerController extends ClientApiController
         }
 
         if (empty($cleanFilename) || $cleanFilename === '.jar' || $cleanFilename === '.zip') {
-            $cleanFilename = 'plugin.jar';
+            $cleanFilename = !empty($pluginTitle) ? ($this->cleanPluginName($pluginTitle) . '.jar') : 'plugin.jar';
         }
 
         if (
@@ -702,14 +789,14 @@ class PluginInstallerController extends ClientApiController
         }
 
         try {
-            // 3. Ensure the /plugins directory exists
+            // 4. Ensure the /plugins directory exists
             try {
                 $this->fileRepository->setServer($server)->createDirectory('plugins', '/');
             } catch (Throwable $e) {}
 
             $installedSuccessfully = false;
 
-            // Strategy A: Wings direct pull (foreground => false ensures immediate async pull without gateway timeout)
+            // Strategy A: Wings direct pull (synchronous foreground pull guarantees file is written before API returns)
             try {
                 $this->fileRepository->setServer($server)->pull(
                     $url,
@@ -717,7 +804,7 @@ class PluginInstallerController extends ClientApiController
                     [
                         'filename' => $cleanFilename,
                         'use_header' => false,
-                        'foreground' => false,
+                        'foreground' => true,
                     ]
                 );
                 $installedSuccessfully = true;
@@ -734,12 +821,30 @@ class PluginInstallerController extends ClientApiController
                             'User-Agent' => self::USER_AGENT,
                             'Accept' => '*/*',
                         ],
-                        'timeout' => 45,
+                        'allow_redirects' => [
+                            'max' => 10,
+                            'strict' => false,
+                            'referer' => true,
+                        ],
+                        'timeout' => 60,
                     ]);
 
                     if ($dlRes->getStatusCode() === 200) {
                         $contents = $dlRes->getBody()->getContents();
                         if (!empty($contents)) {
+                            // Check if remote server supplied a proper Content-Disposition filename
+                            $disp = $dlRes->getHeaderLine('Content-Disposition');
+                            if (!empty($disp) && preg_match('/filename\*?=(?:UTF-8\'\')?["\']?([^";\r\n]+)["\']?/i', $disp, $dispMatch)) {
+                                $dispFilename = trim(urldecode($dispMatch[1]));
+                                if (preg_match('/\.jar$/i', $dispFilename) && !preg_match('/^\d+\.jar$/i', $dispFilename)) {
+                                    $sanitizedDisp = basename(str_replace(['\\', '/', "\0"], '', $dispFilename));
+                                    $sanitizedDisp = preg_replace('/[^a-zA-Z0-9_\-\.\+\s\(\)\[\],]/', '_', $sanitizedDisp);
+                                    if (!empty($sanitizedDisp) && preg_match('/\.jar$/i', $sanitizedDisp)) {
+                                        $cleanFilename = $sanitizedDisp;
+                                    }
+                                }
+                            }
+
                             $this->fileRepository->setServer($server)->putContent("/plugins/{$cleanFilename}", $contents);
                             $installedSuccessfully = true;
                         }
@@ -759,25 +864,28 @@ class PluginInstallerController extends ClientApiController
                 ], 502);
             }
 
-            // 5. Cache icon if provided and update /plugins/.plugins_meta.json
-            $iconUrl = (string) $request->input('icon_url', '');
-            $pluginTitle = (string) $request->input('title', $cleanFilename);
+            // 5. Always record metadata in /plugins/.plugins_meta.json
             if (!empty($iconUrl) && filter_var($iconUrl, FILTER_VALIDATE_URL)) {
                 Cache::put('ptero_plugin_icon_' . md5(strtolower($cleanFilename)), $iconUrl, 604800);
-                try {
-                    $meta = [];
-                    try {
-                        $metaContent = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
-                        $meta = json_decode($metaContent, true) ?: [];
-                    } catch (Throwable $e) {}
-                    $meta[$cleanFilename] = [
-                        'icon_url' => $iconUrl,
-                        'title' => $pluginTitle,
-                        'installed_at' => date('c'),
-                    ];
-                    $this->fileRepository->setServer($server)->putContent('/plugins/.plugins_meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-                } catch (Throwable $e) {}
             }
+
+            try {
+                $meta = [];
+                try {
+                    $metaContent = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+                    $meta = json_decode($metaContent, true) ?: [];
+                } catch (Throwable $e) {}
+
+                $meta[$cleanFilename] = [
+                    'icon_url' => $iconUrl ?: ($meta[$cleanFilename]['icon_url'] ?? null),
+                    'title' => !empty($pluginTitle) ? $pluginTitle : ($meta[$cleanFilename]['title'] ?? $cleanFilename),
+                    'plugin_id' => !empty($pluginId) ? $pluginId : ($meta[$cleanFilename]['plugin_id'] ?? null),
+                    'slug' => !empty($slug) ? $slug : ($meta[$cleanFilename]['slug'] ?? null),
+                    'provider' => !empty($provider) ? $provider : ($meta[$cleanFilename]['provider'] ?? null),
+                    'installed_at' => date('c'),
+                ];
+                $this->fileRepository->setServer($server)->putContent('/plugins/.plugins_meta.json', json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            } catch (Throwable $e) {}
 
             return response()->json([
                 'success' => true,
@@ -809,22 +917,35 @@ class PluginInstallerController extends ClientApiController
         try {
             $items = $this->fileRepository->setServer($server)->getDirectory('/plugins');
             $files = [];
+
+            $meta = [];
+            try {
+                $content = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+                $meta = json_decode($content, true) ?: [];
+            } catch (Throwable $e) {}
+
             if (is_array($items)) {
                 foreach ($items as $item) {
                     $name = $item['name'] ?? '';
-                    $isFile = !empty($item['file']) || !empty($item['is_file']) || (isset($item['directory']) && !$item['directory']);
+                    $isFile = !empty($item['file']) || !empty($item['is_file']) || (isset($item['directory']) && !$item['directory']) || (isset($item['is_directory']) && !$item['is_directory']);
                     if ($isFile && preg_match('/\.(jar|zip)$/i', $name)) {
+                        $metaItem = $meta[$name] ?? [];
                         $files[] = [
                             'name' => $name,
                             'size' => (int) ($item['size'] ?? 0),
                             'modified_at' => $item['modified_at'] ?? $item['modifiedAt'] ?? '',
+                            'icon_url' => $metaItem['icon_url'] ?? null,
+                            'title' => $metaItem['title'] ?? null,
+                            'plugin_id' => $metaItem['plugin_id'] ?? null,
+                            'slug' => $metaItem['slug'] ?? null,
+                            'provider' => $metaItem['provider'] ?? null,
                         ];
                     }
                 }
             }
 
             if (!empty($files)) {
-                $files = $this->enrichPluginIcons($server, $files);
+                $files = $this->enrichPluginIcons($server, $files, $meta);
             }
 
             return response()->json($files);
@@ -836,13 +957,14 @@ class PluginInstallerController extends ClientApiController
     /**
      * Enrich installed plugin file items with their icons.
      */
-    protected function enrichPluginIcons(Server $server, array $files): array
+    protected function enrichPluginIcons(Server $server, array $files, array $meta = []): array
     {
-        $meta = [];
-        try {
-            $content = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
-            $meta = json_decode($content, true) ?: [];
-        } catch (Throwable $e) {}
+        if (empty($meta)) {
+            try {
+                $content = $this->fileRepository->setServer($server)->getContent('/plugins/.plugins_meta.json');
+                $meta = json_decode($content, true) ?: [];
+            } catch (Throwable $e) {}
+        }
 
         $toQuery = [];
         foreach ($files as $idx => &$file) {
