@@ -37,9 +37,21 @@ fi
 
 cd "$PTERO_DIR"
 
+CACHE_BUST="$(date +%s%N)"
 ROUTES_TS="resources/scripts/routers/routes.ts"
 ROUTES_PHP="routes/api-client.php"
 SERVER_ROUTER="resources/scripts/routers/ServerRouter.tsx"
+
+if [ -f "app/Services/Demo/DemoPanelService.php" ] || grep -qE "DemoModeMiddleware|DemoBanner" app/Http/Kernel.php resources/scripts/components/App.tsx 2>/dev/null; then
+  echo -e "${CYAN}[*] Removing Demo Mode account, dummy server, and security/simulator patches...${NC}"
+  php artisan ptero:demo-setup --remove 2>/dev/null || true
+  curl -fsSL "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/pterodactyl-addon/unpatch-demo-mode.php?t=${CACHE_BUST}" \
+    -o "/tmp/ptero_unpatch_demo_mode.php" || true
+  if [ -f "/tmp/ptero_unpatch_demo_mode.php" ]; then
+    php /tmp/ptero_unpatch_demo_mode.php || true
+    rm -f /tmp/ptero_unpatch_demo_mode.php
+  fi
+fi
 
 echo -e "${CYAN}[*] Removing addons components and controllers...${NC}"
 rm -rf "resources/scripts/components/server/plugin-installer" 2>/dev/null || true
@@ -67,6 +79,12 @@ rm -f "resources/scripts/components/dashboard/ServerUptime.tsx" 2>/dev/null || t
 rm -f "database/migrations/2026_09_07_000000_add_auto_suspension_to_servers_table.php" 2>/dev/null || true
 rm -f "database/migrations/2026_09_07_000001_add_plan_details_to_servers_table.php" 2>/dev/null || true
 rm -f "database/migrations/2026_11_08_000000_add_burst_cpu_to_servers_table.php" 2>/dev/null || true
+rm -f "database/migrations/2026_11_17_000000_add_demo_flags_to_users_and_servers.php" 2>/dev/null || true
+rm -f "app/Services/Demo/DemoPanelService.php" 2>/dev/null || true
+rmdir "app/Services/Demo" 2>/dev/null || true
+rm -f "app/Http/Middleware/DemoModeMiddleware.php" 2>/dev/null || true
+rm -f "app/Console/Commands/DemoAccountSetupCommand.php" 2>/dev/null || true
+rm -f "resources/scripts/components/elements/DemoBanner.tsx" 2>/dev/null || true
 
 echo -e "${CYAN}[*] Cleaning routes from routes/api-client.php...${NC}"
 cat << 'PHP_CLEAN_EOF' > /tmp/ptero_clean_api.php

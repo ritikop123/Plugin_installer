@@ -11,6 +11,7 @@ A native, secure suite of Minecraft server management addons built specifically 
 - 🆔 **Server Support IDs**: Every server receives a persistent unique support ID shown in its console header and searchable in **Admin → Servers**.
 - 💾 **Automated Daily Backups & Clean Auto-Purge**: 1-click modal for users to set daily backup time (24h format), live status badge in the server header, automated daily snapshot with old automated backup purging, and `[Automated]` badge tagging in the backup list.
 - ☁️ **Google Drive Cloud Backup**: Link personal Google Drive via OAuth or token, auto-mirror daily backups to Google Drive, and upload backups offsite on demand.
+- 👀 **Demo Account & Dummy Server Preview**: Instant `demo@gmail.com` / `demo` preview account with an isolated dummy Minecraft server that cannot be started, showcases every panel & addon feature, allows logging out, and locks account name, email, password, and 2FA settings.
 
 Repository: [https://github.com/ritikop123/Plugin_installer](https://github.com/ritikop123/Plugin_installer)
 
@@ -152,6 +153,15 @@ In your Pterodactyl panel:
 - **In-Panel Expiration Alerts**:
   - A prominent alert banner appears in the server options view (`/options`) when a server has 3 days or fewer remaining, displaying exact days and renewal reminders.
   - If suspended, a clear suspension notice informs the user without confusing technical jargon.
+
+### 8. Demo Account & Panel Preview (`demo@gmail.com` / `demo`)
+- **Pre-configured Demo Account**: Logs in with `demo@gmail.com` and password `demo` (customizable via `php artisan ptero:demo-setup --email=... --password=...`).
+- **Isolated Dummy Server (Cannot Be Started)**: Uses an isolated virtual preview node with simulated offline console output, resource metrics, virtual file system, installed plugins/mods, 3D player models & inventories, worlds, backups, and AI diagnostics—without touching any real Wings node or allowing server start/power commands.
+- **Full Feature Exploration + Locked Account**: Visitors can browse every feature of the panel and sign out anytime, while account name, username, email, password, 2FA, API keys, SSH keys, and server mutations are strictly blocked at both the UI and backend middleware/model layers.
+- **Easy Management**:
+  - Install standalone: `bash install-demo.sh` (or choose option `9` in `install-arix.sh`, or run `bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/install-demo.sh?$(date +%s)")`)
+  - Reset demo account & dummy data: `php artisan ptero:demo-setup --reset`
+  - Remove demo account & dummy server: `php artisan ptero:demo-setup --remove`
 
 ---
 

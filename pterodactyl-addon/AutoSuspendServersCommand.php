@@ -28,8 +28,20 @@ class AutoSuspendServersCommand extends Command
     {
         $now = Carbon::now();
 
+        // 0. Keep demo servers active and renew their rolling 14-day preview window
+        if (\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo')) {
+            Server::query()
+                ->where('is_demo', true)
+                ->where(function ($q) use ($now) {
+                    $q->whereNull('expire_at')
+                      ->orWhere('expire_at', '<=', $now->copy()->addDays(5));
+                })
+                ->update(['expire_at' => $now->copy()->addDays(14), 'expiration_warning_sent_at' => null]);
+        }
+
         // 1. Process all servers that have reached their expiration date and are not yet marked suspended
         $expiredServers = Server::query()
+            ->when(\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo'), fn ($q) => $q->where('is_demo', false))
             ->whereNotNull('expire_at')
             ->where('expire_at', '<=', $now)
             ->where(function ($q) {
@@ -96,6 +108,7 @@ class AutoSuspendServersCommand extends Command
         $threeDaysLater = $now->copy()->addDays(3);
 
         $expiringSoonServers = Server::query()
+            ->when(\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo'), fn ($q) => $q->where('is_demo', false))
             ->whereNotNull('expire_at')
             ->where('expire_at', '>', $now)
             ->where('expire_at', '<=', $threeDaysLater)

@@ -84,13 +84,16 @@ HAS_EXISTING_PLAYERS=false
 HAS_EXISTING_WORLDS=false
 [ -f "app/Http/Controllers/Api/Client/Servers/WorldManagerController.php" ] && HAS_EXISTING_WORLDS=true
 
+HAS_EXISTING_DEMO=false
+[ -f "app/Services/Demo/DemoPanelService.php" ] && HAS_EXISTING_DEMO=true
+
 # 4. Determine What to Install
 CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
   if [ -t 0 ]; then
     echo -e "\n${BOLD}Select an installation option:${NC}"
-    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options + Players + Worlds${NC} ${GREEN}(Recommended)${NC}"
+    echo -e "  ${CYAN}1)${NC} ${BOLD}All: Plugins + Mods + Modpacks + Software + Options + Players + Worlds + Demo Preview${NC} ${GREEN}(Recommended)${NC}"
     echo -e "  ${CYAN}2)${NC} Plugin Installer only (/plugins)"
     echo -e "  ${CYAN}3)${NC} Mods Installer only (/mods)"
     echo -e "  ${CYAN}4)${NC} Modpacks Installer only (/modpacks)"
@@ -98,8 +101,9 @@ if [ -z "$CHOICE" ]; then
     echo -e "  ${CYAN}6)${NC} Server Options & Properties only (/options)"
     echo -e "  ${CYAN}7)${NC} Player Manager only (/players)"
     echo -e "  ${CYAN}8)${NC} World Manager only (/worlds & /world)"
-    echo -e "  ${CYAN}9)${NC} Uninstall All"
-    read -r -p "Enter choice [1-9] (Default: 1): " USER_INPUT
+    echo -e "  ${CYAN}9)${NC} Demo Account & Dummy Server Preview (demo@gmail.com / demo)"
+    echo -e "  ${CYAN}10)${NC} Uninstall All"
+    read -r -p "Enter choice [1-10] (Default: 1): " USER_INPUT
     USER_INPUT="${USER_INPUT:-1}"
     case "$USER_INPUT" in
       1) CHOICE="all" ;;
@@ -110,7 +114,8 @@ if [ -z "$CHOICE" ]; then
       6) CHOICE="options" ;;
       7) CHOICE="players" ;;
       8) CHOICE="worlds" ;;
-      9) CHOICE="uninstall" ;;
+      9) CHOICE="demo" ;;
+      10) CHOICE="uninstall" ;;
       *) CHOICE="all" ;;
     esac
   else
@@ -119,6 +124,7 @@ if [ -z "$CHOICE" ]; then
   fi
 fi
 
+INSTALL_DEMO=false
 case "$CHOICE" in
   all|both)
     INSTALL_PLUGINS=true
@@ -128,7 +134,8 @@ case "$CHOICE" in
     INSTALL_OPTIONS=true
     INSTALL_PLAYERS=true
     INSTALL_WORLDS=true
-    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options + Players + Worlds)...${NC}"
+    INSTALL_DEMO=true
+    echo -e "${GREEN}[*] Selected mode: Installing ALL addons (Plugins + Mods + Modpacks + Software + Options + Players + Worlds + Demo Preview)...${NC}"
     ;;
   plugins|plugin)
     INSTALL_PLUGINS=true
@@ -137,6 +144,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
     INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Plugin Installer only...${NC}"
     ;;
   mods|mod)
@@ -146,6 +154,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
     INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Mods Installer only...${NC}"
     ;;
   modpacks|modpack)
@@ -155,6 +164,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=false
     INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Modpacks Installer only...${NC}"
     ;;
   software)
@@ -164,6 +174,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=true
     INSTALL_OPTIONS=false
     INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Software Installer only...${NC}"
     ;;
   options|option|properties)
@@ -173,6 +184,7 @@ case "$CHOICE" in
     INSTALL_SOFTWARE=false
     INSTALL_OPTIONS=true
     INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
     echo -e "${GREEN}[*] Selected mode: Installing Server Options & Properties only...${NC}"
     ;;
   players|player)
@@ -195,6 +207,17 @@ case "$CHOICE" in
     INSTALL_WORLDS=true
     echo -e "${GREEN}[*] Selected mode: Installing World Manager only...${NC}"
     ;;
+  demo|preview)
+    INSTALL_PLUGINS=false
+    INSTALL_MODS=false
+    INSTALL_MODPACKS=false
+    INSTALL_SOFTWARE=false
+    INSTALL_OPTIONS=false
+    INSTALL_PLAYERS=false
+    INSTALL_WORLDS=false
+    INSTALL_DEMO=true
+    echo -e "${GREEN}[*] Selected mode: Installing Demo Account & Dummy Server Preview...${NC}"
+    ;;
   uninstall)
     echo -e "${YELLOW}[*] Selected mode: Uninstalling addons...${NC}"
     bash <(curl -sH 'Cache-Control: no-cache' "https://raw.githubusercontent.com/ritikop123/Plugin_installer/main/uninstall-arix.sh?$(date +%s)")
@@ -208,6 +231,7 @@ case "$CHOICE" in
     INSTALL_OPTIONS=true
     INSTALL_PLAYERS=true
     INSTALL_WORLDS=true
+    INSTALL_DEMO=true
     echo -e "${GREEN}[*] Defaulting to: Installing ALL addons...${NC}"
     ;;
 esac
@@ -248,6 +272,11 @@ if [ "$INSTALL_WORLDS" = true ] || [ "$HAS_EXISTING_WORLDS" = true ]; then
   ENABLE_WORLDS=true
 fi
 
+ENABLE_DEMO=false
+if [ "$INSTALL_DEMO" = true ] || [ "$HAS_EXISTING_DEMO" = true ]; then
+  ENABLE_DEMO=true
+fi
+
 # 5. Create Safe Backup
 BACKUP_DIR="/var/backups/arix-addon-installer/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
@@ -262,6 +291,14 @@ cp "$ROUTES_PHP" "$BACKUP_DIR/api-client.php"
 [ -f "app/Console/Kernel.php" ] && cp "app/Console/Kernel.php" "$BACKUP_DIR/Kernel.php" || true
 [ -f "app/Models/Server.php" ] && cp "app/Models/Server.php" "$BACKUP_DIR/Server.php" || true
 [ -f "app/Services/Servers/ServerConfigurationStructureService.php" ] && cp "app/Services/Servers/ServerConfigurationStructureService.php" "$BACKUP_DIR/ServerConfigurationStructureService.php" || true
+[ -f "app/Http/Kernel.php" ] && cp "app/Http/Kernel.php" "$BACKUP_DIR/HttpKernel.php" || true
+[ -f "app/Models/User.php" ] && cp "app/Models/User.php" "$BACKUP_DIR/User.php" || true
+[ -f "app/Transformers/Api/Client/AccountTransformer.php" ] && cp "app/Transformers/Api/Client/AccountTransformer.php" "$BACKUP_DIR/AccountTransformer.php" || true
+[ -f "app/Transformers/Api/Client/ServerTransformer.php" ] && cp "app/Transformers/Api/Client/ServerTransformer.php" "$BACKUP_DIR/ClientServerTransformer.php" || true
+[ -f "resources/scripts/api/server/getServer.ts" ] && cp "resources/scripts/api/server/getServer.ts" "$BACKUP_DIR/getServer.ts" || true
+[ -f "resources/scripts/api/getServers.ts" ] && cp "resources/scripts/api/getServers.ts" "$BACKUP_DIR/getServers.ts" || true
+[ -f "resources/scripts/plugins/Websocket.ts" ] && cp "resources/scripts/plugins/Websocket.ts" "$BACKUP_DIR/Websocket.ts" || true
+[ -f "resources/scripts/components/App.tsx" ] && cp "resources/scripts/components/App.tsx" "$BACKUP_DIR/App.tsx" || true
 
 echo -e "${GREEN}[✓] Backup created at: ${BACKUP_DIR}${NC}"
 
@@ -283,7 +320,15 @@ rollback() {
   [ -f "$BACKUP_DIR/Kernel.php" ] && cp "$BACKUP_DIR/Kernel.php" "app/Console/Kernel.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/Server.php" ] && cp "$BACKUP_DIR/Server.php" "app/Models/Server.php" 2>/dev/null || true
   [ -f "$BACKUP_DIR/ServerConfigurationStructureService.php" ] && cp "$BACKUP_DIR/ServerConfigurationStructureService.php" "app/Services/Servers/ServerConfigurationStructureService.php" 2>/dev/null || true
-  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php /tmp/ptero_patch_auto_suspend.php
+  [ -f "$BACKUP_DIR/HttpKernel.php" ] && cp "$BACKUP_DIR/HttpKernel.php" "app/Http/Kernel.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/User.php" ] && cp "$BACKUP_DIR/User.php" "app/Models/User.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/AccountTransformer.php" ] && cp "$BACKUP_DIR/AccountTransformer.php" "app/Transformers/Api/Client/AccountTransformer.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/ClientServerTransformer.php" ] && cp "$BACKUP_DIR/ClientServerTransformer.php" "app/Transformers/Api/Client/ServerTransformer.php" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/getServer.ts" ] && cp "$BACKUP_DIR/getServer.ts" "resources/scripts/api/server/getServer.ts" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/getServers.ts" ] && cp "$BACKUP_DIR/getServers.ts" "resources/scripts/api/getServers.ts" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/Websocket.ts" ] && cp "$BACKUP_DIR/Websocket.ts" "resources/scripts/plugins/Websocket.ts" 2>/dev/null || true
+  [ -f "$BACKUP_DIR/App.tsx" ] && cp "$BACKUP_DIR/App.tsx" "resources/scripts/components/App.tsx" 2>/dev/null || true
+  rm -f /tmp/ptero_clean_api.php /tmp/ptero_reg_api.php /tmp/ptero_reg_routes.php /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_demo.php
   chmod -R 755 public 2>/dev/null || true
   chown -R www-data:www-data "$PTERO_DIR" 2>/dev/null || chown -R nginx:nginx "$PTERO_DIR" 2>/dev/null || true
   echo -e "${YELLOW}[!] Original files restored from ${BACKUP_DIR}.${NC}"
@@ -937,6 +982,43 @@ fetch_addon_file "patch-auto-backup.php" "/tmp/ptero_patch_auto_backup.php"
 php /tmp/ptero_patch_auto_backup.php
 rm -f /tmp/ptero_patch_auto_backup.php
 
+if [ "$ENABLE_DEMO" = true ]; then
+  echo -e "${CYAN}[*] Installing Demo Account & Isolated Dummy Server Preview system...${NC}"
+  mkdir -p "app/Services/Demo"
+  mkdir -p "app/Http/Middleware"
+  mkdir -p "app/Console/Commands"
+  mkdir -p "resources/scripts/components/elements"
+  mkdir -p "database/migrations"
+
+  fetch_addon_file "DemoPanelService.php" "app/Services/Demo/DemoPanelService.php"
+  fetch_addon_file "DemoModeMiddleware.php" "app/Http/Middleware/DemoModeMiddleware.php"
+  fetch_addon_file "DemoAccountSetupCommand.php" "app/Console/Commands/DemoAccountSetupCommand.php"
+  fetch_addon_file "DemoBanner.tsx" "resources/scripts/components/elements/DemoBanner.tsx"
+  fetch_addon_file "migrations/2026_11_17_000000_add_demo_flags_to_users_and_servers.php" "database/migrations/2026_11_17_000000_add_demo_flags_to_users_and_servers.php"
+
+  echo -e "${CYAN}[*] Running Demo Mode migration...${NC}"
+  php artisan migrate --force
+
+  echo -e "${CYAN}[*] Applying Demo Mode security & simulator patches...${NC}"
+  rm -f "/tmp/ptero_patch_demo.php"
+  fetch_addon_file "patch-demo-mode.php" "/tmp/ptero_patch_demo.php"
+  php /tmp/ptero_patch_demo.php
+  rm -f /tmp/ptero_patch_demo.php
+
+  echo -e "${CYAN}[*] Provisioning Demo Account (${DEMO_ACCOUNT_EMAIL:-demo@gmail.com} / ${DEMO_ACCOUNT_PASSWORD:-demo}) & Dummy Server...${NC}"
+  DEMO_CMD_ARGS=()
+  [ -n "${DEMO_ACCOUNT_EMAIL:-}" ] && DEMO_CMD_ARGS+=("--email=${DEMO_ACCOUNT_EMAIL}")
+  [ -n "${DEMO_ACCOUNT_PASSWORD:-}" ] && DEMO_CMD_ARGS+=("--password=${DEMO_ACCOUNT_PASSWORD}")
+  for arg in "$@"; do
+    case "$arg" in
+      --email=*|--password=*|--username=*|--name=*|--reset)
+        DEMO_CMD_ARGS+=("$arg")
+        ;;
+    esac
+  done
+  php artisan ptero:demo-setup "${DEMO_CMD_ARGS[@]}"
+fi
+
 # 13. Rebuild Frontend Assets
 echo -e "${CYAN}[*] Building production frontend assets (yarn build:production)...${NC}"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
@@ -1060,6 +1142,12 @@ echo -e "  Color-coded: ${YELLOW}Yellow${NC} when ≤ 3 days, ${RED}Red${NC} whe
 echo -e "• ${CYAN}Admin Sales & Revenue Overview${NC}: Live card showing Total Sales, 7-day & 30-day sales, and Best Selling Plans."
 echo -e "• ${CYAN}Real CPU + Burst CPU Governor${NC}: Active via scheduled command (${BOLD}ptero:cpu-burst${NC})"
 echo -e "  Admin Server Creation & Build pages now feature ${CYAN}Real CPU Limit${NC} and ${CYAN}Burst CPU Limit${NC}."
+
+if [ "$ENABLE_DEMO" = true ]; then
+  echo -e "• ${CYAN}Demo Preview Account${NC}: Email=${BOLD}${DEMO_ACCOUNT_EMAIL:-demo@gmail.com}${NC}, Password=${BOLD}${DEMO_ACCOUNT_PASSWORD:-demo}${NC}"
+  echo -e "  Opens an isolated dummy server (cannot be started), allows full feature preview & logout, and locks name/email/password/2FA."
+  echo -e "  Manage anytime with: ${CYAN}php artisan ptero:demo-setup [--reset|--remove]${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}================================================================${NC}"

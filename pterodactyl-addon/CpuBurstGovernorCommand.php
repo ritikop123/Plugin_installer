@@ -86,6 +86,7 @@ class CpuBurstGovernorCommand extends Command
     {
         $servers = Server::query()
             ->with('node')
+            ->when(\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo'), fn ($q) => $q->where('is_demo', false))
             ->where('cpu', '>', 0)
             ->where('burst_cpu', '>', 0)
             ->whereColumn('burst_cpu', '>', 'cpu')

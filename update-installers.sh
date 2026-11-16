@@ -370,6 +370,21 @@ php /tmp/ptero_patch_ai.php || true
 php /tmp/ptero_patch_auto_backup.php || true
 rm -f /tmp/ptero_patch_auto_suspend.php /tmp/ptero_patch_support_id.php /tmp/ptero_patch_dashboard_card.php /tmp/ptero_patch_ai.php /tmp/ptero_patch_auto_backup.php
 
+if [ -f "app/Services/Demo/DemoPanelService.php" ]; then
+  echo -e "\033[0;32m[+] Updating Demo Mode account & dummy server preview...\033[0m"
+  mkdir -p app/Services/Demo app/Http/Middleware app/Console/Commands resources/scripts/components/elements database/migrations
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/DemoPanelService.php?t=${CACHE_BUST}" -o app/Services/Demo/DemoPanelService.php
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/DemoModeMiddleware.php?t=${CACHE_BUST}" -o app/Http/Middleware/DemoModeMiddleware.php
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/DemoAccountSetupCommand.php?t=${CACHE_BUST}" -o app/Console/Commands/DemoAccountSetupCommand.php
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/DemoBanner.tsx?t=${CACHE_BUST}" -o resources/scripts/components/elements/DemoBanner.tsx
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/migrations/2026_11_17_000000_add_demo_flags_to_users_and_servers.php?t=${CACHE_BUST}" -o database/migrations/2026_11_17_000000_add_demo_flags_to_users_and_servers.php
+  php artisan migrate --force 2>/dev/null || true
+  curl -fsSL -H 'Cache-Control: no-cache' "${BASE_URL}/patch-demo-mode.php?t=${CACHE_BUST}" -o /tmp/ptero_patch_demo_mode.php
+  php /tmp/ptero_patch_demo_mode.php || true
+  rm -f /tmp/ptero_patch_demo_mode.php
+  php artisan ptero:demo-setup || true
+fi
+
 echo -e "\033[0;32m[+] 6/9 Setting up Auto-Suspend, CPU Burst Governor & Artisan Cron Job...\033[0m"
 touch /var/log/pterodactyl-auto-suspend.log
 chown www-data:www-data /var/log/pterodactyl-auto-suspend.log 2>/dev/null || true

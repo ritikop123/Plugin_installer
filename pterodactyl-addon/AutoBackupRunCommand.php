@@ -29,8 +29,12 @@ class AutoBackupRunCommand extends Command
 
         $this->info("[AutoBackup] Checking daily automated backup schedules at {$currentTime} {$now->timezoneName}...");
 
-        // Query active servers
-        $servers = Server::query()->where('installed', 1)->where('suspended', 0)->get();
+        // Query active servers (exclude isolated demo preview servers)
+        $servers = Server::query()
+            ->when(\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo'), fn ($q) => $q->where('is_demo', false))
+            ->where('installed', 1)
+            ->where('suspended', 0)
+            ->get();
 
         $processedCount = 0;
 

@@ -559,7 +559,9 @@ if (file_exists($adminIndexBlade)) {
 <!-- >>> ARIX ADMIN SALES ANALYTICS START >>> -->
 @php
     try {
-        $allServers = \Pterodactyl\Models\Server::query()->get();
+        $allServers = \Pterodactyl\Models\Server::query()
+            ->when(\Illuminate\Support\Facades\Schema::hasColumn('servers', 'is_demo'), fn ($q) => $q->where('is_demo', false))
+            ->get();
         $activeServers = $allServers->filter(function ($s) {
             return ($s->status ?? '') !== 'suspended';
         });
