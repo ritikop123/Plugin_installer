@@ -1005,6 +1005,18 @@ if [ "$ENABLE_DEMO" = true ]; then
   php /tmp/ptero_patch_demo.php
   rm -f /tmp/ptero_patch_demo.php
 
+  for demo_php in \
+    "app/Services/Demo/DemoPanelService.php" \
+    "app/Http/Middleware/DemoModeMiddleware.php" \
+    "app/Console/Commands/DemoAccountSetupCommand.php" \
+    "app/Http/Kernel.php" \
+    "app/Models/User.php" \
+    "app/Models/Server.php" \
+    "app/Transformers/Api/Client/AccountTransformer.php" \
+    "app/Transformers/Api/Client/ServerTransformer.php"; do
+    [ -f "$demo_php" ] && php -l "$demo_php" >/dev/null
+  done
+
   echo -e "${CYAN}[*] Provisioning Demo Account (${DEMO_ACCOUNT_EMAIL:-demo@gmail.com} / ${DEMO_ACCOUNT_PASSWORD:-demo}) & Dummy Server...${NC}"
   DEMO_CMD_ARGS=()
   [ -n "${DEMO_ACCOUNT_EMAIL:-}" ] && DEMO_CMD_ARGS+=("--email=${DEMO_ACCOUNT_EMAIL}")

@@ -83,7 +83,7 @@ GUARD;
             1
         );
     } elseif (preg_match('/(class\s+User\s+extends\s+[^{]+\{)/s', $c)) {
-        $bootMethod = "\n    /* >>> ARIX DEMO MODE START >>> */\n    protected static function booted(): void\n    {\n        parent::booted();\n"
+        $bootMethod = "\n    /* >>> ARIX DEMO MODE START >>> */\n    protected static function booted()\n    {\n        parent::booted();\n"
             . $guardCode
             . "\n    }\n    /* <<< ARIX DEMO MODE END <<< */";
         $c = preg_replace('/(class\s+User\s+extends\s+[^{]+\{)/s', "$1" . $bootMethod, $c, 1);

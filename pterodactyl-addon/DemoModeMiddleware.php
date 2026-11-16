@@ -163,7 +163,7 @@ class DemoModeMiddleware
         return $next($request);
     }
 
-    private function serveDemoFileContents(Server $server, string $file): Response|mixed
+    private function serveDemoFileContents(Server $server, string $file): mixed
     {
         $content = $this->demo->getFileContents($server, $file);
         if ($content === null) {
